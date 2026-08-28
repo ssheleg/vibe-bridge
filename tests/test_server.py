@@ -10,10 +10,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from macbridge.audit import AuditLog  # noqa: E402
-from macbridge.capabilities import Capability, CapabilityError, Runner  # noqa: E402
-from macbridge.consent import ConsentEngine, Decision, ToolClass  # noqa: E402
-from macbridge.server import build_server, dispatch  # noqa: E402
+from macbridge.audit import AuditLog
+from macbridge.capabilities import Capability, CapabilityError, Runner
+from macbridge.consent import ConsentEngine, Decision, ToolClass
+from macbridge.server import build_server, dispatch
 
 
 class FakeRunner(Runner):

@@ -11,12 +11,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from macbridge.capabilities import (  # noqa: E402
+from macbridge.capabilities import (
     CapabilityError,
-    build_capabilities,
     Runner,
+    build_capabilities,
 )
-from macbridge.consent import ToolClass  # noqa: E402
+from macbridge.consent import ToolClass
 
 
 class FakeRunner(Runner):

@@ -11,7 +11,7 @@ import json
 import os
 import threading
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -29,7 +29,7 @@ class AuditLog:
     def record(self, *, tool: str, tool_class: str, decision: str,
                ok: bool, detail: str = "") -> dict:
         entry = {
-            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "ts": datetime.now(UTC).isoformat(timespec="seconds"),
             "tool": tool,
             "class": tool_class,
             "decision": decision,

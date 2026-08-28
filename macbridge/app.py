@@ -13,8 +13,8 @@ from __future__ import annotations
 import threading
 
 from .audit import AuditLog
-from .consent import ConsentEngine, Decision, ToolClass
-from .server import BRIDGE_HOST, BRIDGE_PORT, build_server
+from .consent import ConsentEngine, Decision
+from .server import build_server
 
 
 def run() -> None:  # pragma: no cover - requires a Mac GUI session

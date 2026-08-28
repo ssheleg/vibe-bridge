@@ -18,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .audit import AuditLog
 from .capabilities import Capability, CapabilityError, Runner, build_capabilities
-from .consent import ConsentEngine, Decision, allowed, refusal_text
+from .consent import ConsentEngine, allowed, refusal_text
 
 log = logging.getLogger("mac-bridge.server")
 
@@ -61,7 +61,7 @@ def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
         audit.record(tool=cap.name, tool_class=cap.tool_class.value,
                      decision=decision.value, ok=False, detail=str(exc))
         return {"ok": False, "error": str(exc)}
-    except Exception as exc:  # noqa: BLE001 - never leak a traceback to the wire
+    except Exception as exc:
         log.exception("tool %s crashed", cap.name)
         audit.record(tool=cap.name, tool_class=cap.tool_class.value,
                      decision=decision.value, ok=False, detail=repr(exc))

@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from .consent import ToolClass
 
@@ -35,7 +35,7 @@ class Capability:
     name: str
     tool_class: ToolClass
     summary_template: str          # .format(**args) → human consent line
-    handler: Callable[["Runner", dict], str]
+    handler: Callable[[Runner, dict], str]
     input_schema: dict
 
     def summary(self, args: dict) -> str:
