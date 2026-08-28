@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LaunchAgent: mac-bridge in the user's GUI session (Aqua), so TCC-granted
+     capabilities (screen, Accessibility) resolve to THIS app, and the menu
+     bar has a session to draw in. Install: cp to ~/Library/LaunchAgents/ and
+     `launchctl load`. Replace __APP__ with the built .app exec path. -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>me.sshlg.mac-bridge</string>
+  <key>ProgramArguments</key><array><string>__APP__</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>StandardErrorPath</key><string>/tmp/mac-bridge.err</string>
+  <key>StandardOutPath</key><string>/tmp/mac-bridge.out</string>
+</dict></plist>

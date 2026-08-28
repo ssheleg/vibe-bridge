@@ -1,0 +1,24 @@
+[project]
+name = "mac-bridge"
+version = "0.1.0"
+description = "Menu-bar MCP bridge: robot-vibecoder ↔ this Mac, with human consent gating"
+requires-python = ">=3.12"
+dependencies = [
+    # Wire parity with the robot: Hermes 0.19 ships mcp==1.26.0 as its MCP
+    # client (its authors' own pin). Speaking the same SDK generation on the
+    # server side removes a whole class of protocol-revision surprises —
+    # 2026-08-28 the robot lost first HTTP transport, then the call path, to
+    # exactly such a mismatch. Bump TOGETHER with the robot's HERMES_VERSION.
+    "mcp==1.26.0",
+    "rumps>=0.4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
