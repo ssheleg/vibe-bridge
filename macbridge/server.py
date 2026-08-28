@@ -35,7 +35,20 @@ def build_server(
 ) -> FastMCP:
     runner = runner or Runner()
     caps = capabilities or build_capabilities()
-    mcp = FastMCP("mac-bridge", host=BRIDGE_HOST, port=BRIDGE_PORT)
+    # DNS-rebinding protection validates the Host header; the agentgateway
+    # proxies the robot's request verbatim, so the Host arrives as the
+    # gateway's own tailnet address (e.g. 100.x:4000), not our loopback —
+    # which the default allowlist rejects with 421 Misdirected Request
+    # (measured 2026-08-28). The real security boundary is elsewhere: only
+    # the gateway on this Mac can reach loopback :48620, and consent gates
+    # every ACT. So we disable Host validation here rather than pin a
+    # tailnet IP that changes — reachability is already limited to loopback.
+    from mcp.server.transport_security import TransportSecuritySettings
+    mcp = FastMCP(
+        "mac-bridge", host=BRIDGE_HOST, port=BRIDGE_PORT,
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=False),
+    )
 
     for cap in caps.values():
         _register(mcp, cap, consent=consent, audit=audit, runner=runner)

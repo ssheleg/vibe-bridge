@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- LaunchAgent: mac-bridge in the user's GUI session (Aqua), so TCC-granted
-     capabilities (screen, Accessibility) resolve to THIS app, and the menu
-     bar has a session to draw in. Install: cp to ~/Library/LaunchAgents/ and
-     `launchctl load`. Replace __APP__ with the built .app exec path. -->
+<!-- LaunchAgent: mac-bridge menu-bar app in the user's Aqua GUI session.
+     Menu bar + consent dialogs work here; TCC-gated screen reads need the
+     signed .app (scripts/build_app.sh, a follow-up). Install:
+       cp launchd/*.plist ~/Library/LaunchAgents/ && launchctl load it -->
 <plist version="1.0"><dict>
   <key>Label</key><string>me.sshlg.mac-bridge</string>
-  <key>ProgramArguments</key><array><string>__APP__</string></array>
+  <key>ProgramArguments</key><array><string>/Users/sshlg/DATA/mac-bridge/scripts/run.sh</string></array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>LimitLoadToSessionType</key><string>Aqua</string>
