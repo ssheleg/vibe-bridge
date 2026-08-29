@@ -61,9 +61,11 @@ def test_server_registers_neutral_and_alias_tools(tmp_path):
 
 def test_allowed_hosts_gateway_mode_covers_loopback_and_tailnet():
     st = BridgeState(path=Path("/dev/null"), panel_token="x")
-    hosts = allowed_hosts(st, tailnet_ips=["100.64.0.7"])
+    hosts = allowed_hosts(st, tailnet_ips=["100.64.0.7"],
+                          dns_name="mac.tn.ts.net")
     assert "127.0.0.1:*" in hosts and "localhost:*" in hosts
     assert "100.64.0.7:*" in hosts          # the gateway's verbatim Host
+    assert "mac.tn.ts.net:*" in hosts       # tailscale-serve clients
 
 
 def test_mcp_rejects_foreign_host_and_accepts_allowed(tmp_path):

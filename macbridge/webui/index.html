@@ -340,7 +340,10 @@ async function loadPhone(){
     const p = await (await fetch("/api/phone")).json();
     let rows = "";
     if (p.https_url){
-      rows += `<div class="kv"><span class="k">Адрес для телефона</span><span class="v">${esc(p.https_url)}</span></div>`;
+      rows += `<div class="kv"><span class="k">Адрес для телефона</span><span class="v">${esc(p.https_url)}</span></div>`+
+        `<p style="margin:8px 0 4px">Откройте эту ссылку на телефоне (перешлите себе — AirDrop/Заметки); она сразу выполнит вход:</p>`+
+        `<p class="v mono" style="user-select:all;word-break:break-all">${esc(p.phone_link)}</p>`+
+        `<button class="btn ghost" style="margin-top:6px" onclick="navigator.clipboard.writeText(${JSON.stringify(p.phone_link)}).then(()=>this.textContent='Скопировано ✓')">Скопировать ссылку</button>`;
     } else if (p.dns_name){
       rows += `<p style="margin-bottom:8px">Панель ещё не опубликована в tailnet по HTTPS. Один раз выполните на этом компьютере:</p>`+
         `<p class="v mono" style="user-select:all">${esc(p.setup_command)}</p>`+

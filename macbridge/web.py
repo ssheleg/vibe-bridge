@@ -307,10 +307,16 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         dns = await asyncio.to_thread(tailnet_dns_name)
         active = (await asyncio.to_thread(serve_active, BRIDGE_PORT)
                   if dns else False)
+        https_url = f"https://{dns}/" if dns and active else None
         return JSONResponse({
             "dns_name": dns,
             "serve_active": active,
-            "https_url": f"https://{dns}/" if dns and active else None,
+            "https_url": https_url,
+            # The tokened link IS the phone onboarding: the owner sends it
+            # to their own phone (AirDrop/Notes). Served only behind panel
+            # auth — whoever sees this already holds the token.
+            "phone_link": (f"{https_url}?token={state.panel_token}"
+                           if https_url else None),
             "setup_command": f"tailscale serve --bg {BRIDGE_PORT}",
             "subscriptions": len(state.push_subscriptions),
         })

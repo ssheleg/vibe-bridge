@@ -35,12 +35,18 @@ def tailscale_ips() -> list[str]:
 
 
 def allowed_hosts(state: BridgeState,
-                  tailnet_ips: list[str] | None = None) -> list[str]:
-    """Host-header allowlist for the MCP transport, any port (`host:*`)."""
+                  tailnet_ips: list[str] | None = None,
+                  dns_name: str | None = None) -> list[str]:
+    """Host-header allowlist for the MCP transport, any port (`host:*`).
+    Includes the MagicDNS name so a tailnet-HTTPS client (`tailscale
+    serve`) reaching /mcp is not 421'd for its Host."""
     ips = tailscale_ips() if tailnet_ips is None else tailnet_ips
     hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
     for ip in ips:
         hosts.append(f"[{ip}]:*" if ":" in ip else f"{ip}:*")
+    name = tailnet_dns_name() if dns_name is None else dns_name
+    if name:
+        hosts += [name, f"{name}:*"]
     return hosts
 
 
