@@ -35,7 +35,21 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
     audit = AuditLog()
     state = BridgeState.load()
 
-    web_app = build_app(consent=consent, audit=audit, state=state)
+    def _notify(title: str, text: str) -> None:
+        # osascript from any thread; the signed-bundle path switches to
+        # UNUserNotificationCenter in M-PLATFORM (research-notes §D).
+        import subprocess
+        t = str(text).replace('"', "'")[:180]
+        h = str(title).replace('"', "'")[:60]
+        try:
+            subprocess.run(["osascript", "-e",
+                            f'display notification "{t}" with title "{h}"'],
+                           capture_output=True, timeout=5)
+        except Exception:
+            pass                       # a lost toast must not hurt the bridge
+
+    web_app = build_app(consent=consent, audit=audit, state=state,
+                        notify=_notify)
     if state.mode == "standalone":
         from .net import standalone_bind_host
         bind_host = standalone_bind_host()

@@ -72,7 +72,7 @@ td.mono{font-family:var(--font-data);font-size:12px}
   <span class="name"><span class="dot ok" id="statedot"></span>vibe-bridge</span>
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-view="dash">Дашборд</button>
-    <button class="tab" role="tab" disabled title="Появится после подключения канала к роботу (модуль M-SOUTH)">Чат</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="chat" id="chatTab" disabled title="Чат станет доступен, когда робот подключён к панели">Чат</button>
     <button class="tab" role="tab" aria-selected="false" data-view="journal">Журнал</button>
     <button class="tab" role="tab" aria-selected="false" data-view="settings">Настройки</button>
   </nav>
@@ -105,13 +105,26 @@ td.mono{font-family:var(--font-data);font-size:12px}
       </div>
       <div class="card">
         <div class="cap">Робот</div>
-        <p class="empty">Канал к роботу ещё не подключён к панели — статус, чат и обновление появятся с модулем M-SOUTH. Робот уже может действовать на этом компьютере через мост.</p>
+        <div id="robotCard"><p class="empty">…</p></div>
       </div>
     </div>
     <div class="card" style="margin-top:16px;padding:8px 16px">
       <div class="cap" style="padding-top:8px">Последние события</div>
       <div id="feed"><div class="empty">— робот ещё ничего не просил —</div></div>
     </div>
+  </div>
+</section>
+
+<!-- Чат -->
+<section class="view" id="view-chat">
+  <div class="card">
+    <div class="cap">Чат с роботом</div>
+    <div id="chatFeed"><div class="empty">Скажите роботу привет — контекст разговора живёт у мозга робота, не на панели.</div></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input id="chatInput" style="flex:1;font:13px var(--font-ui);color:var(--ink);background:var(--panel);border:1px solid var(--border-strong);border-radius:var(--r-control);padding:8px 10px" placeholder="Сообщение роботу…">
+      <button class="btn primary" id="chatSend" onclick="sendChat()">Отправить</button>
+    </div>
+    <p class="note" id="chatNote" style="margin-top:6px"></p>
   </div>
 </section>
 
@@ -182,9 +195,86 @@ function render(s){
     document.getElementById("consentLine").textContent = "Робот хочет: " + s.pending.summary + extra;
   }
   const feed = document.getElementById("feed");
-  if (s.recent && s.recent.length)
-    feed.innerHTML = s.recent.slice().reverse().map(rowHtml).join("");
+  const evRows = (s.robot_events||[]).map(e =>
+    `<div class="row"><span class="dot info"></span><span>${esc(e.text||e.kind)}</span>`+
+    `<span class="t">${esc((e.ts||"").slice(0,19).replace("T"," "))}</span></div>`);
+  const auditRows = (s.recent||[]).slice().reverse().map(rowHtml);
+  const rows = evRows.concat(auditRows);
+  if (rows.length) feed.innerHTML = rows.join("");
+  renderRobot(s.robot || {});
 }
+function renderRobot(r){
+  const el = document.getElementById("robotCard");
+  const tab = document.getElementById("chatTab");
+  if (!r.configured){
+    tab.disabled = true;
+    el.innerHTML = '<p class="empty">Робот не подключён к панели. Подключение (пейринг) появится с визардом; робот уже может действовать на этом компьютере через мост.</p>';
+    return;
+  }
+  tab.disabled = false;   /* chat needs only "configured" — offline is honest per-message */
+  tab.title = r.online ? "" : "Робот недоступен — чат отправит с пометкой";
+  if (!r.online){
+    const since = r.offline_since ? new Date(r.offline_since*1000).toLocaleTimeString().slice(0,5) : "";
+    el.innerHTML = `<p><span class="chip"><span class="dot mut"></span>недоступен${since?" с "+since:""}</span></p>`+
+      `<p class="note" style="margin-top:8px">${esc(r.reason||"")}. Проверьте питание робота, его Wi-Fi и связь (Tailscale).</p>`;
+    return;
+  }
+  el.innerHTML =
+    `<div class="kv"><span class="k">Статус</span><span class="v"><span class="chip okc"><span class="dot ok"></span>в сети</span></span></div>`+
+    (r.version?`<div class="kv"><span class="k">Версия</span><span class="v">${esc(r.version)}${r.build?" · build "+esc(r.build):""}</span></div>`:"")+
+    (r.orchestrator?`<div class="kv"><span class="k">Мозг</span><span class="v">${esc(r.orchestrator)}</span></div>`:"")+
+    (r.uptime_s?`<div class="kv"><span class="k">Аптайм</span><span class="v">${Math.floor(r.uptime_s/3600)} ч</span></div>`:"")+
+    `<div style="margin-top:12px"><button class="btn ghost" id="updBtn" onclick="updateRobot(this)">Обновить робота</button></div>`;
+}
+async function updateRobot(btn){
+  if (btn.dataset.armed !== "1"){
+    btn.dataset.armed = "1"; btn.textContent = "Точно обновить?";
+    setTimeout(()=>{btn.dataset.armed=""; btn.textContent="Обновить робота";}, 4000);
+    return;
+  }
+  btn.disabled = true; btn.textContent = "Обновляется…";
+  const r = await (await fetch("/api/robot/update", {method:"POST"})).json();
+  btn.textContent = r.ok ? "Запущено — робот может замолчать на минуты" :
+    ("Не вышло: " + (r.error||""));
+  setTimeout(()=>{btn.disabled=false; btn.dataset.armed=""; btn.textContent="Обновить робота";}, 8000);
+}
+let chatBusy = false;
+function chatRow(who, text, cls){
+  return `<div class="row"><span class="dot ${cls||"mut"}"></span>`+
+    `<span><b>${who}:</b> ${esc(text)}</span></div>`;
+}
+async function sendChat(){
+  if (chatBusy) return;
+  const inp = document.getElementById("chatInput");
+  const text = inp.value.trim(); if (!text) return;
+  const feed = document.getElementById("chatFeed");
+  if (feed.querySelector(".empty")) feed.innerHTML = "";
+  feed.insertAdjacentHTML("beforeend", chatRow("Вы", text, "info"));
+  chatBusy = true;
+  document.getElementById("chatNote").textContent = "Робот думает…";
+  document.getElementById("chatSend").disabled = true;
+  try{
+    const r = await (await fetch("/api/robot/chat", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})})).json();
+    if (r.ok){
+      feed.insertAdjacentHTML("beforeend", chatRow("Робот", r.reply, "ok"));
+      inp.value = "";
+      document.getElementById("chatNote").textContent = "";
+    } else {
+      feed.insertAdjacentHTML("beforeend",
+        chatRow("—", (r.undelivered?"не доставлено: ":"")+(r.error||""), "danger"));
+      document.getElementById("chatNote").textContent = "Текст сохранён в поле — можно повторить.";
+    }
+  } catch(e){
+    document.getElementById("chatNote").textContent = "Нет связи с мостом.";
+  } finally {
+    chatBusy = false; document.getElementById("chatSend").disabled = false;
+    feed.scrollTop = feed.scrollHeight;
+  }
+}
+document.addEventListener("keydown", e=>{
+  if (e.target.id==="chatInput" && e.key==="Enter") sendChat();
+});
 async function decide(decision){
   await fetch("/api/consent/decide", {method:"POST",
     headers:{"Content-Type":"application/json"},

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ from .capabilities import (
     probe_availability,
 )
 from .consent import ConsentEngine, Decision, ToolClass
+from .robot import RobotClient
 from .server import build_server
 from .state import BridgeState
 
@@ -123,8 +125,22 @@ class EventBus:
 def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               runner: Runner | None = None,
               capabilities: dict[str, Capability] | None = None,
-              mcp_allowed_hosts: list[str] | None = None) -> Starlette:
+              mcp_allowed_hosts: list[str] | None = None,
+              robot: RobotClient | None = None,
+              notify=None) -> Starlette:
     from .net import allowed_hosts as _net_allowed_hosts
+
+    if robot is None:
+        robot = RobotClient(base_url=state.robot_base_url,
+                            chat_url=state.robot_chat_url,
+                            chat_key=state.robot_chat_key,
+                            name=state.robot_name or "робот")
+    notify = notify or (lambda title, text: None)
+    robot_state: dict = {"configured": robot.configured, "online": False,
+                         "reason": "робот не подключён к панели"
+                         if not robot.configured else "ещё не проверял"}
+    robot_events: deque[dict] = deque(maxlen=50)
+    missed_while_paused = {"n": 0}
 
     caps = capabilities or build_capabilities()
     availability = probe_availability(caps)
@@ -133,6 +149,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     mcp = build_server(consent=consent, audit=audit, runner=runner,
                        capabilities=caps, availability=availability,
                        allowed_hosts=mcp_allowed_hosts)
+
+    def _full_snapshot() -> dict[str, Any]:
+        snap = _snapshot(consent, audit)
+        snap["robot"] = dict(robot_state)
+        snap["robot_events"] = list(robot_events)[-10:]
+        return snap
     # The transport keeps its own /mcp path and the inner app mounts at the
     # ROOT, after every panel route. Mounting at "/mcp" instead produces a
     # 307 → /mcp/ whose Location is built from the Host header — for the
@@ -140,7 +162,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     # THE GATEWAY ITSELF and the robot's call never lands (measured
     # 2026-08-29). The wire contract is "/mcp exactly, no redirect" (M4).
     mcp.settings.streamable_http_path = "/mcp"
-    bus = EventBus(lambda: _snapshot(consent, audit))
+    bus = EventBus(_full_snapshot)
 
     def _authed(request: Request) -> bool:
         return request.cookies.get(PANEL_COOKIE) == state.panel_token
@@ -161,7 +183,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     async def api_state(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return JSONResponse(_snapshot(consent, audit))
+        return JSONResponse(_full_snapshot())
 
     async def consent_decide(request: Request) -> Response:
         if not _authed(request):
@@ -202,6 +224,28 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             for name, info in availability.items()
         })
 
+    async def api_robot_status(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        st = await robot.status()
+        robot_state.clear()
+        robot_state.update(st)
+        return JSONResponse(st)
+
+    async def api_robot_chat(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await request.json()
+        text = str(body.get("text", "")).strip()
+        if not text:
+            return JSONResponse({"error": "empty"}, status_code=400)
+        return JSONResponse(await robot.chat(text))
+
+    async def api_robot_update(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse(await robot.trigger_update())
+
     async def api_journal(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -233,16 +277,52 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache"})
 
+    async def _robot_poller() -> None:
+        """Refresh the cached robot status; announce the pause-summary on
+        the paused→active transition (SCN-010 alt)."""
+        was_paused = consent.paused
+        while True:
+            if robot.configured:
+                st = await robot.status()
+                robot_state.clear()
+                robot_state.update(st)
+            if was_paused and not consent.paused and missed_while_paused["n"]:
+                notify("vibe-bridge",
+                       f"За время паузы: {missed_while_paused['n']} событий "
+                       f"робота — они в ленте")
+                missed_while_paused["n"] = 0
+            was_paused = consent.paused
+            await asyncio.sleep(10.0)
+
+    async def _robot_event_consumer() -> None:
+        """Consume the robot's proactive events; OS-notify unless paused
+        (paused events collect silently — SCN-010). Reconnects calmly."""
+        while True:
+            if not robot.configured:
+                await asyncio.sleep(30.0)
+                continue
+            async for ev in robot.events():
+                ev = {"ts": ev.get("ts"), "kind": ev.get("kind", "event"),
+                      "text": str(ev.get("text", ""))[:200]}
+                robot_events.append(ev)
+                if consent.paused:
+                    missed_while_paused["n"] += 1
+                else:
+                    notify(robot.name, ev["text"] or ev["kind"])
+            await asyncio.sleep(10.0)          # stream ended — quiet retry
+
     @contextlib.asynccontextmanager
     async def lifespan(app):
         async with mcp.session_manager.run():
-            pump = asyncio.create_task(bus.pump())
+            tasks = [asyncio.create_task(bus.pump()),
+                     asyncio.create_task(_robot_poller()),
+                     asyncio.create_task(_robot_event_consumer())]
             try:
                 yield
             finally:
-                pump.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await pump
+                for t in tasks:
+                    t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     return Starlette(
         routes=[
@@ -253,6 +333,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/grants/revoke", api_revoke_grants, methods=["POST"]),
             Route("/api/capabilities", api_capabilities),
             Route("/api/journal", api_journal),
+            Route("/api/robot/status", api_robot_status),
+            Route("/api/robot/chat", api_robot_chat, methods=["POST"]),
+            Route("/api/robot/update", api_robot_update, methods=["POST"]),
             Route("/events", events),
             Mount("/", app=BearerGuard(mcp.streamable_http_app(), state)),
         ],

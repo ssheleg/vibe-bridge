@@ -164,7 +164,7 @@ P-03 член семьи).
 - **States covered:** error, success
 - **Errors & recovery:** сценарий сам описывает деградацию; recovery автоматический при возврате робота
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** macbridge/robot.py:60 (status, offline_since sticky), macbridge/webui/index.html:1 (карточка «недоступен с»); live — после M-ROBOT
 
 ### SCN-008: Чат с роботом — happy
 - **Persona:** P-01
@@ -182,7 +182,7 @@ P-03 член семьи).
 - **States covered:** loading, success
 - **Errors & recovery:** ответ не пришёл за таймаут-контракт мозга (150 с) → «Робот думает дольше обычного — ответ придёт событием либо попробуйте ещё раз»; ввод сохранён
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** macbridge/robot.py:84 (chat, 150s+retry-once), macbridge/web.py:1 (/api/robot/chat), webui чат-вкладка; live — после M-ROBOT
 
 ### SCN-009: Чат — мозг молчит или робот пропал
 - **Persona:** P-01
@@ -199,7 +199,7 @@ P-03 член семьи).
 - **States covered:** error
 - **Errors & recovery:** сам сценарий — обработка ошибки
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** macbridge/robot.py:84 (undelivered/slow ветки), webui «не доставлено»+повтор
 
 ### SCN-010: Событие робота → уведомление ОС
 - **Persona:** P-01
@@ -217,7 +217,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** уведомления запрещены на уровне ОС → лента остаётся полным источником; настройки панели показывают «уведомления выключены в системе» со ссылкой на системные настройки
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** частично: macbridge/web.py:1 (event-consumer, пауза-сводка), macbridge/robot.py:131 (events SSE); источник событий — M-ROBOT
 
 ### SCN-011: Журнал действий и фильтр отказов
 - **Persona:** P-01
@@ -253,7 +253,7 @@ P-03 член семьи).
 - **States covered:** loading, success, error
 - **Errors & recovery:** робот не вернулся за разумное время → «робот не вышел на связь после обновления HH:MM; его собственный откат-механизм вернёт прошлую версию — что проверить: …» (авто-rollback — контракт робота R1.51); отказ триггера → причина + retry
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** macbridge/robot.py:117 (trigger_update), webui двухшаговая кнопка+прогресс; live — после M-ROBOT
 
 ## onboarding
 

@@ -33,6 +33,12 @@ class BridgeState:
     panel_token: str
     robot_token: str | None = None
     mode: str = "gateway"          # gateway (loopback, no MCP auth) | standalone
+    # South side (spec §6): where THIS bridge finds its robot. None until
+    # pairing (M-WIZARD) or the owner fills them in.
+    robot_base_url: str | None = None    # bridge-API робота
+    robot_chat_url: str | None = None    # Hermes gateway (OpenAI-совм.)
+    robot_chat_key: str | None = None    # API_SERVER_KEY
+    robot_name: str | None = None
 
     @classmethod
     def load(cls, path: Path | None = None) -> BridgeState:
@@ -42,7 +48,11 @@ class BridgeState:
             return cls(path=path,
                        panel_token=data["panel_token"],
                        robot_token=data.get("robot_token"),
-                       mode=data.get("mode", "gateway"))
+                       mode=data.get("mode", "gateway"),
+                       robot_base_url=data.get("robot_base_url"),
+                       robot_chat_url=data.get("robot_chat_url"),
+                       robot_chat_key=data.get("robot_chat_key"),
+                       robot_name=data.get("robot_name"))
         state = cls(path=path, panel_token=secrets.token_urlsafe(32))
         state.save()
         return state
