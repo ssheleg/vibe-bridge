@@ -137,13 +137,24 @@ def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
         doc = f"[deprecated alias → {cap.name}] {doc}"
     params = ", ".join(f"{k}: str = ''" for k in cap.input_schema)
     forward = ", ".join(f"{k!r}: {k}" for k in cap.input_schema)
+    import functools
+
+    import anyio
+
     ns: dict = {"_dispatch": dispatch, "cap": cap, "consent": consent,
-                "audit": audit, "runner": runner, "availability": availability}
+                "audit": audit, "runner": runner, "availability": availability,
+                "_to_thread": anyio.to_thread.run_sync,
+                "_partial": functools.partial}
+    # dispatch() BLOCKS (consent waits up to 60s, handlers shell out) — it
+    # must run in a worker thread. Awaiting it inline froze the whole event
+    # loop for the length of a consent dialog: panel, SSE and every other
+    # MCP session went dark until the owner answered (measured 2026-08-29,
+    # caught by the live browser check).
     src = (
         f"async def {fn_name}({params}) -> dict:\n"
-        f"    return _dispatch(cap, {{{forward}}}, "
+        f"    return await _to_thread(_partial(_dispatch, cap, {{{forward}}}, "
         f"consent=consent, audit=audit, runner=runner, "
-        f"availability=availability)\n"
+        f"availability=availability))\n"
     )
     exec(src, ns)  # noqa: S102 - names are our own capability keys, not input
     fn = ns[fn_name]

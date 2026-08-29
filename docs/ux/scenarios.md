@@ -53,7 +53,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** исполнение упало после Allow → тост «не получилось: <причина>», запись «ошибка» в журнале; робот получает честную ошибку
 - **Status:** draft
-- **Coverage:** macbridge/web.py:156, macbridge/webui/index.html:1 (карточка+decide); ядро: macbridge/server.py:65
+- **Coverage:** macbridge/web.py:156, macbridge/webui/index.html:1, macbridge/server.py:65; live-проверено в браузере 2026-08-29 (гейтвей→карточка→Разрешить→Calculator)
 
 ### SCN-002: ACT-согласие — таймаут и отказ
 - **Persona:** P-01
@@ -235,7 +235,7 @@ P-03 член семьи).
 - **States covered:** empty, success, loading
 - **Errors & recovery:** файл журнала недоступен → «журнал недоступен: <причина>», панель работает дальше
 - **Status:** draft
-- **Coverage:** macbridge/audit.py:45 (line+ротация), macbridge/webui/index.html:1 (лента); фильтры — T-PANEL
+- **Coverage:** macbridge/audit.py:63 (read_entries), macbridge/web.py:203 (/api/journal), macbridge/webui/index.html:1 (фильтры+пагинация)
 
 ### SCN-012: Обновление робота с панели
 - **Persona:** P-01
@@ -347,7 +347,7 @@ P-03 член семьи).
 - **States covered:** empty, success
 - **Errors & recovery:** порт панели занят → система выбирает свободный и работает; конфликт версии конфига → честное сообщение с предложением сброса
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** частично: macbridge/webui/index.html:1 (вкладки, панель), macbridge/app.py:1 (трей-состояния); инсталлеры — T-PLATFORM
 
 ## platform
 

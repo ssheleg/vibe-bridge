@@ -63,8 +63,17 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
             rumps.Timer(self._poll, 0.4).start()
 
         def _poll(self, _timer) -> None:
-            self.title = "⏸" if consent.paused else "🤖"
+            # Tray states (SCR-01): paused ⏸ · attention ❗ · grant ⏳ · idle 🤖
+            from .consent import ToolClass
             req = consent.pending()
+            if consent.paused:
+                self.title = "⏸"
+            elif req is not None:
+                self.title = "🤖❗"
+            elif consent.grant_active(ToolClass.ACT) > 0:
+                self.title = "🤖⏳"
+            else:
+                self.title = "🤖"
             if req is None:
                 return
             resp = rumps.alert(
@@ -77,7 +86,11 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
             # rumps.alert: 1=ok, 0=cancel, 2=other
             decision = {1: Decision.ALLOW, 0: Decision.DENY,
                         2: Decision.ALLOW_GRANT}.get(resp, Decision.DENY)
-            req.resolve(decision, by="dialog")   # loser of the race is a no-op
+            if not req.resolve(decision, by="dialog"):
+                # Lost the race: the panel/phone answered while the modal was
+                # up — say so instead of silently ignoring the click.
+                rumps.notification("vibe-bridge", "",
+                                   "Запрос уже решён с другой поверхности")
             self._refresh_recent()
 
         def _refresh_recent(self) -> None:

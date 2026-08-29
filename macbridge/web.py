@@ -202,6 +202,21 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             for name, info in availability.items()
         })
 
+    async def api_journal(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        q = request.query_params
+        try:
+            offset = max(0, int(q.get("offset", 0)))
+            limit = min(200, max(1, int(q.get("limit", 50))))
+        except ValueError:
+            return JSONResponse({"error": "bad paging"}, status_code=400)
+        flt = q.get("filter", "all")
+        if flt not in ("all", "refused", "act", "read"):
+            return JSONResponse({"error": "bad filter"}, status_code=400)
+        return JSONResponse(audit.read_entries(flt=flt, offset=offset,
+                                               limit=limit))
+
     async def events(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -237,6 +252,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/pause", api_pause, methods=["POST"]),
             Route("/api/grants/revoke", api_revoke_grants, methods=["POST"]),
             Route("/api/capabilities", api_capabilities),
+            Route("/api/journal", api_journal),
             Route("/events", events),
             Mount("/", app=BearerGuard(mcp.streamable_http_app(), state)),
         ],

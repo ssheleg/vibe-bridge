@@ -10,45 +10,82 @@
 --border:#e6e9ef;--border-strong:#d7dce4;--accent:#2f6feb;--accent-weak:#eaf0fe;
 --accent-ink:#fff;--ok:#1a7f37;--ok-weak:#e6f4ea;--warn:#9a6700;--warn-weak:#fff3d6;
 --danger:#d1242f;--danger-weak:#fde8e9;--r-control:6px;--r-card:10px;--r-pill:999px;
---dur:.18s;--font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
+--dur:.18s;--dur-h:.12s;--ease:cubic-bezier(.2,0,0,1);
+--font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
 --font-data:ui-monospace,"SF Mono",Menlo,monospace;color-scheme:light}
 @media (prefers-color-scheme: dark){:root{color-scheme:dark;--bg:#0f1218;--panel:#161b24;
 --panel-2:#1b212c;--ink:#e8ecf3;--muted:#8a93a6;--border:#232a36;--border-strong:#2c3441;
 --accent:#4b8bff;--accent-weak:#1b2740;--accent-ink:#0f1218;--ok:#3fb960;--ok-weak:#12281a;
 --warn:#d9a93f;--warn-weak:#2b2210;--danger:#e5534b;--danger-weak:#2d1517}}
+@media (prefers-reduced-motion: reduce){:root{--dur:0s;--dur-h:0s}}
 *{box-sizing:border-box;margin:0}
-body{font:13px/1.45 var(--font-ui);background:var(--bg);color:var(--ink);padding:24px;max-width:760px;margin:0 auto}
-h1{font-size:20px;display:flex;align-items:center;gap:10px}
+body{font:13px/1.45 var(--font-ui);background:var(--bg);color:var(--ink);max-width:880px;margin:0 auto;padding:16px 24px 48px}
+button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.appbar{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:5}
+.appbar .name{font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.tabs{display:flex;gap:2px;margin-left:8px}
+.tab{padding:5px 10px;border-radius:var(--r-control);color:var(--muted);font-weight:600;background:none;border:none;font-size:13px;cursor:pointer;transition:background var(--dur-h) var(--ease)}
+.tab:hover{background:var(--panel-2)}
+.tab[aria-selected="true"]{background:var(--accent-weak);color:var(--ink);box-shadow:inset 2px 0 0 var(--accent)}
+.tab[disabled]{opacity:.45;cursor:not-allowed}
+.pausewrap{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.switch{width:38px;height:22px;border-radius:var(--r-pill);background:var(--panel-2);border:1px solid var(--border-strong);position:relative;cursor:pointer;transition:background var(--dur) var(--ease)}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:left var(--dur) var(--ease)}
+.switch[aria-checked="true"]{background:var(--warn-weak);border-color:var(--warn)}
+.switch[aria-checked="true"]::after{left:18px;background:var(--warn)}
+.banner{background:var(--panel-2);color:var(--muted);border:1px solid var(--border);border-radius:var(--r-card);padding:8px 16px;margin-top:12px;font-weight:600;display:none}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;margin-top:16px}
 .cap{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
 .consent{border-color:var(--warn)}
 .consent .line{font-size:15px;font-weight:600;margin-bottom:12px}
-.btn{font:600 13px var(--font-ui);border-radius:var(--r-control);padding:7px 14px;border:1px solid transparent;cursor:pointer;transition:background var(--dur)}
+.btn{font:600 13px var(--font-ui);border-radius:var(--r-control);padding:7px 14px;border:1px solid transparent;cursor:pointer;transition:background var(--dur-h) var(--ease),border-color var(--dur-h) var(--ease)}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
 .btn.ghost{background:transparent;border-color:var(--border-strong);color:var(--ink)}
+.btn.ghost:hover{background:var(--panel-2)}
 .btn.dangerous{background:transparent;border-color:var(--danger);color:var(--danger)}
-.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.row{display:flex;gap:12px;align-items:center;min-height:32px;border-bottom:1px solid var(--border);font-size:13px}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-data);font-size:11px;border:1px solid var(--border);border-radius:var(--r-pill);padding:2px 8px;color:var(--ink)}
+.chip.okc{background:var(--ok-weak)} .chip.warnc{background:var(--warn-weak)} .chip.dangerc{background:var(--danger-weak)}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.danger{background:var(--danger)} .dot.mut{background:var(--muted)} .dot.info{background:var(--accent)}
+.kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--muted)} .kv .v{font-family:var(--font-data)}
+.row{display:flex;gap:12px;align-items:center;min-height:34px;padding:0 4px;border-bottom:1px solid var(--border);transition:background var(--dur-h) var(--ease)}
+.row:hover{background:var(--panel-2)}
 .row:last-child{border-bottom:0}
 .row .t{margin-left:auto;color:var(--muted);font-family:var(--font-data);font-size:11px;white-space:nowrap}
-.banner{background:var(--panel-2);color:var(--muted);border:1px solid var(--border);border-radius:var(--r-card);padding:8px 16px;margin-top:16px;font-weight:600;display:none}
-.mono{font-family:var(--font-data)}
-#empty{color:var(--muted)}
+.empty{color:var(--muted);padding:12px 4px}
+.filters{display:flex;gap:2px;margin-bottom:8px}
+.grid2{display:grid;grid-template-columns:280px 1fr;gap:16px}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-size:13px}
+td,th{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--panel-2);position:sticky;top:0}
+td.mono{font-family:var(--font-data);font-size:12px}
+.view{display:none}.view.on{display:block}
+.note{font-size:11px;color:var(--muted)}
 </style>
 </head>
 <body>
-<h1><span class="dot" id="statedot" style="background:var(--ok)"></span>vibe-bridge
-  <span style="margin-left:auto;display:flex;gap:8px">
-    <button class="btn ghost" id="pausebtn" onclick="togglePause()">⏸ Пауза</button>
-    <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'})" title="Следующее действие снова спросит">Отозвать разрешения</button>
+<header class="appbar">
+  <span class="name"><span class="dot ok" id="statedot"></span>vibe-bridge</span>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-view="dash">Дашборд</button>
+    <button class="tab" role="tab" disabled title="Появится после подключения канала к роботу (модуль M-SOUTH)">Чат</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="journal">Журнал</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="settings">Настройки</button>
+  </nav>
+  <span class="pausewrap">Пауза
+    <span class="switch" id="pauseSw" role="switch" aria-checked="false" tabindex="0" title="Пауза: мост отвечает роботу как выключенный компьютер"></span>
   </span>
-</h1>
-<div class="banner" id="paused">Мост на паузе — для робота этот компьютер выглядит выключенным.</div>
+</header>
 
-<div class="card consent" id="consent" style="display:none">
+<div class="banner" id="pausedBanner">Мост на паузе — для робота этот компьютер выглядит выключенным. События копятся в журнале.</div>
+
+<div class="card consent" id="consent" style="display:none" role="alertdialog" aria-label="Запрос согласия">
   <div class="cap">Робот · запрос действия</div>
-  <div class="line" id="summary"></div>
+  <div class="line" id="consentLine"></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn primary" onclick="decide('allow')">Разрешить</button>
     <button class="btn ghost" onclick="decide('allow_grant')">Разрешить на 15 мин</button>
@@ -56,52 +93,156 @@ h1{font-size:20px;display:flex;align-items:center;gap:10px}
   </div>
 </div>
 
-<div class="card">
-  <div class="cap">Журнал <span class="mono" id="grant" style="text-transform:none;letter-spacing:0"></span></div>
-  <div id="feed"><div id="empty">— робот ещё ничего не просил —</div></div>
-</div>
+<!-- Дашборд -->
+<section class="view on" id="view-dash">
+  <div class="grid2">
+    <div>
+      <div class="card" style="margin-top:16px">
+        <div class="cap">Мост</div>
+        <div class="kv"><span class="k">Состояние</span><span class="v" id="bridgeState">—</span></div>
+        <div class="kv"><span class="k">Грант ACT</span><span class="v" id="grantLeft">нет</span></div>
+        <div class="kv"><span class="k">Запросов в очереди</span><span class="v" id="pendCount">0</span></div>
+      </div>
+      <div class="card">
+        <div class="cap">Робот</div>
+        <p class="empty">Канал к роботу ещё не подключён к панели — статус, чат и обновление появятся с модулем M-SOUTH. Робот уже может действовать на этом компьютере через мост.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;padding:8px 16px">
+      <div class="cap" style="padding-top:8px">Последние события</div>
+      <div id="feed"><div class="empty">— робот ещё ничего не просил —</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- Журнал -->
+<section class="view" id="view-journal">
+  <div class="card">
+    <div class="filters" role="group" aria-label="Фильтр журнала">
+      <button class="tab" aria-selected="true" data-flt="all">Все</button>
+      <button class="tab" aria-selected="false" data-flt="refused">Отказы</button>
+      <button class="tab" aria-selected="false" data-flt="act">ACT</button>
+      <button class="tab" aria-selected="false" data-flt="read">READ</button>
+      <span class="note" id="jTotal" style="margin-left:auto;align-self:center"></span>
+    </div>
+    <div id="journal"><div class="empty">— пусто —</div></div>
+    <div style="margin-top:8px"><button class="btn ghost" id="moreBtn" onclick="loadJournal(false)" style="display:none">Показать ещё</button></div>
+  </div>
+</section>
+
+<!-- Настройки -->
+<section class="view" id="view-settings">
+  <div class="card">
+    <div class="cap">Способности этого компьютера</div>
+    <table aria-label="Карта способностей"><thead><tr><th>Способность</th><th>Класс</th><th>Статус</th></tr></thead>
+    <tbody id="capTable"></tbody></table>
+    <p class="note" style="margin-top:8px">Недоступная способность отвечает роботу честной причиной мгновенно — она не ждёт таймаута и не спрашивает вас.</p>
+  </div>
+  <div class="card">
+    <div class="cap">Разрешения</div>
+    <p style="margin-bottom:8px">Грант «Разрешить на 15 мин» действует на класс действий. Отзыв вернёт вопрос на следующем действии.</p>
+    <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'}).then(refresh)">Отозвать разрешения</button>
+  </div>
+  <div class="card">
+    <div class="cap">Доступ</div>
+    <div class="kv"><span class="k">Режим</span><span class="v" id="modeInfo">gateway (через agentgateway, loopback)</span></div>
+    <div class="kv"><span class="k">MCP-адрес</span><span class="v">127.0.0.1:48620/mcp</span></div>
+    <p class="note" style="margin-top:8px">Пейринг телефона и робота напрямую (standalone-режим) появится с модулями M-PHONE и M-WIZARD.</p>
+  </div>
+</section>
 
 <script>
-const DECISION_WORDS = {auto:"исполнено", allow:"разрешено", allow_grant:"разрешено (грант)",
+const DW = {auto:"исполнено", allow:"разрешено", allow_grant:"по гранту",
   deny:"отказ владельца", timeout:"таймаут — отказ", paused:"пауза — отказ",
-  unavailable:"недоступно на этой системе"};
-let cur = {paused:false, pendingId:null};
+  unavailable:"недоступно"};
+const CAPW = {available:["ok","доступно"], "needs-permission":["warn","нужны права"],
+  unavailable:["danger","недоступно"]};
+let cur = {paused:false, pendingId:null, flt:"all", offset:0};
+
+function esc(x){const d=document.createElement("div");d.textContent=String(x??"");return d.innerHTML}
+function rowHtml(e){
+  const cls = e.ok ? "ok" : (e.decision==="paused"||e.decision==="timeout" ? "mut" : "danger");
+  return `<div class="row"><span class="dot ${cls}"></span>`+
+    `<span>${esc(e.line||e.tool)} — ${DW[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>`+
+    `<span class="t">${esc((e.ts||"").slice(0,19).replace("T"," "))}</span></div>`;
+}
 function render(s){
   cur.paused = s.paused; cur.pendingId = s.pending ? s.pending.id : null;
-  document.getElementById("paused").style.display = s.paused ? "block" : "none";
-  document.getElementById("statedot").style.background =
-    s.paused ? "var(--muted)" : "var(--ok)";
-  document.getElementById("pausebtn").textContent = s.paused ? "▶ Снять паузу" : "⏸ Пауза";
+  document.getElementById("pausedBanner").style.display = s.paused ? "block" : "none";
+  document.getElementById("statedot").className = "dot " + (s.paused ? "mut" : (s.pending ? "warn" : "ok"));
+  document.getElementById("pauseSw").setAttribute("aria-checked", s.paused);
+  document.getElementById("bridgeState").textContent = s.paused ? "на паузе" : "активен";
+  document.getElementById("grantLeft").textContent =
+    s.grant_left_s > 0 ? "ещё " + Math.ceil(s.grant_left_s/60) + " мин" : "нет";
+  document.getElementById("pendCount").textContent = s.pending_count;
   const c = document.getElementById("consent");
   c.style.display = s.pending ? "block" : "none";
   if (s.pending){
-    let extra = s.pending_count > 1 ? ` (в очереди ещё ${s.pending_count-1})` : "";
-    document.getElementById("summary").textContent = "Робот хочет: " + s.pending.summary + extra;
+    const extra = s.pending_count > 1 ? ` (в очереди ещё ${s.pending_count-1})` : "";
+    document.getElementById("consentLine").textContent = "Робот хочет: " + s.pending.summary + extra;
   }
-  document.getElementById("grant").textContent =
-    s.grant_left_s > 0 ? " · грант ещё " + Math.ceil(s.grant_left_s/60) + " мин" : "";
   const feed = document.getElementById("feed");
-  if (s.recent && s.recent.length){
-    feed.innerHTML = s.recent.slice().reverse().map(e =>
-      `<div class="row"><span class="dot" style="background:${e.ok?"var(--ok)":"var(--danger)"}"></span>` +
-      `<span>${esc(e.line||e.tool)} — ${DECISION_WORDS[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>` +
-      `<span class="t">${esc((e.ts||"").slice(11,19))}</span></div>`).join("");
-  }
+  if (s.recent && s.recent.length)
+    feed.innerHTML = s.recent.slice().reverse().map(rowHtml).join("");
 }
-function esc(x){const d=document.createElement("div");d.textContent=String(x??"");return d.innerHTML}
 async function decide(decision){
   await fetch("/api/consent/decide", {method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({decision, id: cur.pendingId})});
 }
+async function refresh(){ render(await (await fetch("/api/state")).json()); }
+document.getElementById("pauseSw").addEventListener("click", togglePause);
+document.getElementById("pauseSw").addEventListener("keydown", e=>{
+  if(e.key===" "||e.key==="Enter"){e.preventDefault();togglePause();}});
 async function togglePause(){
   await fetch("/api/pause", {method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({paused: !cur.paused})});
+  refresh();
 }
+/* tabs */
+document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("click", ()=>{
+  document.querySelectorAll(".tab[data-view]").forEach(x=>x.setAttribute("aria-selected", x===b));
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));
+  if (b.dataset.view==="journal") loadJournal(true);
+  if (b.dataset.view==="settings") loadCaps();
+}));
+/* journal */
+document.querySelectorAll(".tab[data-flt]").forEach(b=>b.addEventListener("click", ()=>{
+  document.querySelectorAll(".tab[data-flt]").forEach(x=>x.setAttribute("aria-selected", x===b));
+  cur.flt = b.dataset.flt; loadJournal(true);
+}));
+async function loadJournal(reset){
+  if (reset){ cur.offset = 0; }
+  const r = await fetch(`/api/journal?filter=${cur.flt}&offset=${cur.offset}&limit=50`);
+  if (!r.ok){ document.getElementById("journal").innerHTML =
+    `<div class="empty">Журнал недоступен (${r.status})</div>`; return; }
+  const page = await r.json();
+  const html = page.entries.map(rowHtml).join("");
+  const el = document.getElementById("journal");
+  if (reset) el.innerHTML = html || '<div class="empty">— робот ещё ничего не просил —</div>';
+  else el.insertAdjacentHTML("beforeend", html);
+  cur.offset += page.entries.length;
+  document.getElementById("jTotal").textContent = `${cur.offset} из ${page.total}`;
+  document.getElementById("moreBtn").style.display = cur.offset < page.total ? "inline-block" : "none";
+}
+/* capabilities */
+async function loadCaps(){
+  const caps = await (await fetch("/api/capabilities")).json();
+  document.getElementById("capTable").innerHTML = Object.entries(caps)
+    .sort((a,b)=>a[0].localeCompare(b[0]))
+    .map(([name, i])=>{
+      const [cls, word] = CAPW[i.status] || ["mut", i.status];
+      const reason = i.reason ? ` <span class="note">${esc(i.reason)}</span>` : "";
+      return `<tr><td class="mono">${esc(name)}</td><td class="mono">${i.class.toUpperCase()}</td>`+
+        `<td><span class="chip"><span class="dot ${cls}"></span>${word}</span>${reason}</td></tr>`;
+    }).join("");
+}
+/* live */
 const es = new EventSource("/events");
 es.addEventListener("state", ev => render(JSON.parse(ev.data)));
-fetch("/api/state").then(r=>r.json()).then(render);
+es.onerror = ()=>{ document.getElementById("bridgeState").textContent = "нет связи с мостом"; };
+refresh();
 </script>
 </body>
 </html>

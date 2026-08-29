@@ -76,3 +76,32 @@ def test_mcp_rejects_foreign_host_and_accepts_allowed(tmp_path):
         assert bad.status_code == 421
         good = c.get("/mcp", headers={"Host": "good.host:48620"})
         assert good.status_code != 421
+
+
+# ── the loop must never freeze on a blocked consent ─────────────────────────
+
+def test_act_tool_does_not_block_event_loop(tmp_path):
+    """Regression: an ACT call awaiting consent parks in a worker thread.
+    Awaiting dispatch() inline froze the whole loop — panel, SSE and other
+    sessions went dark for the length of the dialog (caught live 2026-08-29)."""
+    from macbridge.capabilities import Capability, ToolClass
+
+    async def scenario():
+        eng = ConsentEngine(ask_timeout_s=0.6)   # request will time out
+        cap = Capability("do", ToolClass.ACT, "делаю",
+                         lambda r, a: "done", {})
+        mcp = build_server(consent=eng, audit=AuditLog(tmp_path / "a.log"),
+                          runner=FakeRunner(), capabilities={"do": cap})
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            for _ in range(40):
+                await asyncio.sleep(0.02)
+                ticks += 1
+
+        result, _ = await asyncio.gather(mcp.call_tool("do", {}), ticker())
+        assert ticks >= 20          # the loop kept breathing while blocked
+        return result
+
+    asyncio.run(scenario())

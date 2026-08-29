@@ -65,3 +65,32 @@ class AuditLog:
     def recent(self, n: int = 20) -> list[dict]:
         with self._lock:
             return list(self._recent)[-n:]
+
+    _REFUSED = ("deny", "timeout", "paused", "unavailable")
+
+    def read_entries(self, *, flt: str = "all", offset: int = 0,
+                     limit: int = 50) -> dict:
+        """Journal page from disk, newest first (SCN-011). The panel's
+        source of history; `recent()` stays the in-memory tail for the
+        snapshot. An unreadable file returns an honest empty page — the
+        panel keeps working (SCN-011 errors & recovery)."""
+        entries: list[dict] = []
+        with self._lock:
+            paths = [self.path.with_suffix(self.path.suffix + ".1"), self.path]
+            for p in paths:
+                try:
+                    text = p.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                for ln in text.splitlines():
+                    try:
+                        entries.append(json.loads(ln))
+                    except json.JSONDecodeError:
+                        continue
+        entries.reverse()                      # newest first
+        if flt == "refused":
+            entries = [e for e in entries if e.get("decision") in self._REFUSED]
+        elif flt in ("act", "read"):
+            entries = [e for e in entries if e.get("class") == flt]
+        total = len(entries)
+        return {"total": total, "entries": entries[offset:offset + limit]}
