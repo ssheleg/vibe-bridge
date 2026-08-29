@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vibe-bridge — UI preview (workbench)</title>
+<style>
+/* SHELEG Design — Workbench token layer (copied verbatim; consume only var(--…)) */
+:root {
+  --bg:#f7f8fa; --panel:#ffffff; --panel-2:#f7f8fa; --ink:#1a1f2b; --muted:#5b6472;
+  --border:#e6e9ef; --border-strong:#d7dce4;
+  --accent:#2f6feb; --accent-weak:#eaf0fe; --accent-ink:#ffffff;
+  --ok:#1a7f37; --ok-weak:#e6f4ea; --warn:#9a6700; --warn-weak:#fff3d6;
+  --danger:#d1242f; --danger-weak:#fde8e9; --info:#2f6feb; --info-weak:#eaf0fe;
+  --r-control:6px; --r-card:10px; --r-pill:999px;
+  --shadow-1:0 4px 16px -8px rgba(26,31,43,.18);
+  --motion-ease:cubic-bezier(.2,0,0,1); --dur-state:.18s; --dur-hover:.12s;
+  --font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
+  --font-data:ui-monospace,"SF Mono",Menlo,monospace;
+  --t-chip:11px; --t-label:12px; --t-body:13px; --t-card:15px; --t-section:20px; --t-page:28px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px;
+  background-color:var(--bg); color:var(--ink); color-scheme:light;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0f1218; --panel:#161b24; --panel-2:#1b212c; --ink:#e8ecf3; --muted:#8a93a6;
+  --border:#232a36; --border-strong:#2c3441;
+  --accent:#4b8bff; --accent-weak:#1b2740; --accent-ink:#0f1218;
+  --ok:#3fb960; --ok-weak:#12281a; --warn:#d9a93f; --warn-weak:#2b2210;
+  --danger:#e5534b; --danger-weak:#2d1517; --info:#4b8bff; --info-weak:#1b2740;
+}
+@media (prefers-reduced-motion: reduce){ :root{ --dur-state:0s; --dur-hover:0s; } }
+
+*{box-sizing:border-box; margin:0}
+body{font-family:var(--font-ui); font-size:var(--t-body); background:var(--bg); color:var(--ink); padding:var(--space-6); line-height:1.45}
+h1{font-size:var(--t-page); font-weight:700; text-wrap:balance}
+h2{font-size:var(--t-section); font-weight:700; margin:var(--space-6) 0 var(--space-3)}
+.sub{color:var(--muted); margin-top:var(--space-1)}
+.board{display:grid; gap:var(--space-5); margin-top:var(--space-4)}
+.frame{border:1px solid var(--border-strong); border-radius:var(--r-card); overflow:hidden; background:var(--panel); max-width:860px}
+.frame-cap{font-size:var(--t-label); text-transform:uppercase; letter-spacing:.1em; color:var(--muted); padding:var(--space-2) var(--space-4); border-bottom:1px solid var(--border); background:var(--panel-2)}
+.mono{font-family:var(--font-data); font-variant-numeric:tabular-nums}
+.chip{display:inline-flex; align-items:center; gap:6px; font-family:var(--font-data); font-size:var(--t-chip); border:1px solid var(--border); border-radius:var(--r-pill); padding:2px 8px; color:var(--ink)}
+.dot{width:8px; height:8px; border-radius:50%; flex:none}
+.dot.ok{background:var(--ok)} .dot.info{background:var(--info)} .dot.warn{background:var(--warn)} .dot.danger{background:var(--danger)} .dot.muted{background:var(--muted)}
+.chip.okc{background:var(--ok-weak)} .chip.warnc{background:var(--warn-weak)} .chip.dangerc{background:var(--danger-weak)} .chip.infoc{background:var(--info-weak)}
+.btn{font:600 var(--t-body) var(--font-ui); border-radius:var(--r-control); padding:7px 14px; border:1px solid transparent; cursor:pointer; transition:background var(--dur-hover) var(--motion-ease), border-color var(--dur-hover) var(--motion-ease)}
+.btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.btn.primary{background:var(--accent); color:var(--accent-ink)}
+.btn.ghost{background:transparent; border-color:var(--border-strong); color:var(--ink)}
+.btn.ghost:hover{background:var(--panel-2)}
+.btn.dangerous{background:transparent; border-color:var(--danger); color:var(--danger)}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+.toolbar{position:fixed; top:16px; right:16px; display:flex; gap:8px}
+/* panel chrome */
+.appbar{display:flex; align-items:center; gap:var(--space-3); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--border)}
+.appbar .name{font-size:var(--t-card); font-weight:600}
+.tabs{display:flex; gap:2px; margin-left:var(--space-4)}
+.tab{padding:5px 10px; border-radius:var(--r-control); color:var(--muted); font-weight:600}
+.tab.active{background:var(--accent-weak); color:var(--ink); box-shadow:inset 2px 0 0 var(--accent)}
+.pause{margin-left:auto; display:flex; align-items:center; gap:8px; font-size:var(--t-label)}
+.switch{width:38px; height:22px; border-radius:var(--r-pill); background:var(--panel-2); border:1px solid var(--border-strong); position:relative; transition:background var(--dur-state) var(--motion-ease)}
+.switch::after{content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--muted); transition:left var(--dur-state) var(--motion-ease)}
+.switch.on{background:var(--warn-weak); border-color:var(--warn)}
+.switch.on::after{left:18px; background:var(--warn)}
+.body2{display:grid; grid-template-columns:300px 1fr; gap:var(--space-4); padding:var(--space-4)}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:var(--r-card); padding:var(--space-4)}
+.card .cap{font-size:var(--t-label); text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:var(--space-2)}
+.stat{font-size:22px; font-weight:600}
+.kv{display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); font-size:var(--t-body)}
+.kv:last-child{border-bottom:0}
+.kv .k{color:var(--muted)} .kv .v{font-family:var(--font-data)}
+.feed{display:flex; flex-direction:column}
+.row{display:flex; align-items:center; gap:var(--space-3); min-height:34px; padding:0 var(--space-2); border-bottom:1px solid var(--border); transition:background var(--dur-hover) var(--motion-ease)}
+.row:hover{background:var(--panel-2)}
+.row:last-child{border-bottom:0}
+.row .t{margin-left:auto; color:var(--muted); font-family:var(--font-data); font-size:var(--t-chip)}
+.banner{display:flex; gap:var(--space-2); align-items:center; padding:var(--space-2) var(--space-4); font-weight:600; border-bottom:1px solid var(--border)}
+.banner.pausedb{background:var(--panel-2); color:var(--muted)}
+/* consent */
+.consent{max-width:480px; border:1px solid var(--warn); border-radius:var(--r-card); background:var(--panel); box-shadow:var(--shadow-1); padding:var(--space-4)}
+.consent .who{font-size:var(--t-label); color:var(--muted); display:flex; gap:6px; align-items:center; margin-bottom:var(--space-2)}
+.consent .line{font-size:var(--t-card); font-weight:600; margin-bottom:var(--space-3)}
+.consent .actions{display:flex; gap:var(--space-2)}
+.timer{height:4px; border:1px solid var(--border); border-radius:var(--r-pill); margin-top:var(--space-3); overflow:hidden}
+.timer i{display:block; height:100%; width:62%; background:var(--warn)}
+.consent .left{font-family:var(--font-data); font-size:var(--t-chip); color:var(--muted); margin-top:6px}
+/* checklist */
+.check{display:flex; flex-direction:column; gap:0}
+.check .row{min-height:38px}
+.check .fact{margin-left:auto; font-family:var(--font-data); font-size:var(--t-chip); color:var(--muted)}
+/* wizard */
+.wiz{max-width:560px}
+.steps{display:flex; gap:var(--space-2); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--border); font-size:var(--t-chip); font-family:var(--font-data); color:var(--muted)}
+.steps b{color:var(--ink)}
+.field{margin-bottom:var(--space-3)}
+.field label{display:block; font-size:var(--t-label); color:var(--muted); margin-bottom:4px}
+.field input{width:100%; font:400 var(--t-body) var(--font-ui); color:var(--ink); background:var(--panel); border:1px solid var(--border-strong); border-radius:var(--r-control); padding:8px 10px}
+.field input:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.note{font-size:var(--t-chip); color:var(--muted)}
+/* phone */
+.phone{width:320px; border:1px solid var(--border-strong); border-radius:24px; overflow:hidden; background:var(--bg)}
+.phone .statusbar{height:22px; background:var(--panel-2); border-bottom:1px solid var(--border)}
+.phone .content{padding:var(--space-4)}
+.grid2{display:grid; grid-template-columns:1fr auto; gap:var(--space-5); align-items:start}
+@media (max-width:900px){ .body2{grid-template-columns:1fr} .grid2{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <button class="btn ghost" onclick="const r=document.documentElement; r.dataset.theme = r.dataset.theme==='dark'?'':'dark'">Тема: light/dark</button>
+</div>
+
+<h1>vibe-bridge — превью интерфейса</h1>
+<p class="sub">Style pack: workbench · токены verbatim · семантика: амбер = «нужен человек» (консент), info = «робот работает», нейтральный dim = пауза/офлайн. Канон поведения — docs/ux/scenarios.md.</p>
+
+<h2>1 · Панель — Дашборд (робот в сети) — SCR-02</h2>
+<div class="board"><div class="frame">
+  <div class="frame-cap">панель · 1024×… · light/dark твин</div>
+  <div class="appbar">
+    <span class="dot ok" title="в сети"></span><span class="name">Вася <span class="mono" style="color:var(--muted);font-size:var(--t-chip)">robot-vasya.tail1234.ts.net</span></span>
+    <nav class="tabs"><span class="tab active">Дашборд</span><span class="tab">Чат</span><span class="tab">Журнал</span><span class="tab">Настройки</span></nav>
+    <span class="pause">Пауза <span class="switch" role="switch" aria-checked="false"></span></span>
+  </div>
+  <div class="body2">
+    <div class="card">
+      <div class="cap">Робот</div>
+      <div class="kv"><span class="k">Статус</span><span class="v"><span class="chip okc"><span class="dot ok"></span>в сети</span></span></div>
+      <div class="kv"><span class="k">Версия</span><span class="v">v1.0 · build 214</span></div>
+      <div class="kv"><span class="k">Мозг</span><span class="v">hermes</span></div>
+      <div class="kv"><span class="k">Аптайм</span><span class="v">6 д 14 ч</span></div>
+      <div class="kv"><span class="k">Контакт</span><span class="v">4 с назад</span></div>
+      <div style="margin-top:var(--space-3)"><button class="btn ghost">Обновить робота</button></div>
+    </div>
+    <div class="card" style="padding:var(--space-2) var(--space-4)">
+      <div class="cap" style="padding-top:var(--space-2)">Лента</div>
+      <div class="feed">
+        <div class="row"><span class="dot ok"></span>Открыл ссылку docs.example.com — разрешено<span class="t">14:02:11</span></div>
+        <div class="row"><span class="dot warn"></span>Ждёт решения: запустить Shortcut «Сводка дня»<span class="t">14:01:48</span></div>
+        <div class="row"><span class="dot info"></span>Задача «разбор писем» — в работе<span class="t">13:58:03</span></div>
+        <div class="row"><span class="dot ok"></span>Скриншот экрана — выполнено (READ)<span class="t">13:55:19</span></div>
+        <div class="row"><span class="dot danger"></span>AppleScript → Terminal — заблокировано мостом<span class="t">13:41:57</span></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<h2>2 · Запрос согласия — диалог и телефон — SCR-05</h2>
+<div class="board"><div class="grid2">
+  <div>
+    <div class="consent" role="alertdialog" aria-label="Запрос согласия">
+      <div class="who"><span class="dot warn"></span>ВАСЯ · ЗАПРОС ДЕЙСТВИЯ</div>
+      <div class="line">Робот хочет открыть ссылку docs.example.com</div>
+      <div class="actions">
+        <button class="btn primary">Разрешить</button>
+        <button class="btn ghost">Разрешить на 15 мин</button>
+        <button class="btn dangerous">Отклонить</button>
+      </div>
+      <div class="timer"><i></i></div>
+      <div class="left">без ответа — откажу через 37 с</div>
+    </div>
+    <p class="note" style="margin-top:var(--space-2)">Фокус по умолчанию — на контейнере, не на «Разрешить» (ui.md, доступность). Второй экземпляр после решения на другой поверхности: заголовок «Решено с телефона», кнопки скрыты.</p>
+  </div>
+  <div class="phone">
+    <div class="statusbar"></div>
+    <div class="content">
+      <div class="consent" style="max-width:none; box-shadow:none">
+        <div class="who"><span class="dot warn"></span>ВАСЯ · ЗАПРОС ДЕЙСТВИЯ</div>
+        <div class="line">Робот хочет открыть ссылку docs.example.com</div>
+        <div class="actions" style="flex-direction:column">
+          <button class="btn primary">Разрешить</button>
+          <button class="btn ghost">Разрешить на 15 мин</button>
+          <button class="btn dangerous">Отклонить</button>
+        </div>
+        <div class="timer"><i style="width:58%"></i></div>
+        <div class="left">без ответа — откажу через 35 с</div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<h2>3 · Пауза — дашборд в приглушённом состоянии — FLW-04</h2>
+<div class="board"><div class="frame">
+  <div class="appbar" style="background:var(--panel-2)">
+    <span class="dot muted"></span><span class="name" style="color:var(--muted)">Вася</span>
+    <nav class="tabs"><span class="tab active">Дашборд</span><span class="tab">Чат</span><span class="tab">Журнал</span><span class="tab">Настройки</span></nav>
+    <span class="pause">Пауза <span class="switch on" role="switch" aria-checked="true"></span></span>
+  </div>
+  <div class="banner pausedb"><span class="dot muted"></span>Мост на паузе — для робота этот компьютер выглядит выключенным. События копятся в ленте без уведомлений.</div>
+  <div class="body2" style="opacity:.75">
+    <div class="card"><div class="cap">Робот</div>
+      <div class="kv"><span class="k">Статус</span><span class="v"><span class="chip"><span class="dot muted"></span>пауза моста</span></span></div>
+      <div class="kv"><span class="k">Версия</span><span class="v">v1.0 · build 214</span></div>
+    </div>
+    <div class="card" style="padding:var(--space-2) var(--space-4)"><div class="cap" style="padding-top:var(--space-2)">Лента</div>
+      <div class="feed">
+        <div class="row"><span class="dot muted"></span>Отклонено (пауза): прочитать буфер обмена<span class="t">14:12:33</span></div>
+        <div class="row"><span class="dot muted"></span>Отклонено (пауза): список приложений<span class="t">14:10:02</span></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<h2>4 · Визард — Wi-Fi и имя робота — SCR-06</h2>
+<div class="board"><div class="frame wiz">
+  <div class="steps"><b>1 путь</b> · <b>2 карта</b> · <b>3 Wi-Fi</b> · 4 запись · 5 в робота</div>
+  <div style="padding:var(--space-4)">
+    <div class="field"><label>Сеть Wi-Fi, к которой подключится робот</label><input value="Home-5G"></div>
+    <div class="field"><label>Пароль сети</label><input type="password" value="••••••••••"></div>
+    <div class="field"><label>Имя робота</label><input value="Вася"></div>
+    <p class="note">На карту попадут: система робота, настройка Wi-Fi и одноразовый ключ связки. Пароль admin-прав спросит система на следующем шаге — он нужен только для записи карты.</p>
+    <div style="margin-top:var(--space-3); display:flex; gap:var(--space-2)">
+      <button class="btn primary">Записать карту</button>
+      <button class="btn ghost">Назад</button>
+    </div>
+  </div>
+</div></div>
+
+<h2>5 · Пейринг — чеклист связки — SCR-07</h2>
+<div class="board"><div class="frame" style="max-width:560px">
+  <div class="frame-cap">после подтверждения владельца</div>
+  <div style="padding:var(--space-3) var(--space-4)" class="check feed">
+    <div class="row"><span class="dot ok"></span>Робот найден<span class="fact">robot-vasya.local · 100.84.…</span></div>
+    <div class="row"><span class="dot ok"></span>Ключи обменяны<span class="fact">одноразовый токен погашен</span></div>
+    <div class="row"><span class="dot info"></span>Проверочный вызов…<span class="fact">notify → робот</span></div>
+    <div class="row"><span class="dot muted"></span>Согласие работает<span class="fact">ждёт тестовый запрос</span></div>
+  </div>
+  <div style="padding:0 var(--space-4) var(--space-4)"><button class="btn primary" disabled title="после зелёного чеклиста">Сказать роботу привет</button></div>
+</div></div>
+
+<h2>6 · Журнал — фильтр «только отказы» — SCR-04</h2>
+<div class="board"><div class="frame">
+  <div class="appbar"><span class="name">Журнал</span>
+    <div class="tabs"><span class="tab">Все</span><span class="tab active">Отказы</span><span class="tab">ACT</span><span class="tab">READ</span></div>
+  </div>
+  <div style="padding:var(--space-2) var(--space-4)" class="feed">
+    <div class="row"><span class="dot danger"></span>Отклонено владельцем: выполнить AppleScript<span class="t">вчера 22:14</span></div>
+    <div class="row"><span class="dot warn"></span>Таймаут (60 с): открыть приложение «Notes»<span class="t">вчера 18:40</span></div>
+    <div class="row"><span class="dot muted"></span>Пауза: прочитать буфер обмена<span class="t">вчера 14:12</span></div>
+    <div class="row"><span class="dot danger"></span>Блоклист моста: AppleScript → Terminal<span class="t">вчера 13:41</span></div>
+  </div>
+</div></div>
+
+<p class="note" style="margin-top:var(--space-6)">docs/design/preview.html · собрано в v2-design run 2026-08-29 · токены — sheleg-design/workbench verbatim · поведение — docs/ux/scenarios.md · статус-слово всегда рядом с цветом (AA-правило пака)</p>
+</body>
+</html>

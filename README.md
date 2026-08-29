@@ -2,6 +2,10 @@
 
 Menu-bar MCP bridge: **robot-vibecoder ↔ this Mac**, with the human in the loop.
 
+> Evolving into **vibe-bridge** — the cross-platform bridge. Vision:
+> [docs/ux/vision.md](docs/ux/vision.md) · scenarios: [docs/ux/scenarios.md](docs/ux/scenarios.md) ·
+> architecture: [docs/spec/architecture.md](docs/spec/architecture.md)
+
 The robot's brain (Hermes on a Raspberry Pi) reaches this Mac over Tailscale
 **through the agentgateway** (role `robot`), never directly. This app is a
 loopback-only MCP server plus a menu-bar UI that gates every *action* behind

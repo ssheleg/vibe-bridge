@@ -19,6 +19,9 @@ dev = ["pytest>=8", "ruff>=0.6"]
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+# docs/ux/lint.py is vendored from the super-ux plugin (upstream-owned;
+# reseeded on plugin updates) — never edited here, so never linted here.
+extend-exclude = ["docs/ux/lint.py"]
 
 [tool.ruff.lint]
 # Standard, well-scoped set: pycodestyle, pyflakes, isort, bugbear.
