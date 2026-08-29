@@ -143,3 +143,19 @@ def test_disks_endpoint_returns_list(tmp_path):
         c.get("/?token=panel-secret")
         disks = c.get("/api/wizard/disks").json()["disks"]
         assert isinstance(disks, list)             # live smoke on macOS
+
+
+def test_pair_without_chat_key_defaults_to_robot_token(tmp_path):
+    """bridge_api робота авторизует чат тем же robot_token — мост обязан
+    использовать его как чат-ключ, когда отдельный не назван."""
+    app, state, robot = _app(tmp_path)
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        start = c.post("/api/wizard/pairing/start").json()
+        r = c.post("/pair", json={
+            "token": start["token"], "name": "Вася",
+            "base_url": "http://100.123.65.23:8630",
+            "chat_url": "http://100.123.65.23:8630"})
+        assert r.status_code == 200
+        assert state.robot_chat_key == r.json()["robot_token"]
+        assert robot.chat_key == state.robot_chat_key

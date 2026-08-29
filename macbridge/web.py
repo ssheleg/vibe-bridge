@@ -347,6 +347,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             state.robot_chat_url = str(body["chat_url"])
         if body.get("chat_key"):
             state.robot_chat_key = str(body["chat_key"])
+        else:
+            # bridge_api робота авторизует оба канала одним robot_token —
+            # он и есть чат-ключ, если робот не назвал отдельный.
+            state.robot_chat_key = state.robot_token
         state.save()
         robot.configure(base_url=state.robot_base_url,
                         chat_url=state.robot_chat_url,
