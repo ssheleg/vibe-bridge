@@ -17,7 +17,13 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from .audit import AuditLog
-from .capabilities import Capability, CapabilityError, Runner, build_capabilities
+from .capabilities import (
+    ALIASES,
+    Capability,
+    CapabilityError,
+    Runner,
+    build_capabilities,
+)
 from .consent import ConsentEngine, allowed, refusal_text
 
 log = logging.getLogger("mac-bridge.server")
@@ -33,6 +39,7 @@ def build_server(
     runner: Runner | None = None,
     capabilities: dict[str, Capability] | None = None,
     availability: dict[str, dict] | None = None,
+    allowed_hosts: list[str] | None = None,
 ) -> FastMCP:
     from .capabilities import probe_availability
 
@@ -40,24 +47,30 @@ def build_server(
     caps = capabilities or build_capabilities()
     if availability is None:
         availability = probe_availability(caps)
-    # DNS-rebinding protection validates the Host header; the agentgateway
-    # proxies the robot's request verbatim, so the Host arrives as the
-    # gateway's own tailnet address (e.g. 100.x:4000), not our loopback —
-    # which the default allowlist rejects with 421 Misdirected Request
-    # (measured 2026-08-28). The real security boundary is elsewhere: only
-    # the gateway on this Mac can reach loopback :48620, and consent gates
-    # every ACT. So we disable Host validation here rather than pin a
-    # tailnet IP that changes — reachability is already limited to loopback.
+    if allowed_hosts is None:
+        allowed_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    # DNS-rebinding protection is ON with an explicit allowlist (spec §2).
+    # The agentgateway proxies the robot's request verbatim, so the Host
+    # arrives as the gateway's own tailnet address (e.g. 100.x:4000, measured
+    # 2026-08-28) — net.allowed_hosts() includes this machine's tailscale
+    # addresses with a `:*` port wildcard, which is exactly that case. The
+    # M4 off-switch is retired: a foreign Host now gets 421 again.
     from mcp.server.transport_security import TransportSecuritySettings
     mcp = FastMCP(
         "mac-bridge", host=BRIDGE_HOST, port=BRIDGE_PORT,
         transport_security=TransportSecuritySettings(
-            enable_dns_rebinding_protection=False),
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=allowed_hosts,
+        ),
     )
 
     for cap in caps.values():
         _register(mcp, cap, consent=consent, audit=audit, runner=runner,
                   availability=availability)
+    for alias, target in ALIASES.items():
+        if target in caps:
+            _register(mcp, caps[target], consent=consent, audit=audit,
+                      runner=runner, availability=availability, alias=alias)
 
     return mcp
 
@@ -107,7 +120,7 @@ def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
 
 
 def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
-              availability=None) -> None:
+              availability=None, alias: str | None = None) -> None:
     # FastMCP derives the tool schema from the function SIGNATURE, so every
     # capability is generated as a real async def with its declared args as
     # explicit `str = ''` parameters (a no-arg tool gets a zero-parameter
@@ -119,17 +132,20 @@ def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
         f"[{cls}] {cap.summary_template}. "
         f"{'Требует подтверждения владельца.' if cls == 'ACT' else 'Выполняется сразу.'}"
     )
+    fn_name = alias or cap.name
+    if alias:
+        doc = f"[deprecated alias → {cap.name}] {doc}"
     params = ", ".join(f"{k}: str = ''" for k in cap.input_schema)
     forward = ", ".join(f"{k!r}: {k}" for k in cap.input_schema)
     ns: dict = {"_dispatch": dispatch, "cap": cap, "consent": consent,
                 "audit": audit, "runner": runner, "availability": availability}
     src = (
-        f"async def {cap.name}({params}) -> dict:\n"
+        f"async def {fn_name}({params}) -> dict:\n"
         f"    return _dispatch(cap, {{{forward}}}, "
         f"consent=consent, audit=audit, runner=runner, "
         f"availability=availability)\n"
     )
     exec(src, ns)  # noqa: S102 - names are our own capability keys, not input
-    fn = ns[cap.name]
+    fn = ns[fn_name]
     fn.__doc__ = doc
     mcp.tool()(fn)

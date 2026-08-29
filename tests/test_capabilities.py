@@ -34,14 +34,14 @@ CAPS = build_capabilities()
 
 def test_all_expected_tools_present():
     assert set(CAPS) == {
-        "mac_screenshot", "mac_list_apps", "mac_frontmost", "mac_notify",
-        "mac_open_app", "mac_open_url", "mac_shortcut_run",
-        "mac_applescript", "mac_clipboard_read", "mac_clipboard_write",
+        "screenshot", "list_apps", "frontmost", "notify",
+        "open_app", "open_url", "shortcut_run",
+        "automation", "clipboard_read", "clipboard_write",
     }
 
 
 def test_read_vs_act_classes():
-    read = {"mac_screenshot", "mac_list_apps", "mac_frontmost", "mac_notify"}
+    read = {"screenshot", "list_apps", "frontmost", "notify"}
     for name, cap in CAPS.items():
         want = ToolClass.READ if name in read else ToolClass.ACT
         assert cap.tool_class is want, name
@@ -49,7 +49,7 @@ def test_read_vs_act_classes():
 
 def test_open_app_builds_open_command():
     r = FakeRunner()
-    out = CAPS["mac_open_app"].handler(r, {"app": "Safari"})
+    out = CAPS["open_app"].handler(r, {"app": "Safari"})
     assert r.calls[0][0] == ["open", "-a", "Safari"]
     assert "Safari" in out
 
@@ -57,37 +57,37 @@ def test_open_app_builds_open_command():
 def test_open_url_rejects_non_http():
     r = FakeRunner()
     with pytest.raises(CapabilityError):
-        CAPS["mac_open_url"].handler(r, {"url": "file:///etc/passwd"})
+        CAPS["open_url"].handler(r, {"url": "file:///etc/passwd"})
     assert r.calls == []   # nothing executed
 
 
 def test_applescript_blocklist():
     r = FakeRunner()
     with pytest.raises(CapabilityError):
-        CAPS["mac_applescript"].handler(
+        CAPS["automation"].handler(
             r, {"script": 'tell application "Terminal" to do script "rm -rf ~"'})
     assert r.calls == []
 
 
 def test_applescript_allows_ordinary_app():
     r = FakeRunner(out="done")
-    CAPS["mac_applescript"].handler(
+    CAPS["automation"].handler(
         r, {"script": 'tell application "Music" to play'})
     assert r.calls  # executed
 
 
 def test_clipboard_write_pipes_text():
     r = FakeRunner()
-    CAPS["mac_clipboard_write"].handler(r, {"text": "hello"})
+    CAPS["clipboard_write"].handler(r, {"text": "hello"})
     argv, inp = r.calls[0]
     assert argv == ["pbcopy"]
     assert inp == "hello"
 
 
 def test_summary_renders_args():
-    assert "Safari" in CAPS["mac_open_app"].summary({"app": "Safari"})
+    assert "Safari" in CAPS["open_app"].summary({"app": "Safari"})
     # missing arg must not crash the consent line
-    assert CAPS["mac_open_app"].summary({})
+    assert CAPS["open_app"].summary({})
 
 
 def test_runner_error_is_capability_error():

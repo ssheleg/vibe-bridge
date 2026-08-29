@@ -1,0 +1,54 @@
+"""Network identity helpers — which hosts this bridge answers to.
+
+The DNS-rebinding protection that M4 switched off comes back here as an
+explicit allowlist (spec §2): loopback always, plus this machine's tailnet
+addresses — the agentgateway proxies the robot's request verbatim, so the
+Host header arrives as the gateway's own tailnet address (measured
+2026-08-28), and that address IS one of this machine's tailscale IPs.
+Detection is fail-open: no tailscale CLI → loopback-only list, gateway mode
+still works because the gateway targets loopback.
+"""
+from __future__ import annotations
+
+import shutil
+import subprocess
+from pathlib import Path
+
+from .state import BridgeState
+
+_TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+
+
+def tailscale_ips() -> list[str]:
+    exe = shutil.which("tailscale") or (
+        _TAILSCALE_APP if Path(_TAILSCALE_APP).exists() else None)
+    if not exe:
+        return []
+    try:
+        out = subprocess.run([exe, "ip"], capture_output=True, text=True,
+                             timeout=3.0)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if out.returncode != 0:
+        return []
+    return [line.strip() for line in out.stdout.splitlines() if line.strip()]
+
+
+def allowed_hosts(state: BridgeState,
+                  tailnet_ips: list[str] | None = None) -> list[str]:
+    """Host-header allowlist for the MCP transport, any port (`host:*`)."""
+    ips = tailscale_ips() if tailnet_ips is None else tailnet_ips
+    hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    for ip in ips:
+        hosts.append(f"[{ip}]:*" if ":" in ip else f"{ip}:*")
+    return hosts
+
+
+def standalone_bind_host() -> str:
+    """standalone mode binds the tailnet interface when one is up; without
+    it we fall back to all interfaces — the bearer token and the host
+    allowlist stay as the guard (spec §2, recorded deviation)."""
+    for ip in tailscale_ips():
+        if ":" not in ip:          # first IPv4
+            return ip
+    return "0.0.0.0"  # noqa: S104 - guarded by bearer + host allowlist

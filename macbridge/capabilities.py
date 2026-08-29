@@ -30,6 +30,23 @@ class CapabilityError(Exception):
     pass
 
 
+# Fleet wire-compat: the robots deployed today call the mac_* names (M1–M4
+# contract). Every alias keeps answering until the Hermes/mcp bump retires
+# them in one move — board B-7. New callers use the canonical names.
+ALIASES: dict[str, str] = {
+    "mac_screenshot": "screenshot",
+    "mac_list_apps": "list_apps",
+    "mac_frontmost": "frontmost",
+    "mac_notify": "notify",
+    "mac_open_app": "open_app",
+    "mac_open_url": "open_url",
+    "mac_shortcut_run": "shortcut_run",
+    "mac_applescript": "automation",
+    "mac_clipboard_read": "clipboard_read",
+    "mac_clipboard_write": "clipboard_write",
+}
+
+
 @dataclass
 class Capability:
     name: str
@@ -170,34 +187,34 @@ _STR = {"type": "string"}
 
 def build_capabilities() -> dict[str, Capability]:
     caps = [
-        Capability("mac_screenshot", ToolClass.READ,
+        Capability("screenshot", ToolClass.READ,
                    "смотрю на экран Мака", _screenshot, {},
                    binaries=("screencapture",)),
-        Capability("mac_list_apps", ToolClass.READ,
+        Capability("list_apps", ToolClass.READ,
                    "смотрю список запущенных приложений", _list_apps, {},
                    binaries=("osascript",)),
-        Capability("mac_frontmost", ToolClass.READ,
+        Capability("frontmost", ToolClass.READ,
                    "смотрю активное приложение", _frontmost, {},
                    binaries=("osascript",)),
-        Capability("mac_notify", ToolClass.READ,
+        Capability("notify", ToolClass.READ,
                    "показываю уведомление на Маке", _notify,
                    {"text": _STR, "title": _STR}, binaries=("osascript",)),
-        Capability("mac_open_app", ToolClass.ACT,
+        Capability("open_app", ToolClass.ACT,
                    "открыть приложение «{app}»", _open_app, {"app": _STR},
                    binaries=("open",)),
-        Capability("mac_open_url", ToolClass.ACT,
+        Capability("open_url", ToolClass.ACT,
                    "открыть ссылку {url}", _open_url, {"url": _STR},
                    binaries=("open",)),
-        Capability("mac_shortcut_run", ToolClass.ACT,
+        Capability("shortcut_run", ToolClass.ACT,
                    "запустить Shortcut «{name}»", _shortcut,
                    {"name": _STR, "input": _STR}, binaries=("shortcuts",)),
-        Capability("mac_applescript", ToolClass.ACT,
+        Capability("automation", ToolClass.ACT,
                    "выполнить AppleScript на Маке", _applescript,
                    {"script": _STR}, binaries=("osascript",)),
-        Capability("mac_clipboard_read", ToolClass.ACT,
+        Capability("clipboard_read", ToolClass.ACT,
                    "прочитать буфер обмена Мака", _clipboard_read, {},
                    binaries=("pbpaste",)),
-        Capability("mac_clipboard_write", ToolClass.ACT,
+        Capability("clipboard_write", ToolClass.ACT,
                    "записать в буфер обмена Мака", _clipboard_write,
                    {"text": _STR}, binaries=("pbcopy",)),
     ]
@@ -232,7 +249,7 @@ def probe_availability(caps: dict[str, Capability], *,
                                    f"«{missing[0]}»"}
             continue
         status, reason = "available", ""
-        if name == "mac_screenshot" and _screen_capture_granted() is False:
+        if name == "screenshot" and _screen_capture_granted() is False:
             status = "needs-permission"
             reason = ("нужны права «Запись экрана» — Настройки → "
                       "Конфиденциальность и безопасность → Запись экрана")

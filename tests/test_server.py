@@ -111,9 +111,9 @@ def test_server_registers_all_tools():
     import asyncio
     tools = asyncio.run(mcp.list_tools())
     names = {t.name for t in tools}
-    assert "mac_screenshot" in names
-    assert "mac_open_app" in names
-    assert len(names) == 10
+    assert "screenshot" in names            # canonical
+    assert "mac_screenshot" in names        # fleet alias, until B-7
+    assert len(names) == 20                 # 10 canonical + 10 aliases
 
 
 def test_audit_persists_to_disk(tmp_path):

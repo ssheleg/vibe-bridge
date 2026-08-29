@@ -20,11 +20,11 @@ from .state import BridgeState
 from .web import build_app
 
 
-def _serve(app) -> None:  # pragma: no cover - thin uvicorn shell
+def _serve(app, host: str) -> None:  # pragma: no cover - thin uvicorn shell
     import uvicorn
 
     uvicorn.Server(uvicorn.Config(
-        app, host=BRIDGE_HOST, port=BRIDGE_PORT, log_level="warning",
+        app, host=host, port=BRIDGE_PORT, log_level="warning",
     )).run()   # signal handlers are skipped off the main thread
 
 
@@ -36,7 +36,12 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
     state = BridgeState.load()
 
     web_app = build_app(consent=consent, audit=audit, state=state)
-    threading.Thread(target=_serve, args=(web_app,),
+    if state.mode == "standalone":
+        from .net import standalone_bind_host
+        bind_host = standalone_bind_host()
+    else:
+        bind_host = BRIDGE_HOST            # gateway mode: loopback, as M1–M4
+    threading.Thread(target=_serve, args=(web_app, bind_host),
                      name="mac-bridge-web", daemon=True).start()
 
     class BridgeApp(rumps.App):

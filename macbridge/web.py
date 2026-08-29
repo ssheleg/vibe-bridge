@@ -122,14 +122,24 @@ class EventBus:
 
 def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               runner: Runner | None = None,
-              capabilities: dict[str, Capability] | None = None) -> Starlette:
+              capabilities: dict[str, Capability] | None = None,
+              mcp_allowed_hosts: list[str] | None = None) -> Starlette:
+    from .net import allowed_hosts as _net_allowed_hosts
+
     caps = capabilities or build_capabilities()
     availability = probe_availability(caps)
+    if mcp_allowed_hosts is None:
+        mcp_allowed_hosts = _net_allowed_hosts(state)
     mcp = build_server(consent=consent, audit=audit, runner=runner,
-                       capabilities=caps, availability=availability)
-    # The transport's own path collapses to "/" so the mount point IS /mcp —
-    # the exact URL the agentgateway already targets (README wire contract).
-    mcp.settings.streamable_http_path = "/"
+                       capabilities=caps, availability=availability,
+                       allowed_hosts=mcp_allowed_hosts)
+    # The transport keeps its own /mcp path and the inner app mounts at the
+    # ROOT, after every panel route. Mounting at "/mcp" instead produces a
+    # 307 → /mcp/ whose Location is built from the Host header — for the
+    # gateway (Host = 100.x:4000, proxied verbatim) that redirect points AT
+    # THE GATEWAY ITSELF and the robot's call never lands (measured
+    # 2026-08-29). The wire contract is "/mcp exactly, no redirect" (M4).
+    mcp.settings.streamable_http_path = "/mcp"
     bus = EventBus(lambda: _snapshot(consent, audit))
 
     def _authed(request: Request) -> bool:
@@ -228,7 +238,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/grants/revoke", api_revoke_grants, methods=["POST"]),
             Route("/api/capabilities", api_capabilities),
             Route("/events", events),
-            Mount("/mcp", app=BearerGuard(mcp.streamable_http_app(), state)),
+            Mount("/", app=BearerGuard(mcp.streamable_http_app(), state)),
         ],
         lifespan=lifespan,
     )
