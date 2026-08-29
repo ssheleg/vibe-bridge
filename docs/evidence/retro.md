@@ -13,7 +13,7 @@
 | Run | Date | Commit | Outcome |
 |---|---|---|---|
 | v2-design | 2026-08-29 | 736cf87 | complete — REQ-01..10 закрыты |
-| build (сегмент 1) | 2026-08-29 | 5246b13…HEAD | T-WS/T-CORE/T-NORTH/T-PANEL/T-SOUTH shipped; далее T-PHONE→T-WIZARD→T-PLATFORM (bridge) + T-ROBOT (репо робота) |
+| build (сегмент 1) | 2026-08-29 | 5246b13…58619be | T-WS/CORE/NORTH/PANEL/SOUTH/PHONE/WIZARD-a shipped (86 тестов, 2 live-бага пойманы браузером); осталось: T-ROBOT (репо робота, деплой = авторизация оператора), B-9 WIZARD-b, T-PLATFORM |
 
 ## Recent log
 
