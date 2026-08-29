@@ -50,6 +50,21 @@ class RobotClient:
     def configured(self) -> bool:
         return self.base_url is not None or self.chat_url is not None
 
+    def configure(self, *, base_url: str | None = None,
+                  chat_url: str | None = None, chat_key: str | None = None,
+                  name: str | None = None) -> None:
+        """Re-point the client after pairing — the running panel picks the
+        robot up without a restart."""
+        if base_url is not None:
+            self.base_url = base_url.rstrip("/") or None
+        if chat_url is not None:
+            self.chat_url = chat_url.rstrip("/") or None
+        if chat_key is not None:
+            self.chat_key = chat_key or None
+        if name:
+            self.name = name
+        self._offline_since = None
+
     # ── status ──────────────────────────────────────────────────────────────
 
     async def status(self) -> dict[str, Any]:

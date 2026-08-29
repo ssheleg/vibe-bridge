@@ -43,6 +43,9 @@ class BridgeState:
     vapid_private: str | None = None
     vapid_public: str | None = None
     push_subscriptions: list = field(default_factory=list)
+    # One-shot pairing token (spec §3): set when the wizard arms pairing,
+    # burned on first successful /pair.
+    pending_pair_token: str | None = None
 
     @classmethod
     def load(cls, path: Path | None = None) -> BridgeState:
@@ -59,7 +62,8 @@ class BridgeState:
                        robot_name=data.get("robot_name"),
                        vapid_private=data.get("vapid_private"),
                        vapid_public=data.get("vapid_public"),
-                       push_subscriptions=data.get("push_subscriptions", []))
+                       push_subscriptions=data.get("push_subscriptions", []),
+                       pending_pair_token=data.get("pending_pair_token"))
         state = cls(path=path, panel_token=secrets.token_urlsafe(32))
         state.save()
         return state

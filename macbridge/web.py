@@ -321,6 +321,110 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             "subscriptions": len(state.push_subscriptions),
         })
 
+    async def pair(request: Request) -> Response:
+        """The robot's door (spec §3). Auth = the one-shot pairing token —
+        NOT the panel cookie: the caller is the robot's provision script.
+        Burned on first success; a replay gets 403."""
+        import secrets as _secrets
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "bad json"}, status_code=400)
+        offered = str(body.get("token", ""))
+        expected = state.pending_pair_token
+        if not expected or not _secrets.compare_digest(offered, expected):
+            audit.record(tool="pair", tool_class="act", decision="deny",
+                         ok=False, line="попытка пейринга с неверным токеном")
+            return JSONResponse({"error": "неверный или погашенный токен"},
+                                status_code=403)
+        state.pending_pair_token = None            # one-shot: burned now
+        state.robot_token = state.robot_token or _secrets.token_urlsafe(32)
+        name = str(body.get("name", "")).strip() or "робот"
+        state.robot_name = name
+        if body.get("base_url"):
+            state.robot_base_url = str(body["base_url"])
+        if body.get("chat_url"):
+            state.robot_chat_url = str(body["chat_url"])
+        if body.get("chat_key"):
+            state.robot_chat_key = str(body["chat_key"])
+        state.save()
+        robot.configure(base_url=state.robot_base_url,
+                        chat_url=state.robot_chat_url,
+                        chat_key=state.robot_chat_key, name=name)
+        robot_state.update({"configured": robot.configured})
+        audit.record(tool="pair", tool_class="act", decision="allow", ok=True,
+                     line=f"робот «{name}» связан с мостом")
+        notify("vibe-bridge", f"Робот «{name}» связан с мостом ✓")
+        from .net import serve_active, tailnet_dns_name
+        from .server import BRIDGE_PORT
+        dns = await asyncio.to_thread(tailnet_dns_name)
+        https_ok = (await asyncio.to_thread(serve_active, BRIDGE_PORT)
+                    if dns else False)
+        mcp_url = (f"https://{dns}/mcp" if https_ok
+                   else f"http://127.0.0.1:{BRIDGE_PORT}/mcp")
+        return JSONResponse({"robot_token": state.robot_token,
+                             "mcp_url": mcp_url})
+
+    async def api_wizard_pairing_start(request: Request) -> Response:
+        """Arm pairing: mint the one-shot token and hand the wizard the
+        payload it writes to the SD (or shows as a code path later)."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import wizard as wiz
+        from .net import serve_active, tailnet_dns_name
+        from .server import BRIDGE_PORT
+        token = wiz.pairing_token()
+        state.pending_pair_token = token
+        state.save()
+        dns = await asyncio.to_thread(tailnet_dns_name)
+        https_ok = (await asyncio.to_thread(serve_active, BRIDGE_PORT)
+                    if dns else False)
+        bridge_url = (f"https://{dns}" if https_ok else
+                      f"http://{dns or '127.0.0.1'}:{BRIDGE_PORT}")
+        return JSONResponse({"token": token, "bridge_url": bridge_url})
+
+    async def api_wizard_disks(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import wizard as wiz
+        return JSONResponse({
+            "disks": await asyncio.to_thread(wiz.list_removable_disks),
+            "boot_volumes": await asyncio.to_thread(wiz.find_boot_volumes)})
+
+    async def api_wizard_prepare(request: Request) -> Response:
+        """Prepare an ALREADY-FLASHED boot partition (stock Raspberry Pi OS)
+        mounted at `mount_path`: firstrun + Wi-Fi + provision unit + token.
+        Full image download+write is WIZARD-b (needs elevation UX)."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from . import wizard as wiz
+        body = await request.json()
+        mount = Path(str(body.get("mount_path", "")))
+        if not mount.is_dir() or not (mount / "cmdline.txt").exists():
+            return JSONResponse(
+                {"error": "это не boot-раздел Raspberry Pi OS — не вижу "
+                          "cmdline.txt"}, status_code=400)
+        for fld in ("ssid", "psk", "name"):
+            if not str(body.get(fld, "")).strip():
+                return JSONResponse({"error": f"нужно поле {fld}"},
+                                    status_code=400)
+        start = await api_wizard_pairing_start(request)
+        info = json.loads(bytes(start.body))
+        hostname = str(body.get("hostname") or "robot-" +
+                       str(body["name"]).lower())[:32]
+        try:
+            written = await asyncio.to_thread(
+                wiz.prepare_boot_partition, mount,
+                hostname=hostname, ssid=str(body["ssid"]),
+                psk=str(body["psk"]), token=info["token"],
+                bridge_url=info["bridge_url"], name=str(body["name"]))
+        except OSError as exc:
+            return JSONResponse(
+                {"error": f"не удалось записать на карту: {exc}"},
+                status_code=500)
+        return JSONResponse({"ok": True, "written": written,
+                             "bridge_url": info["bridge_url"]})
+
     async def api_journal(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -461,6 +565,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/push/unsubscribe", api_push_unsubscribe,
                   methods=["POST"]),
             Route("/api/phone", api_phone),
+            Route("/pair", pair, methods=["POST"]),
+            Route("/api/wizard/pairing/start", api_wizard_pairing_start,
+                  methods=["POST"]),
+            Route("/api/wizard/disks", api_wizard_disks),
+            Route("/api/wizard/prepare", api_wizard_prepare,
+                  methods=["POST"]),
             Route("/events", events),
             Mount("/", app=BearerGuard(mcp.streamable_http_app(), state)),
         ],

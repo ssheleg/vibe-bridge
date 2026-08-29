@@ -160,6 +160,10 @@ td.mono{font-family:var(--font-data);font-size:12px}
     <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'}).then(refresh)">Отозвать разрешения</button>
   </div>
   <div class="card">
+    <div class="cap">Подключить робота (новая Raspberry Pi)</div>
+    <div id="wizardCard"><p class="empty">Загружаю…</p></div>
+  </div>
+  <div class="card">
     <div class="cap">Телефон</div>
     <div id="phoneCard"><p class="empty">Загружаю…</p></div>
   </div>
@@ -307,7 +311,7 @@ document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("clic
   document.querySelectorAll(".tab[data-view]").forEach(x=>x.setAttribute("aria-selected", x===b));
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));
   if (b.dataset.view==="journal") loadJournal(true);
-  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); }
+  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); }
 }));
 /* journal */
 document.querySelectorAll(".tab[data-flt]").forEach(b=>b.addEventListener("click", ()=>{
@@ -327,6 +331,45 @@ async function loadJournal(reset){
   cur.offset += page.entries.length;
   document.getElementById("jTotal").textContent = `${cur.offset} из ${page.total}`;
   document.getElementById("moreBtn").style.display = cur.offset < page.total ? "inline-block" : "none";
+}
+/* wizard */
+async function loadWizard(){
+  const el = document.getElementById("wizardCard");
+  try{
+    const d = await (await fetch("/api/wizard/disks")).json();
+    let html = `<ol style="margin:0 0 10px 18px">
+      <li>Прошейте карту официальным <b>Raspberry Pi Imager</b>: стоковый Raspberry Pi OS (64-bit), без своих настроек.</li>
+      <li>Не вынимая карту из компьютера, выберите её boot-раздел ниже.</li>
+      <li>Мост запишет Wi-Fi, имя и одноразовый ключ связки — карта поедет в робота.</li></ol>`;
+    if (d.boot_volumes && d.boot_volumes.length){
+      html += `<div class="field"><label>Boot-раздел карты</label>
+        <select id="wzMount" style="width:100%;font:13px var(--font-ui);padding:8px;border:1px solid var(--border-strong);border-radius:var(--r-control);background:var(--panel);color:var(--ink)">`+
+        d.boot_volumes.map(v=>`<option>${esc(v)}</option>`).join("")+`</select></div>`+
+        `<div class="field"><label>Wi-Fi сеть робота</label><input id="wzSsid"></div>`+
+        `<div class="field"><label>Пароль Wi-Fi</label><input id="wzPsk" type="password"></div>`+
+        `<div class="field"><label>Имя робота</label><input id="wzName" value="Вася"></div>`+
+        `<button class="btn primary" onclick="wizardPrepare()">Записать на карту</button>`+
+        `<p class="note" id="wzNote" style="margin-top:6px"></p>`;
+    } else {
+      html += `<p class="empty">Boot-раздел не найден — вставьте прошитую карту (после Imager раздел появится сам).</p>`+
+        `<button class="btn ghost" onclick="loadWizard()">Проверить снова</button>`;
+    }
+    el.innerHTML = html;
+  } catch(e){ el.innerHTML = '<p class="empty">Не удалось опросить диски.</p>'; }
+}
+async function wizardPrepare(){
+  const note = document.getElementById("wzNote");
+  note.textContent = "Записываю…";
+  const body = {mount_path: document.getElementById("wzMount").value,
+    ssid: document.getElementById("wzSsid").value,
+    psk: document.getElementById("wzPsk").value,
+    name: document.getElementById("wzName").value};
+  const r = await fetch("/api/wizard/prepare", {method:"POST",
+    headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
+  const d = await r.json();
+  note.textContent = r.ok
+    ? "Готово ✓ Извлеките карту, вставьте в робота и включите питание. Когда робот свяжется, мост скажет — и карточка «Робот» оживёт."
+    : ("Не вышло: " + (d.error||r.status));
 }
 /* phone / push */
 function b64ToU8(b64){

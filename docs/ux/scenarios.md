@@ -275,7 +275,7 @@ P-03 член семьи).
 - **States covered:** loading, success
 - **Errors & recovery:** карта меньше минимума → сказано сразу на шаге выбора; сеть оборвалась при скачивании образа → докачка/повтор шага, не с нуля
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** частично (WIZARD-a): macbridge/wizard.py:1 (генераторы firstrun/cmdline/NM/unit/token), macbridge/web.py:1 (/api/wizard/*), webui-карточка; запись образа+элевация — B-9
 
 ### SCN-014: SD-визард — ошибка записи
 - **Persona:** P-02
@@ -311,7 +311,7 @@ P-03 член семьи).
 - **States covered:** loading, success
 - **Errors & recovery:** любой пункт чеклиста красный → назван пункт, причина и следующее действие; тестовый ACT отклонён случайно → пункт можно перезапустить
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** мост-сторона: macbridge/web.py:1 (/pair одноразовый, перенастройка юга на лету, уведомление «связан»); робот-сторона и чеклист-UI — M-ROBOT/B-9
 
 ### SCN-016: Пейринг — робот не появился
 - **Persona:** P-02
