@@ -81,7 +81,7 @@ ST/SCN живёт ровно в одном модуле; walking skeleton — п
 - **Implements:** ST-011 · SCN-018 (Win/Linux ветки) · ADR-0003, ADR-0005
 - **Контракты:** spec §5, §9; research-notes §D, §E.
 
-### M-ROBOT — bridge-API робота (внешний: `rpi-ai-assistant`, CO-4)
+### M-ROBOT — bridge-API робота (внешний: `~/DATA/microcontrollers/robot-vibecoder`, remote `ssheleg/rpi-ai-assistant`, CO-4)
 - **Scope:** `GET /bridge/status`, `SSE /bridge/events`,
   `POST /bridge/update`, `POST /bridge/pair` + код пейринга голосом/в
   Telegram; бинд за loopback (tailnet). Blind-update-safe, default-off до

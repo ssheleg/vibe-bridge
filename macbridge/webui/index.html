@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vibe-bridge</title>
+<style>
+/* workbench tokens (verbatim subset; canonical: docs/design/ui.md) */
+:root{--bg:#f7f8fa;--panel:#fff;--panel-2:#f7f8fa;--ink:#1a1f2b;--muted:#5b6472;
+--border:#e6e9ef;--border-strong:#d7dce4;--accent:#2f6feb;--accent-weak:#eaf0fe;
+--accent-ink:#fff;--ok:#1a7f37;--ok-weak:#e6f4ea;--warn:#9a6700;--warn-weak:#fff3d6;
+--danger:#d1242f;--danger-weak:#fde8e9;--r-control:6px;--r-card:10px;--r-pill:999px;
+--dur:.18s;--font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
+--font-data:ui-monospace,"SF Mono",Menlo,monospace;color-scheme:light}
+@media (prefers-color-scheme: dark){:root{color-scheme:dark;--bg:#0f1218;--panel:#161b24;
+--panel-2:#1b212c;--ink:#e8ecf3;--muted:#8a93a6;--border:#232a36;--border-strong:#2c3441;
+--accent:#4b8bff;--accent-weak:#1b2740;--accent-ink:#0f1218;--ok:#3fb960;--ok-weak:#12281a;
+--warn:#d9a93f;--warn-weak:#2b2210;--danger:#e5534b;--danger-weak:#2d1517}}
+*{box-sizing:border-box;margin:0}
+body{font:13px/1.45 var(--font-ui);background:var(--bg);color:var(--ink);padding:24px;max-width:760px;margin:0 auto}
+h1{font-size:20px;display:flex;align-items:center;gap:10px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;margin-top:16px}
+.cap{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
+.consent{border-color:var(--warn)}
+.consent .line{font-size:15px;font-weight:600;margin-bottom:12px}
+.btn{font:600 13px var(--font-ui);border-radius:var(--r-control);padding:7px 14px;border:1px solid transparent;cursor:pointer;transition:background var(--dur)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;border-color:var(--border-strong);color:var(--ink)}
+.btn.dangerous{background:transparent;border-color:var(--danger);color:var(--danger)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:12px;align-items:center;min-height:32px;border-bottom:1px solid var(--border);font-size:13px}
+.row:last-child{border-bottom:0}
+.row .t{margin-left:auto;color:var(--muted);font-family:var(--font-data);font-size:11px;white-space:nowrap}
+.banner{background:var(--panel-2);color:var(--muted);border:1px solid var(--border);border-radius:var(--r-card);padding:8px 16px;margin-top:16px;font-weight:600;display:none}
+.mono{font-family:var(--font-data)}
+#empty{color:var(--muted)}
+</style>
+</head>
+<body>
+<h1><span class="dot" id="statedot" style="background:var(--ok)"></span>vibe-bridge</h1>
+<div class="banner" id="paused">Мост на паузе — для робота этот компьютер выглядит выключенным.</div>
+
+<div class="card consent" id="consent" style="display:none">
+  <div class="cap">Робот · запрос действия</div>
+  <div class="line" id="summary"></div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn primary" onclick="decide('allow')">Разрешить</button>
+    <button class="btn ghost" onclick="decide('allow_grant')">Разрешить на 15 мин</button>
+    <button class="btn dangerous" onclick="decide('deny')">Отклонить</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="cap">Журнал <span class="mono" id="grant" style="text-transform:none;letter-spacing:0"></span></div>
+  <div id="feed"><div id="empty">— робот ещё ничего не просил —</div></div>
+</div>
+
+<script>
+const DECISION_WORDS = {auto:"исполнено", allow:"разрешено", allow_grant:"разрешено (грант)",
+  deny:"отказ владельца", timeout:"таймаут — отказ", paused:"пауза — отказ"};
+function render(s){
+  document.getElementById("paused").style.display = s.paused ? "block" : "none";
+  document.getElementById("statedot").style.background =
+    s.paused ? "var(--muted)" : "var(--ok)";
+  const c = document.getElementById("consent");
+  c.style.display = s.pending ? "block" : "none";
+  if (s.pending) document.getElementById("summary").textContent = "Робот хочет: " + s.pending.summary;
+  document.getElementById("grant").textContent =
+    s.grant_left_s > 0 ? " · грант ещё " + Math.ceil(s.grant_left_s/60) + " мин" : "";
+  const feed = document.getElementById("feed");
+  if (s.recent && s.recent.length){
+    feed.innerHTML = s.recent.slice().reverse().map(e =>
+      `<div class="row"><span class="dot" style="background:${e.ok?"var(--ok)":"var(--danger)"}"></span>` +
+      `<span>${esc(e.tool)} — ${DECISION_WORDS[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>` +
+      `<span class="t">${esc((e.ts||"").slice(11,19))}</span></div>`).join("");
+  }
+}
+function esc(x){const d=document.createElement("div");d.textContent=String(x??"");return d.innerHTML}
+async function decide(decision){
+  await fetch("/api/consent/decide", {method:"POST",
+    headers:{"Content-Type":"application/json"}, body:JSON.stringify({decision})});
+}
+const es = new EventSource("/events");
+es.addEventListener("state", ev => render(JSON.parse(ev.data)));
+fetch("/api/state").then(r=>r.json()).then(render);
+</script>
+</body>
+</html>

@@ -202,7 +202,10 @@ Dev-режим остаётся: `uv run python -m vibebridge.app`. Уведом
 
 ## 12. Открытое → carry-over
 
-- CO-4: контракт §6 реализуется в `rpi-ai-assistant` (+ бинд за loopback).
+- CO-4: контракт §6 реализуется в репо робота —
+  `~/DATA/microcontrollers/robot-vibecoder` (remote
+  `ssheleg/rpi-ai-assistant`; НЕ путать с `rp-assistant` — тот под
+  Pi Zero 2 W) — плюс бинд за loopback.
 - Снятие `mac_*`-алиасов — вместе с бампом Hermes (новая CO-строка).
 - Мульти-мост (несколько компьютеров одного владельца) — за пределами v1;
   честная заметка в настройках (SCN-006 alt).

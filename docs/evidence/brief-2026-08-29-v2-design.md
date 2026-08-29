@@ -54,7 +54,7 @@
 | CO-1 | Переименование репо mac-bridge → vibe-bridge (+ маркетплейс/пути) | build run |
 | CO-2 | Figma-визуальный проход по wireframes (интерактивный OAuth) | build run |
 | CO-3 | `/brand-init` + copywriting строк панели и визарда | build run |
-| CO-4 | Robot-side задача: bridge-facing API (статус/чат/апдейт-триггер) поверх Hermes gateway — задача в репо `rpi-ai-assistant` | robot repo |
+| CO-4 | Robot-side задача: bridge-facing API (статус/чат/апдейт-триггер) поверх Hermes gateway — задача в репо робота `~/DATA/microcontrollers/robot-vibecoder` (remote `ssheleg/rpi-ai-assistant`) | robot repo |
 | CO-5 | Упаковка/подпись/нотаризация per-OS + автообновление | build run |
 | CO-6 | `docs/ux/` пуста | закрывается REQ-01..04 этим раном |
 

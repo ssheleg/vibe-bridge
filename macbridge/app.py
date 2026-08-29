@@ -11,10 +11,21 @@ raised from the main thread, so a rumps.Timer polls consent.pending().
 from __future__ import annotations
 
 import threading
+import webbrowser
 
 from .audit import AuditLog
 from .consent import ConsentEngine, Decision
-from .server import build_server
+from .server import BRIDGE_HOST, BRIDGE_PORT
+from .state import BridgeState
+from .web import build_app
+
+
+def _serve(app) -> None:  # pragma: no cover - thin uvicorn shell
+    import uvicorn
+
+    uvicorn.Server(uvicorn.Config(
+        app, host=BRIDGE_HOST, port=BRIDGE_PORT, log_level="warning",
+    )).run()   # signal handlers are skipped off the main thread
 
 
 def run() -> None:  # pragma: no cover - requires a Mac GUI session
@@ -22,11 +33,11 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
 
     consent = ConsentEngine()
     audit = AuditLog()
+    state = BridgeState.load()
 
-    server = build_server(consent=consent, audit=audit)
-    threading.Thread(
-        target=lambda: server.run(transport="streamable-http"),
-        name="mac-bridge-mcp", daemon=True).start()
+    web_app = build_app(consent=consent, audit=audit, state=state)
+    threading.Thread(target=_serve, args=(web_app,),
+                     name="mac-bridge-web", daemon=True).start()
 
     class BridgeApp(rumps.App):
         def __init__(self) -> None:
@@ -34,6 +45,7 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
             self.menu = [
                 rumps.MenuItem("Мост активен", callback=None),
                 None,
+                rumps.MenuItem("Открыть панель", callback=self.open_panel),
                 rumps.MenuItem("⏸ Поставить робота на паузу",
                                callback=self.toggle_pause),
                 rumps.MenuItem("Сбросить разрешения",
@@ -76,6 +88,10 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
                 # rebuild submenu-ish text into the tooltip line
                 self.menu["Последние действия"].title = "Последние: " + \
                     (lines[0] if lines else "—")
+
+        def open_panel(self, _sender) -> None:
+            webbrowser.open(
+                f"http://{BRIDGE_HOST}:{BRIDGE_PORT}/?token={state.panel_token}")
 
         def toggle_pause(self, sender) -> None:
             consent.paused = not consent.paused
