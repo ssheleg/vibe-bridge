@@ -8,7 +8,7 @@ Priorities re-derived at each run's close-out.
 | B-1 | P1 | Build: T-WS/CORE/NORTH/PANEL/SOUTH/PHONE/WIZARD-a **shipped**; осталось T-PLATFORM | brief-2026-08-29-build | in-progress |
 | B-9 | P2 | WIZARD-b: скачивание+запись образа с элевацией (authopen/UAC/pkexec) + степпер SCR-06 целиком; live с физической картой | build-plan M-WIZARD | open |
 | B-8 | P1 | Human: ~~Serve включён, HTTPS live~~ → остался телефон: открыть phone_link из настроек панели, iPhone «На экран Домой», «Включить пуши» | T-PHONE 2026-08-29 | half-done |
-| B-2 | P1 | Robot-side bridge-API: **работает на железе** (ветка `agent/bridge-api`, борд робо-репы B-13); остался merge в fleet-ветку — авторизация владельца | brief-2026-08-29 CO-4 | live, ждёт merge |
+| B-2 | P1 | ~~Robot-side bridge-API~~ **ЗАКРЫТО 2026-08-29**: смержено в fleet-ветку робота (a2348d9), после merge проверено живьём (v1.1.0+181 build 108, чат отвечает) | brief-2026-08-29 CO-4 | done |
 | B-3 | P2 | Переименование репо → vibe-bridge | brief-2026-08-29 CO-1 | open |
 | B-4 | P2 | Упаковка/подпись per-OS + автообновление | brief-2026-08-29 CO-5 | open |
 | B-5 | P3 | `/brand-init` + copywriting панели/визарда | brief-2026-08-29 CO-3 | open |
