@@ -155,7 +155,11 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     if robot is None:
         robot = RobotClient(base_url=state.robot_base_url,
                             chat_url=state.robot_chat_url,
-                            chat_key=state.robot_chat_key,
+                            # общий секрет: bridge_api робота гейтит ОБА
+                            # канала одним robot_token (fallback для пар,
+                            # заключённых до фикса chat_key-дефолта)
+                            chat_key=(state.robot_chat_key
+                                      or state.robot_token),
                             name=state.robot_name or "робот")
     notify = notify or (lambda title, text: None)
     robot_state: dict = {"configured": robot.configured, "online": False,

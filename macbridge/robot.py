@@ -67,6 +67,12 @@ class RobotClient:
 
     # ── status ──────────────────────────────────────────────────────────────
 
+    def _headers(self) -> dict[str, str]:
+        """One shared secret authorizes BOTH channels of the robot's
+        bridge_api (its bearer guards every endpoint — fail-closed)."""
+        return ({"Authorization": f"Bearer {self.chat_key}"}
+                if self.chat_key else {})
+
     async def status(self) -> dict[str, Any]:
         """Last-known truth about the robot. Never raises; never spins."""
         if self.base_url is None:
@@ -74,6 +80,7 @@ class RobotClient:
                     "reason": "робот не подключён к панели"}
         try:
             r = await self._http.get(f"{self.base_url}/bridge/status",
+                                     headers=self._headers(),
                                      timeout=STATUS_TIMEOUT_S)
             r.raise_for_status()
             data = r.json()
@@ -101,8 +108,7 @@ class RobotClient:
             "user": session,
             "messages": [{"role": "user", "content": text}],
         }
-        headers = ({"Authorization": f"Bearer {self.chat_key}"}
-                   if self.chat_key else {})
+        headers = self._headers()
         for attempt in (1, 2):
             try:
                 r = await self._http.post(
@@ -130,6 +136,7 @@ class RobotClient:
             return {"ok": False, "error": "робот не подключён"}
         try:
             r = await self._http.post(f"{self.base_url}/bridge/update",
+                                      headers=self._headers(),
                                       timeout=UPDATE_TIMEOUT_S)
             r.raise_for_status()
         except httpx.HTTPError as exc:
@@ -148,6 +155,7 @@ class RobotClient:
         try:
             async with self._http.stream(
                     "GET", f"{self.base_url}/bridge/events",
+                    headers=self._headers(),
                     timeout=httpx.Timeout(10.0, read=None)) as r:
                 r.raise_for_status()
                 async for line in r.aiter_lines():

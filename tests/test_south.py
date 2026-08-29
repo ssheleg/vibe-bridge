@@ -171,3 +171,20 @@ def test_robot_endpoints_unconfigured_are_honest(tmp_path):
         assert st["configured"] is False
         chat = c.post("/api/robot/chat", json={"text": "x"}).json()
         assert chat["undelivered"] is True
+
+
+def test_bridge_api_calls_carry_shared_bearer():
+    """bridge_api робота гейтит ВСЕ эндпоинты одним robot_token — статус,
+    апдейт и события обязаны нести bearer, не только чат (пойман live 401)."""
+    seen: list[str | None] = []
+
+    def h(req):
+        seen.append(req.headers.get("authorization"))
+        if req.url.path == "/bridge/status":
+            return httpx.Response(200, json={"version": "v1"})
+        return httpx.Response(202)
+
+    c = _client(h, chat_key="shared-tok")
+    _run(c.status())
+    _run(c.trigger_update())
+    assert seen == ["Bearer shared-tok"] * 2
