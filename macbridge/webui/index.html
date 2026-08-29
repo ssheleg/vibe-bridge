@@ -38,7 +38,12 @@ h1{font-size:20px;display:flex;align-items:center;gap:10px}
 </style>
 </head>
 <body>
-<h1><span class="dot" id="statedot" style="background:var(--ok)"></span>vibe-bridge</h1>
+<h1><span class="dot" id="statedot" style="background:var(--ok)"></span>vibe-bridge
+  <span style="margin-left:auto;display:flex;gap:8px">
+    <button class="btn ghost" id="pausebtn" onclick="togglePause()">⏸ Пауза</button>
+    <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'})" title="Следующее действие снова спросит">Отозвать разрешения</button>
+  </span>
+</h1>
 <div class="banner" id="paused">Мост на паузе — для робота этот компьютер выглядит выключенным.</div>
 
 <div class="card consent" id="consent" style="display:none">
@@ -58,28 +63,41 @@ h1{font-size:20px;display:flex;align-items:center;gap:10px}
 
 <script>
 const DECISION_WORDS = {auto:"исполнено", allow:"разрешено", allow_grant:"разрешено (грант)",
-  deny:"отказ владельца", timeout:"таймаут — отказ", paused:"пауза — отказ"};
+  deny:"отказ владельца", timeout:"таймаут — отказ", paused:"пауза — отказ",
+  unavailable:"недоступно на этой системе"};
+let cur = {paused:false, pendingId:null};
 function render(s){
+  cur.paused = s.paused; cur.pendingId = s.pending ? s.pending.id : null;
   document.getElementById("paused").style.display = s.paused ? "block" : "none";
   document.getElementById("statedot").style.background =
     s.paused ? "var(--muted)" : "var(--ok)";
+  document.getElementById("pausebtn").textContent = s.paused ? "▶ Снять паузу" : "⏸ Пауза";
   const c = document.getElementById("consent");
   c.style.display = s.pending ? "block" : "none";
-  if (s.pending) document.getElementById("summary").textContent = "Робот хочет: " + s.pending.summary;
+  if (s.pending){
+    let extra = s.pending_count > 1 ? ` (в очереди ещё ${s.pending_count-1})` : "";
+    document.getElementById("summary").textContent = "Робот хочет: " + s.pending.summary + extra;
+  }
   document.getElementById("grant").textContent =
     s.grant_left_s > 0 ? " · грант ещё " + Math.ceil(s.grant_left_s/60) + " мин" : "";
   const feed = document.getElementById("feed");
   if (s.recent && s.recent.length){
     feed.innerHTML = s.recent.slice().reverse().map(e =>
       `<div class="row"><span class="dot" style="background:${e.ok?"var(--ok)":"var(--danger)"}"></span>` +
-      `<span>${esc(e.tool)} — ${DECISION_WORDS[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>` +
+      `<span>${esc(e.line||e.tool)} — ${DECISION_WORDS[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>` +
       `<span class="t">${esc((e.ts||"").slice(11,19))}</span></div>`).join("");
   }
 }
 function esc(x){const d=document.createElement("div");d.textContent=String(x??"");return d.innerHTML}
 async function decide(decision){
   await fetch("/api/consent/decide", {method:"POST",
-    headers:{"Content-Type":"application/json"}, body:JSON.stringify({decision})});
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({decision, id: cur.pendingId})});
+}
+async function togglePause(){
+  await fetch("/api/pause", {method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({paused: !cur.paused})});
 }
 const es = new EventSource("/events");
 es.addEventListener("state", ev => render(JSON.parse(ev.data)));

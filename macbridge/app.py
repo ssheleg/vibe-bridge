@@ -72,7 +72,7 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
             # rumps.alert: 1=ok, 0=cancel, 2=other
             decision = {1: Decision.ALLOW, 0: Decision.DENY,
                         2: Decision.ALLOW_GRANT}.get(resp, Decision.DENY)
-            req.resolve(decision)
+            req.resolve(decision, by="dialog")   # loser of the race is a no-op
             self._refresh_recent()
 
         def _refresh_recent(self) -> None:

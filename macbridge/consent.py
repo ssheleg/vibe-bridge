@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -47,13 +48,24 @@ class ConsentRequest:
     tool: str
     tool_class: ToolClass
     summary: str                  # human line shown in the dialog
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     created: float = field(default_factory=time.monotonic)
+    decided_by: str | None = None  # which surface answered (panel/dialog/phone)
     _event: threading.Event = field(default_factory=threading.Event)
     _decision: Decision | None = None
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
-    def resolve(self, decision: Decision) -> None:
-        self._decision = decision
-        self._event.set()
+    def resolve(self, decision: Decision, by: str = "") -> bool:
+        """First valid decision wins; a later one is a no-op returning False.
+        Surfaces race by design (dialog vs panel vs phone) — the loser must
+        learn it lost, not overwrite the owner's actual answer."""
+        with self._lock:
+            if self._event.is_set():
+                return False
+            self._decision = decision
+            self.decided_by = by or None
+            self._event.set()
+            return True
 
 
 class ConsentEngine:
@@ -100,6 +112,20 @@ class ConsentEngine:
     def pending(self) -> ConsentRequest | None:
         with self._lock:
             return self._pending[0] if self._pending else None
+
+    def pending_all(self) -> list[ConsentRequest]:
+        with self._lock:
+            return list(self._pending)
+
+    def resolve_by_id(self, req_id: str, decision: Decision,
+                      by: str = "") -> bool:
+        """Resolve one pending request by id. False = gone or already
+        decided — the caller surfaces that as 'запрос уже решён/истёк'."""
+        with self._lock:
+            req = next((r for r in self._pending if r.id == req_id), None)
+        if req is None:
+            return False
+        return req.resolve(decision, by=by)
 
     def grant_active(self, tool_class: ToolClass) -> float:
         """Seconds of grant remaining for the class (0 if none)."""

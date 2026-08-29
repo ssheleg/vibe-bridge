@@ -213,3 +213,59 @@ def test_events_endpoint_requires_auth_and_streams_header(tmp_path):
     app, *_ = _mk(tmp_path)
     with TestClient(app) as c:
         assert c.get("/events").status_code == 401
+
+
+# ── T-CORE API surface ──────────────────────────────────────────────────────
+
+def test_pause_endpoint_toggles(tmp_path):
+    app, consent, *_ = _mk(tmp_path)
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        r = c.post("/api/pause", json={"paused": True})
+        assert r.json()["paused"] is True and consent.paused is True
+        assert c.get("/api/state").json()["paused"] is True
+        c.post("/api/pause", json={"paused": False})
+        assert consent.paused is False
+
+
+def test_grants_revoke_endpoint(tmp_path):
+    from macbridge.consent import ToolClass as TC
+    app, consent, *_ = _mk(tmp_path)
+    consent._grant_until[TC.ACT] = consent._clock() + 600
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        assert c.post("/api/grants/revoke").status_code == 200
+    assert consent.grant_active(TC.ACT) == 0.0
+
+
+def test_capabilities_endpoint_shape(tmp_path):
+    app, *_ = _mk(tmp_path)
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        caps = c.get("/api/capabilities").json()
+        assert caps["mac_do"]["class"] == "act"
+        assert caps["mac_do"]["status"] in ("available", "unavailable")
+
+
+def test_decide_by_id_and_stale_id(tmp_path):
+    app, consent, audit, runner = _mk(tmp_path)
+    results: list = []
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        t = _start_act(consent, audit, runner, results)
+        deadline = time.time() + 3
+        pending = None
+        while time.time() < deadline:
+            pending = c.get("/api/state").json()["pending"]
+            if pending:
+                break
+            time.sleep(0.02)
+        assert pending and pending["id"]
+        stale = c.post("/api/consent/decide",
+                       json={"decision": "allow", "id": "deadbeef0000"})
+        assert stale.status_code == 404          # unknown id never resolves
+        ok = c.post("/api/consent/decide",
+                    json={"decision": "allow", "id": pending["id"]})
+        assert ok.status_code == 200
+        t.join(timeout=3)
+    assert results and results[0]["ok"] is True

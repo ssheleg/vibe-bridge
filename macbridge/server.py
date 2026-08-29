@@ -32,9 +32,14 @@ def build_server(
     audit: AuditLog,
     runner: Runner | None = None,
     capabilities: dict[str, Capability] | None = None,
+    availability: dict[str, dict] | None = None,
 ) -> FastMCP:
+    from .capabilities import probe_availability
+
     runner = runner or Runner()
     caps = capabilities or build_capabilities()
+    if availability is None:
+        availability = probe_availability(caps)
     # DNS-rebinding protection validates the Host header; the agentgateway
     # proxies the robot's request verbatim, so the Host arrives as the
     # gateway's own tailnet address (e.g. 100.x:4000), not our loopback —
@@ -51,41 +56,58 @@ def build_server(
     )
 
     for cap in caps.values():
-        _register(mcp, cap, consent=consent, audit=audit, runner=runner)
+        _register(mcp, cap, consent=consent, audit=audit, runner=runner,
+                  availability=availability)
 
     return mcp
 
 
 def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
-             audit: AuditLog, runner: Runner) -> dict[str, Any]:
-    """Pure-ish core: consent → handler → audit. Returns a result dict.
+             audit: AuditLog, runner: Runner,
+             availability: dict[str, dict] | None = None) -> dict[str, Any]:
+    """Pure-ish core: availability → consent → handler → audit.
 
-    Tested directly (test_server.py) without standing up the HTTP layer.
+    Availability is checked BEFORE consent: an impossible action must not
+    cost the owner a dialog, and must answer the robot instantly with a
+    speakable reason (SCN-018/020). Tested directly (test_server.py,
+    test_core_v2.py) without standing up the HTTP layer.
     """
-    decision = consent.request(cap.name, cap.tool_class, cap.summary(args))
+    line = cap.summary(args)
+    info = (availability or {}).get(cap.name)
+    if info is not None and info.get("status") != "available":
+        reason = info.get("reason") or "недоступно на этой системе"
+        audit.record(tool=cap.name, tool_class=cap.tool_class.value,
+                     decision="unavailable", ok=False, line=line,
+                     detail=reason)
+        return {"ok": False, "unavailable": True,
+                "error": f"На этом компьютере действие недоступно: {reason}"}
+    decision = consent.request(cap.name, cap.tool_class, line)
     if not allowed(decision):
         audit.record(tool=cap.name, tool_class=cap.tool_class.value,
-                     decision=decision.value, ok=False)
+                     decision=decision.value, ok=False, line=line)
         return {"ok": False, "refused": True,
                 "reason": refusal_text(decision)}
     try:
         out = cap.handler(runner, args)
     except CapabilityError as exc:
         audit.record(tool=cap.name, tool_class=cap.tool_class.value,
-                     decision=decision.value, ok=False, detail=str(exc))
+                     decision=decision.value, ok=False, line=line,
+                     detail=str(exc))
         return {"ok": False, "error": str(exc)}
     except Exception as exc:
         log.exception("tool %s crashed", cap.name)
         audit.record(tool=cap.name, tool_class=cap.tool_class.value,
-                     decision=decision.value, ok=False, detail=repr(exc))
+                     decision=decision.value, ok=False, line=line,
+                     detail=repr(exc))
         return {"ok": False, "error": f"internal error: {exc}"}
     audit.record(tool=cap.name, tool_class=cap.tool_class.value,
-                 decision=decision.value, ok=True,
+                 decision=decision.value, ok=True, line=line,
                  detail=(out[:60] if isinstance(out, str) else ""))
     return {"ok": True, "result": out}
 
 
-def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner) -> None:
+def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
+              availability=None) -> None:
     # FastMCP derives the tool schema from the function SIGNATURE, so every
     # capability is generated as a real async def with its declared args as
     # explicit `str = ''` parameters (a no-arg tool gets a zero-parameter
@@ -100,11 +122,12 @@ def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner) -> None:
     params = ", ".join(f"{k}: str = ''" for k in cap.input_schema)
     forward = ", ".join(f"{k!r}: {k}" for k in cap.input_schema)
     ns: dict = {"_dispatch": dispatch, "cap": cap, "consent": consent,
-                "audit": audit, "runner": runner}
+                "audit": audit, "runner": runner, "availability": availability}
     src = (
         f"async def {cap.name}({params}) -> dict:\n"
         f"    return _dispatch(cap, {{{forward}}}, "
-        f"consent=consent, audit=audit, runner=runner)\n"
+        f"consent=consent, audit=audit, runner=runner, "
+        f"availability=availability)\n"
     )
     exec(src, ns)  # noqa: S102 - names are our own capability keys, not input
     fn = ns[cap.name]

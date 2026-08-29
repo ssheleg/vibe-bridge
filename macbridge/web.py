@@ -32,7 +32,12 @@ from starlette.responses import (
 from starlette.routing import Mount, Route
 
 from .audit import AuditLog
-from .capabilities import Capability, Runner
+from .capabilities import (
+    Capability,
+    Runner,
+    build_capabilities,
+    probe_availability,
+)
 from .consent import ConsentEngine, Decision, ToolClass
 from .server import build_server
 from .state import BridgeState
@@ -72,11 +77,14 @@ class BearerGuard:
 
 
 def _snapshot(consent: ConsentEngine, audit: AuditLog) -> dict[str, Any]:
-    req = consent.pending()
+    reqs = consent.pending_all()
+    req = reqs[0] if reqs else None
     return {
         "paused": consent.paused,
-        "pending": ({"tool": req.tool, "class": req.tool_class.value,
+        "pending": ({"id": req.id, "tool": req.tool,
+                     "class": req.tool_class.value,
                      "summary": req.summary} if req else None),
+        "pending_count": len(reqs),
         "grant_left_s": int(consent.grant_active(ToolClass.ACT)),
         "recent": audit.recent(20),
     }
@@ -115,8 +123,10 @@ class EventBus:
 def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               runner: Runner | None = None,
               capabilities: dict[str, Capability] | None = None) -> Starlette:
+    caps = capabilities or build_capabilities()
+    availability = probe_availability(caps)
     mcp = build_server(consent=consent, audit=audit, runner=runner,
-                       capabilities=capabilities)
+                       capabilities=caps, availability=availability)
     # The transport's own path collapses to "/" so the mount point IS /mcp —
     # the exact URL the agentgateway already targets (README wire contract).
     mcp.settings.streamable_http_path = "/"
@@ -150,11 +160,37 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         decision = _DECISIONS.get(str(body.get("decision", "")))
         if decision is None:
             return JSONResponse({"error": "bad decision"}, status_code=400)
-        req = consent.pending()
-        if req is None:
-            return JSONResponse({"error": "nothing pending"}, status_code=404)
-        req.resolve(decision)
+        req_id = body.get("id")
+        if req_id:
+            done = consent.resolve_by_id(str(req_id), decision, by="panel")
+        else:
+            req = consent.pending()
+            done = req.resolve(decision, by="panel") if req else False
+        if not done:
+            return JSONResponse(
+                {"error": "запрос уже решён или истёк"}, status_code=404)
         return JSONResponse({"ok": True})
+
+    async def api_pause(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await request.json()
+        consent.paused = bool(body.get("paused"))
+        return JSONResponse({"ok": True, "paused": consent.paused})
+
+    async def api_revoke_grants(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        consent.revoke_grants()
+        return JSONResponse({"ok": True})
+
+    async def api_capabilities(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse({
+            name: {"class": caps[name].tool_class.value, **info}
+            for name, info in availability.items()
+        })
 
     async def events(request: Request) -> Response:
         if not _authed(request):
@@ -188,6 +224,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/", index),
             Route("/api/state", api_state),
             Route("/api/consent/decide", consent_decide, methods=["POST"]),
+            Route("/api/pause", api_pause, methods=["POST"]),
+            Route("/api/grants/revoke", api_revoke_grants, methods=["POST"]),
+            Route("/api/capabilities", api_capabilities),
             Route("/events", events),
             Mount("/mcp", app=BearerGuard(mcp.streamable_http_app(), state)),
         ],

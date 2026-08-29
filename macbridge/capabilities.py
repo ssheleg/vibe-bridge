@@ -37,6 +37,7 @@ class Capability:
     summary_template: str          # .format(**args) → human consent line
     handler: Callable[[Runner, dict], str]
     input_schema: dict
+    binaries: tuple[str, ...] = ()   # external commands the handler shells to
 
     def summary(self, args: dict) -> str:
         try:
@@ -170,28 +171,70 @@ _STR = {"type": "string"}
 def build_capabilities() -> dict[str, Capability]:
     caps = [
         Capability("mac_screenshot", ToolClass.READ,
-                   "смотрю на экран Мака", _screenshot, {}),
+                   "смотрю на экран Мака", _screenshot, {},
+                   binaries=("screencapture",)),
         Capability("mac_list_apps", ToolClass.READ,
-                   "смотрю список запущенных приложений", _list_apps, {}),
+                   "смотрю список запущенных приложений", _list_apps, {},
+                   binaries=("osascript",)),
         Capability("mac_frontmost", ToolClass.READ,
-                   "смотрю активное приложение", _frontmost, {}),
+                   "смотрю активное приложение", _frontmost, {},
+                   binaries=("osascript",)),
         Capability("mac_notify", ToolClass.READ,
                    "показываю уведомление на Маке", _notify,
-                   {"text": _STR, "title": _STR}),
+                   {"text": _STR, "title": _STR}, binaries=("osascript",)),
         Capability("mac_open_app", ToolClass.ACT,
-                   "открыть приложение «{app}»", _open_app, {"app": _STR}),
+                   "открыть приложение «{app}»", _open_app, {"app": _STR},
+                   binaries=("open",)),
         Capability("mac_open_url", ToolClass.ACT,
-                   "открыть ссылку {url}", _open_url, {"url": _STR}),
+                   "открыть ссылку {url}", _open_url, {"url": _STR},
+                   binaries=("open",)),
         Capability("mac_shortcut_run", ToolClass.ACT,
                    "запустить Shortcut «{name}»", _shortcut,
-                   {"name": _STR, "input": _STR}),
+                   {"name": _STR, "input": _STR}, binaries=("shortcuts",)),
         Capability("mac_applescript", ToolClass.ACT,
                    "выполнить AppleScript на Маке", _applescript,
-                   {"script": _STR}),
+                   {"script": _STR}, binaries=("osascript",)),
         Capability("mac_clipboard_read", ToolClass.ACT,
-                   "прочитать буфер обмена Мака", _clipboard_read, {}),
+                   "прочитать буфер обмена Мака", _clipboard_read, {},
+                   binaries=("pbpaste",)),
         Capability("mac_clipboard_write", ToolClass.ACT,
                    "записать в буфер обмена Мака", _clipboard_write,
-                   {"text": _STR}),
+                   {"text": _STR}, binaries=("pbcopy",)),
     ]
     return {c.name: c for c in caps}
+
+
+# ── availability: probed once at startup, never discovered at call time ─────
+
+
+def _screen_capture_granted() -> bool | None:
+    """True/False when the OS can answer, None when it cannot (no Quartz).
+    Never triggers the TCC prompt itself — preflight only."""
+    try:  # pragma: no cover - depends on pyobjc presence and OS
+        import Quartz
+        return bool(Quartz.CGPreflightScreenCaptureAccess())
+    except Exception:
+        return None
+
+
+def probe_availability(caps: dict[str, Capability], *,
+                       which=shutil.which) -> dict[str, dict]:
+    """The capability map (spec §4): available / needs-permission /
+    unavailable, each with a reason the ROBOT can speak out loud. Probing
+    happens at registration, so an impossible call is refused instantly
+    instead of hanging into a timeout (vision, принцип 2)."""
+    out: dict[str, dict] = {}
+    for name, cap in caps.items():
+        missing = [b for b in cap.binaries if not which(b)]
+        if missing:
+            out[name] = {"status": "unavailable",
+                         "reason": f"на этом компьютере нет команды "
+                                   f"«{missing[0]}»"}
+            continue
+        status, reason = "available", ""
+        if name == "mac_screenshot" and _screen_capture_granted() is False:
+            status = "needs-permission"
+            reason = ("нужны права «Запись экрана» — Настройки → "
+                      "Конфиденциальность и безопасность → Запись экрана")
+        out[name] = {"status": status, "reason": reason}
+    return out

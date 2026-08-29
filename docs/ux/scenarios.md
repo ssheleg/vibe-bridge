@@ -53,7 +53,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** исполнение упало после Allow → тост «не получилось: <причина>», запись «ошибка» в журнале; робот получает честную ошибку
 - **Status:** draft
-- **Coverage:** none yet *(ядро решения: macbridge/consent.py, macbridge/server.py — диалог пере-реализуется на панели)*
+- **Coverage:** macbridge/web.py:156, macbridge/webui/index.html:1 (карточка+decide); ядро: macbridge/server.py:65
 
 ### SCN-002: ACT-согласие — таймаут и отказ
 - **Persona:** P-01
@@ -71,7 +71,7 @@ P-03 член семьи).
 - **States covered:** error
 - **Errors & recovery:** «Nothing can fail» — таймаут сам является обработкой отсутствия ответа
 - **Status:** draft
-- **Coverage:** none yet *(семантика таймаута: macbridge/consent.py)*
+- **Coverage:** macbridge/consent.py:85 (таймаут=отказ), macbridge/server.py:65 (аудит)
 
 ### SCN-003: Грант «Allow 15 min»
 - **Persona:** P-01
@@ -90,7 +90,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** пауза во время гранта → пауза сильнее: вызовы отклоняются, грант не тикает заново после снятия паузы (остаток сохраняется)
 - **Status:** draft
-- **Coverage:** none yet *(семантика гранта: macbridge/consent.py)*
+- **Coverage:** macbridge/consent.py:85 (грант), macbridge/web.py:181 (отзыв)
 
 ### SCN-004: Согласие с телефона — пуш и гонка решений
 - **Persona:** P-01
@@ -108,7 +108,7 @@ P-03 член семьи).
 - **States covered:** success, error
 - **Errors & recovery:** пуш не доставлен/телефон офлайн → работает обычный таймаут SCN-002; страница решения открыта после истечения → «запрос уже истёк», без кнопок; решение пришло после таймаута → игнорируется, страница говорит «истёк»
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** частично: macbridge/consent.py:58 (первое решение выигрывает), macbridge/consent.py:120 (resolve_by_id); пуш-канал — T-PHONE
 
 ### SCN-005: Пауза моста — эффект и видимость
 - **Persona:** P-01
@@ -127,7 +127,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** «Nothing can fail» — пауза локальна и не зависит от сети; рассинхрон поверхностей ≤ нескольких секунд допустим, дефолт — отклонять
 - **Status:** draft
-- **Coverage:** none yet *(семантика паузы: macbridge/consent.py:74–96)*
+- **Coverage:** macbridge/consent.py:85, macbridge/web.py:174 (пауза с панели); сводное уведомление — T-PANEL
 
 ## pult
 
@@ -235,7 +235,7 @@ P-03 член семьи).
 - **States covered:** empty, success, loading
 - **Errors & recovery:** файл журнала недоступен → «журнал недоступен: <причина>», панель работает дальше
 - **Status:** draft
-- **Coverage:** none yet *(запись: macbridge/audit.py)*
+- **Coverage:** macbridge/audit.py:45 (line+ротация), macbridge/webui/index.html:1 (лента); фильтры — T-PANEL
 
 ### SCN-012: Обновление робота с панели
 - **Persona:** P-01
@@ -367,7 +367,7 @@ P-03 член семьи).
 - **States covered:** error, success
 - **Errors & recovery:** сам сценарий — контракт честной деградации (принцип 2 vision)
 - **Status:** draft
-- **Coverage:** none yet *(паттерн fail-fast: macbridge/capabilities.py:94)*
+- **Coverage:** macbridge/capabilities.py:220 (probe), macbridge/server.py:65 (честный отказ до консента), macbridge/web.py:187 (карта)
 
 ### SCN-019: Телефон вне сети — честная PWA
 - **Persona:** P-01
