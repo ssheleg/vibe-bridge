@@ -44,6 +44,37 @@ def allowed_hosts(state: BridgeState,
     return hosts
 
 
+def tailnet_dns_name() -> str | None:
+    """This machine's MagicDNS name (no trailing dot) — the PWA/push origin
+    once `tailscale serve` fronts the panel (ADR-0004). Fail-open None."""
+    exe = shutil.which("tailscale") or (
+        _TAILSCALE_APP if Path(_TAILSCALE_APP).exists() else None)
+    if not exe:
+        return None
+    try:
+        out = subprocess.run([exe, "status", "--json"], capture_output=True,
+                             text=True, timeout=3.0)
+        import json
+        name = json.loads(out.stdout).get("Self", {}).get("DNSName", "")
+        return name.rstrip(".") or None
+    except Exception:
+        return None
+
+
+def serve_active(port: int) -> bool:
+    """True when `tailscale serve` already fronts the given local port."""
+    exe = shutil.which("tailscale") or (
+        _TAILSCALE_APP if Path(_TAILSCALE_APP).exists() else None)
+    if not exe:
+        return False
+    try:
+        out = subprocess.run([exe, "serve", "status"], capture_output=True,
+                             text=True, timeout=3.0)
+        return f"127.0.0.1:{port}" in out.stdout or f":{port}" in out.stdout
+    except Exception:
+        return False
+
+
 def standalone_bind_host() -> str:
     """standalone mode binds the tailnet interface when one is up; without
     it we fall back to all interfaces — the bearer token and the host

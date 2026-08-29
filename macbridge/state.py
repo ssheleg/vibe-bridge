@@ -12,7 +12,7 @@ import json
 import os
 import secrets
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 
@@ -39,6 +39,10 @@ class BridgeState:
     robot_chat_url: str | None = None    # Hermes gateway (OpenAI-совм.)
     robot_chat_key: str | None = None    # API_SERVER_KEY
     robot_name: str | None = None
+    # Phone push (ADR-0004): VAPID pair + browser subscriptions.
+    vapid_private: str | None = None
+    vapid_public: str | None = None
+    push_subscriptions: list = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path | None = None) -> BridgeState:
@@ -52,7 +56,10 @@ class BridgeState:
                        robot_base_url=data.get("robot_base_url"),
                        robot_chat_url=data.get("robot_chat_url"),
                        robot_chat_key=data.get("robot_chat_key"),
-                       robot_name=data.get("robot_name"))
+                       robot_name=data.get("robot_name"),
+                       vapid_private=data.get("vapid_private"),
+                       vapid_public=data.get("vapid_public"),
+                       push_subscriptions=data.get("push_subscriptions", []))
         state = cls(path=path, panel_token=secrets.token_urlsafe(32))
         state.save()
         return state

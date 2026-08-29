@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#2f6feb">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-180.png">
 <title>vibe-bridge</title>
 <style>
 /* workbench tokens (verbatim subset; canonical: docs/design/ui.md) */
@@ -157,6 +160,10 @@ td.mono{font-family:var(--font-data);font-size:12px}
     <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'}).then(refresh)">Отозвать разрешения</button>
   </div>
   <div class="card">
+    <div class="cap">Телефон</div>
+    <div id="phoneCard"><p class="empty">Загружаю…</p></div>
+  </div>
+  <div class="card">
     <div class="cap">Доступ</div>
     <div class="kv"><span class="k">Режим</span><span class="v" id="modeInfo">gateway (через agentgateway, loopback)</span></div>
     <div class="kv"><span class="k">MCP-адрес</span><span class="v">127.0.0.1:48620/mcp</span></div>
@@ -276,9 +283,14 @@ document.addEventListener("keydown", e=>{
   if (e.target.id==="chatInput" && e.key==="Enter") sendChat();
 });
 async function decide(decision){
-  await fetch("/api/consent/decide", {method:"POST",
+  const r = await fetch("/api/consent/decide", {method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({decision, id: cur.pendingId})});
+  if (r.status === 404){
+    document.getElementById("consentLine").textContent =
+      "Запрос уже решён с другой поверхности или истёк.";
+    setTimeout(refresh, 1200);
+  }
 }
 async function refresh(){ render(await (await fetch("/api/state")).json()); }
 document.getElementById("pauseSw").addEventListener("click", togglePause);
@@ -295,7 +307,7 @@ document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("clic
   document.querySelectorAll(".tab[data-view]").forEach(x=>x.setAttribute("aria-selected", x===b));
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));
   if (b.dataset.view==="journal") loadJournal(true);
-  if (b.dataset.view==="settings") loadCaps();
+  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); }
 }));
 /* journal */
 document.querySelectorAll(".tab[data-flt]").forEach(b=>b.addEventListener("click", ()=>{
@@ -316,6 +328,51 @@ async function loadJournal(reset){
   document.getElementById("jTotal").textContent = `${cur.offset} из ${page.total}`;
   document.getElementById("moreBtn").style.display = cur.offset < page.total ? "inline-block" : "none";
 }
+/* phone / push */
+function b64ToU8(b64){
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, ch => ch.charCodeAt(0));
+}
+async function loadPhone(){
+  const el = document.getElementById("phoneCard");
+  try{
+    const p = await (await fetch("/api/phone")).json();
+    let rows = "";
+    if (p.https_url){
+      rows += `<div class="kv"><span class="k">Адрес для телефона</span><span class="v">${esc(p.https_url)}</span></div>`;
+    } else if (p.dns_name){
+      rows += `<p style="margin-bottom:8px">Панель ещё не опубликована в tailnet по HTTPS. Один раз выполните на этом компьютере:</p>`+
+        `<p class="v mono" style="user-select:all">${esc(p.setup_command)}</p>`+
+        `<p class="note" style="margin-top:6px">Нужны MagicDNS и HTTPS-сертификаты, включённые в админке Tailscale. После этого адрес появится здесь.</p>`;
+    } else {
+      rows += `<p class="empty">Tailscale на этом компьютере не найден — телефонный доступ работает через tailnet (ADR-0004).</p>`;
+    }
+    rows += `<div class="kv"><span class="k">Пуш-подписок</span><span class="v">${p.subscriptions}</span></div>`;
+    rows += `<div style="margin-top:12px"><button class="btn ghost" id="pushBtn" onclick="enablePush()">Включить пуши на этом устройстве</button></div>`+
+      `<p class="note" id="pushNote" style="margin-top:6px">iPhone: сначала «Поделиться → На экран “Домой”», пуши работают только из установленной PWA.</p>`;
+    el.innerHTML = rows;
+  } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить состояние.</p>'; }
+}
+async function enablePush(){
+  const note = document.getElementById("pushNote");
+  try{
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)){
+      note.textContent = "Этот браузер не умеет Web Push."; return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted"){ note.textContent = "Уведомления запрещены в браузере."; return; }
+    const key = (await (await fetch("/api/push/vapid")).json()).key;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true, applicationServerKey: b64ToU8(key)});
+    const r = await (await fetch("/api/push/subscribe", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({subscription: sub.toJSON()})})).json();
+    note.textContent = "Пуши включены ✓ (подписок: " + r.count + ")";
+  } catch(e){ note.textContent = "Не вышло: " + e.message; }
+}
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 /* capabilities */
 async function loadCaps(){
   const caps = await (await fetch("/api/capabilities")).json();

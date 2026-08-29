@@ -40,9 +40,27 @@ from .capabilities import (
     probe_availability,
 )
 from .consent import ConsentEngine, Decision, ToolClass
+from .push import PushSender, ensure_vapid_keys
 from .robot import RobotClient
 from .server import build_server
 from .state import BridgeState
+
+
+def _solid_png(size: int, rgb: tuple[int, int, int] = (0x2F, 0x6F, 0xEB)) -> bytes:
+    """A solid-color PNG icon, stdlib-only (workbench accent). Good enough
+    for a home-screen tile until M-PLATFORM ships real art."""
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data +
+                struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    row = b"\x00" + bytes(rgb) * size
+    idat = zlib.compress(row * size)
+    ihdr = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) +
+            chunk(b"IDAT", idat) + chunk(b"IEND", b""))
 
 PANEL_COOKIE = "vb_panel"
 _WEBUI = Path(__file__).parent / "webui"
@@ -127,8 +145,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               capabilities: dict[str, Capability] | None = None,
               mcp_allowed_hosts: list[str] | None = None,
               robot: RobotClient | None = None,
-              notify=None) -> Starlette:
+              notify=None,
+              push_sender: PushSender | None = None) -> Starlette:
     from .net import allowed_hosts as _net_allowed_hosts
+
+    if push_sender is None:
+        push_sender = PushSender(state)
 
     if robot is None:
         robot = RobotClient(base_url=state.robot_base_url,
@@ -246,6 +268,53 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse(await robot.trigger_update())
 
+    async def api_push_vapid(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        await asyncio.to_thread(ensure_vapid_keys, state)
+        return JSONResponse({"key": state.vapid_public})
+
+    async def api_push_subscribe(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await request.json()
+        sub = body.get("subscription")
+        if not isinstance(sub, dict):
+            return JSONResponse({"error": "bad subscription"}, status_code=400)
+        try:
+            push_sender.add_subscription(sub)
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        return JSONResponse({"ok": True,
+                             "count": len(state.push_subscriptions)})
+
+    async def api_push_unsubscribe(request: Request) -> Response:
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await request.json()
+        removed = push_sender.remove_subscription(str(body.get("endpoint", "")))
+        return JSONResponse({"ok": removed})
+
+    async def api_phone(request: Request) -> Response:
+        """Everything the settings card needs to guide phone setup: the
+        MagicDNS name, whether `tailscale serve` already fronts the panel,
+        and the exact command when it does not. The bridge never runs the
+        command itself — changing serve config is the owner's move."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from .net import serve_active, tailnet_dns_name
+        from .server import BRIDGE_PORT
+        dns = await asyncio.to_thread(tailnet_dns_name)
+        active = (await asyncio.to_thread(serve_active, BRIDGE_PORT)
+                  if dns else False)
+        return JSONResponse({
+            "dns_name": dns,
+            "serve_active": active,
+            "https_url": f"https://{dns}/" if dns and active else None,
+            "setup_command": f"tailscale serve --bg {BRIDGE_PORT}",
+            "subscriptions": len(state.push_subscriptions),
+        })
+
     async def api_journal(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -276,6 +345,28 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
 
         return StreamingResponse(stream(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache"})
+
+    async def _consent_push_watcher() -> None:
+        """Every NEW pending consent goes out as a web push (SCN-004). The
+        blocking pywebpush call runs in a worker thread; a lost push costs
+        nothing — the timeout default stands."""
+        seen: set[str] = set()
+        while True:
+            reqs = consent.pending_all()
+            for req in reqs:
+                if req.id in seen:
+                    continue
+                seen.add(req.id)
+                if state.push_subscriptions and not consent.paused:
+                    await asyncio.to_thread(push_sender.send_to_all, {
+                        "kind": "consent", "id": req.id,
+                        "title": "Робот просит разрешение",
+                        "summary": req.summary,
+                    })
+            if len(seen) > 500:
+                live = {r.id for r in reqs}
+                seen.intersection_update(live)
+            await asyncio.sleep(0.5)
 
     async def _robot_poller() -> None:
         """Refresh the cached robot status; announce the pause-summary on
@@ -316,7 +407,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         async with mcp.session_manager.run():
             tasks = [asyncio.create_task(bus.pump()),
                      asyncio.create_task(_robot_poller()),
-                     asyncio.create_task(_robot_event_consumer())]
+                     asyncio.create_task(_robot_event_consumer()),
+                     asyncio.create_task(_consent_push_watcher())]
             try:
                 yield
             finally:
@@ -324,9 +416,30 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                     t.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
 
+    # PWA shell files live at the ORIGIN ROOT (a service worker's scope
+    # cannot exceed its path). No auth: they contain no secrets, and the
+    # SW must load before any cookie exists on the phone.
+    def _static(name: str, media: str):
+        async def handler(request: Request) -> Response:
+            return FileResponse(_WEBUI / name, media_type=media)
+        return handler
+
+    async def icon(request: Request) -> Response:
+        size = int(request.path_params["size"])
+        if size not in (180, 192, 512):
+            return JSONResponse({"error": "not found"}, status_code=404)
+        return Response(_solid_png(size), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
     return Starlette(
         routes=[
             Route("/", index),
+            Route("/sw.js", _static("sw.js", "application/javascript")),
+            Route("/manifest.webmanifest",
+                  _static("manifest.webmanifest",
+                          "application/manifest+json")),
+            Route("/offline.html", _static("offline.html", "text/html")),
+            Route("/icon-{size:int}.png", icon),
             Route("/api/state", api_state),
             Route("/api/consent/decide", consent_decide, methods=["POST"]),
             Route("/api/pause", api_pause, methods=["POST"]),
@@ -336,6 +449,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/robot/status", api_robot_status),
             Route("/api/robot/chat", api_robot_chat, methods=["POST"]),
             Route("/api/robot/update", api_robot_update, methods=["POST"]),
+            Route("/api/push/vapid", api_push_vapid),
+            Route("/api/push/subscribe", api_push_subscribe,
+                  methods=["POST"]),
+            Route("/api/push/unsubscribe", api_push_unsubscribe,
+                  methods=["POST"]),
+            Route("/api/phone", api_phone),
             Route("/events", events),
             Mount("/", app=BearerGuard(mcp.streamable_http_app(), state)),
         ],

@@ -10,6 +10,7 @@ dependencies = [
     # 2026-08-28 the robot lost first HTTP transport, then the call path, to
     # exactly such a mismatch. Bump TOGETHER with the robot's HERMES_VERSION.
     "mcp==1.26.0",
+    "pywebpush>=2.4.0",
     "rumps>=0.4",
 ]
 

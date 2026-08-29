@@ -108,7 +108,7 @@ P-03 член семьи).
 - **States covered:** success, error
 - **Errors & recovery:** пуш не доставлен/телефон офлайн → работает обычный таймаут SCN-002; страница решения открыта после истечения → «запрос уже истёк», без кнопок; решение пришло после таймаута → игнорируется, страница говорит «истёк»
 - **Status:** draft
-- **Coverage:** частично: macbridge/consent.py:58 (первое решение выигрывает), macbridge/consent.py:120 (resolve_by_id); пуш-канал — T-PHONE
+- **Coverage:** macbridge/push.py:1 (VAPID+прунинг), macbridge/web.py:1 (watcher+/api/push/*), macbridge/webui/sw.js:1 (кнопки Android, тап iOS); ядро гонки: macbridge/consent.py:58; live с телефона — Human step (serve-toggle тейлнета)
 
 ### SCN-005: Пауза моста — эффект и видимость
 - **Persona:** P-01
@@ -384,7 +384,7 @@ P-03 член семьи).
 - **States covered:** error
 - **Errors & recovery:** сам сценарий — обработка недоступности
 - **Status:** draft
-- **Coverage:** none yet
+- **Coverage:** macbridge/webui/sw.js:1 (offline-fallback), macbridge/webui/offline.html:1 (диагностика одним экраном: VPN/компьютер/сеть — v1 объединяет два состояния сценария в один честный чек-лист)
 
 ### SCN-020: macOS TCC — первый скриншот
 - **Persona:** P-01
