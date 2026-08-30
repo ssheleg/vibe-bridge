@@ -1,15 +1,13 @@
-"""Menu-bar app — the human's window into the bridge.
+"""Tray app — the human's window into the bridge.
 
-rumps owns the macOS main run loop; the MCP HTTP server runs in a worker
-thread. The menu shows: live status, the kill switch, the pending consent
-dialog (Allow / Allow 15 min / Deny), active grants, and the last calls.
-
-A pending ACT request parks the robot's tool thread inside ConsentEngine;
-this loop surfaces it as an alert and resolves it. macOS alerts must be
-raised from the main thread, so a rumps.Timer polls consent.pending().
+macOS keeps rumps (main run loop + native NSAlert consent dialog); the MCP
+HTTP server runs in a worker thread. Windows/Linux use the pystray backend
+(tray.py) and answer consent on the web panel — a decision from any surface
+wins. The server startup is shared; only the tray differs.
 """
 from __future__ import annotations
 
+import sys
 import threading
 import webbrowser
 
@@ -17,6 +15,7 @@ from .audit import AuditLog
 from .consent import ConsentEngine, Decision
 from .server import BRIDGE_HOST, BRIDGE_PORT
 from .state import BridgeState
+from .tray import make_notifier, run_pystray, tray_title
 from .web import build_app
 
 
@@ -28,35 +27,40 @@ def _serve(app, host: str) -> None:  # pragma: no cover - thin uvicorn shell
     )).run()   # signal handlers are skipped off the main thread
 
 
-def run() -> None:  # pragma: no cover - requires a Mac GUI session
-    import rumps
-
-    consent = ConsentEngine()
-    audit = AuditLog()
-    state = BridgeState.load()
-
-    def _notify(title: str, text: str) -> None:
-        # osascript from any thread; the signed-bundle path switches to
-        # UNUserNotificationCenter in M-PLATFORM (research-notes §D).
-        import subprocess
-        t = str(text).replace('"', "'")[:180]
-        h = str(title).replace('"', "'")[:60]
-        try:
-            subprocess.run(["osascript", "-e",
-                            f'display notification "{t}" with title "{h}"'],
-                           capture_output=True, timeout=5)
-        except Exception:
-            pass                       # a lost toast must not hurt the bridge
-
+def start_server(consent: ConsentEngine, audit: AuditLog, state: BridgeState,
+                 notify) -> None:
+    """Build the app and launch uvicorn in a worker thread (the tray owns
+    the main thread on every OS). Shared by all backends."""
     web_app = build_app(consent=consent, audit=audit, state=state,
-                        notify=_notify)
+                        notify=notify)
     if state.mode == "standalone":
         from .net import standalone_bind_host
         bind_host = standalone_bind_host()
     else:
         bind_host = BRIDGE_HOST            # gateway mode: loopback, as M1–M4
     threading.Thread(target=_serve, args=(web_app, bind_host),
-                     name="mac-bridge-web", daemon=True).start()
+                     name="vibe-bridge-web", daemon=True).start()
+
+
+def _panel_url(state: BridgeState) -> str:
+    return f"http://{BRIDGE_HOST}:{BRIDGE_PORT}/?token={state.panel_token}"
+
+
+def run() -> None:  # pragma: no cover - requires a GUI session
+    consent = ConsentEngine()
+    audit = AuditLog()
+    state = BridgeState.load()
+    notify = make_notifier()
+    start_server(consent, audit, state, notify)
+
+    if sys.platform != "darwin":
+        # Win/Linux: consent is answered on the panel; the tray is status +
+        # open-panel + pause + quit (tray.py, live check = board B-1).
+        run_pystray(consent=consent, audit=audit, state=state,
+                    open_panel=lambda: webbrowser.open(_panel_url(state)))
+        return
+
+    import rumps
 
     class BridgeApp(rumps.App):
         def __init__(self) -> None:
@@ -77,17 +81,8 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
             rumps.Timer(self._poll, 0.4).start()
 
         def _poll(self, _timer) -> None:
-            # Tray states (SCR-01): paused ⏸ · attention ❗ · grant ⏳ · idle 🤖
-            from .consent import ToolClass
+            self.title = tray_title(consent)   # SCR-01 states, shared helper
             req = consent.pending()
-            if consent.paused:
-                self.title = "⏸"
-            elif req is not None:
-                self.title = "🤖❗"
-            elif consent.grant_active(ToolClass.ACT) > 0:
-                self.title = "🤖⏳"
-            else:
-                self.title = "🤖"
             if req is None:
                 return
             resp = rumps.alert(
@@ -122,8 +117,7 @@ def run() -> None:  # pragma: no cover - requires a Mac GUI session
                     (lines[0] if lines else "—")
 
         def open_panel(self, _sender) -> None:
-            webbrowser.open(
-                f"http://{BRIDGE_HOST}:{BRIDGE_PORT}/?token={state.panel_token}")
+            webbrowser.open(_panel_url(state))
 
         def toggle_pause(self, sender) -> None:
             consent.paused = not consent.paused
