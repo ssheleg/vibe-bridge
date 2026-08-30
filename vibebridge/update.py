@@ -17,6 +17,7 @@ blip must not become a traceback in the tray.
 from __future__ import annotations
 
 import json
+import re
 import tarfile
 import tempfile
 import threading
@@ -32,8 +33,20 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from vbboot import layout
 
 RELEASE_REPO = "ssheleg/vibe-bridge"
-RELEASE_API = f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"
+#: The releases Atom feed, NOT the REST API. The API caps unauthenticated
+#: callers at 60 requests per hour PER IP — a cap every install behind one
+#: address shares, and one that this repository's own testing hit within an
+#: hour (2026-08-30). The feed carries what the check needs — the tags — and
+#: asset URLs are derived from a tag rather than looked up.
+RELEASE_FEED = f"https://github.com/{RELEASE_REPO}/releases.atom"
+DOWNLOAD_BASE = f"https://github.com/{RELEASE_REPO}/releases/download"
 PAYLOAD_ASSET = "payload-{version}.tar.gz"
+#: Payload tags look like `v0.2.0`. Shell releases are tagged `shell-v0.2.0`
+#: and must never be offered as an update: they are a DMG a person installs,
+#: not something the bridge can unpack. GitHub's own `latest` pointer does not
+#: know the difference, which is exactly how a shell release once shadowed the
+#: payload channel.
+_PAYLOAD_TAG = re.compile(r"/(v\d+(?:\.\d+){1,3})\s*</id>")
 MANIFEST = "payload.json"
 _TIMEOUT = 30
 _MAX_PAYLOAD = 64 * 1024 * 1024          # a payload is our .py files, not a VM
@@ -143,31 +156,41 @@ class Check:
 
 
 def check(*, current: str, fetch=None) -> Check:
-    """Ask the release channel what the newest version is."""
-    fetch = fetch or _fetch_json
+    """Ask the release channel what the newest payload version is."""
+    fetch = fetch or _fetch_text
     try:
-        data = fetch(RELEASE_API)
-        tag = str(data["tag_name"]).lstrip("vV")
-        assets = {a["name"]: a["browser_download_url"]
-                  for a in data.get("assets", [])}
-    except (KeyError, TypeError, ValueError) as exc:
-        return Check(error=f"канал релизов ответил неожиданным форматом: {exc}")
+        feed = fetch(RELEASE_FEED)
     except (OSError, urllib.error.URLError) as exc:
         return Check(error=f"канал релизов недоступен: {exc}")
 
-    new, now = layout.parse(tag), layout.parse(current)
-    if not new or not now:
-        return Check(error=f"непонятный номер версии: {tag!r} / {current!r}")
-    if new <= now:
+    now = layout.parse(current)
+    if not now:
+        return Check(error=f"непонятный номер текущей версии: {current!r}")
+
+    versions = _payload_tags(feed)
+    if versions is None:
+        return Check(error="канал релизов ответил не фидом релизов")
+    newer = [v for v in versions if (layout.parse(v) or ()) > now]
+    if not newer:
         return Check()                       # asked, nothing newer
 
-    payload = PAYLOAD_ASSET.format(version=tag)
-    if payload not in assets or f"{payload}.sig" not in assets:
-        return Check(error=(f"релиз {tag} опубликован без payload или без "
-                            f"подписи — не устанавливаю"))
-    return Check(found=Available(version=tag, payload_url=assets[payload],
-                                 sig_url=assets[f"{payload}.sig"],
-                                 notes=str(data.get("body") or "")))
+    tag = max(newer, key=lambda v: layout.parse(v))
+    asset = PAYLOAD_ASSET.format(version=tag)
+    url = f"{DOWNLOAD_BASE}/v{tag}/{asset}"
+    return Check(found=Available(version=tag, payload_url=url,
+                                 sig_url=f"{url}.sig"))
+
+
+def _payload_tags(feed: str) -> list[str] | None:
+    """Payload versions in the feed, newest-first order irrelevant. None when
+    the text is not a releases feed at all — distinct from a feed that simply
+    holds no payload release."""
+    if "<feed" not in feed and "<entry" not in feed:
+        return None
+    # Whole document, not line by line: GitHub's feed is pretty-printed but
+    # nothing promises that, and a one-line feed parsed by lines finds nothing
+    # while looking like an empty channel.
+    return [m.lstrip("v") for m in _PAYLOAD_TAG.findall(feed)]
 
 
 def download(url: str, *, opener=None) -> bytes | None:
@@ -252,13 +275,13 @@ def ssl_context():
         return ssl.create_default_context()
 
 
-def _fetch_json(url: str) -> dict:
+def _fetch_text(url: str) -> str:
     req = urllib.request.Request(
-        url, headers={"Accept": "application/vnd.github+json",
+        url, headers={"Accept": "application/atom+xml",
                       "User-Agent": "vibe-bridge-updater"})
     with urllib.request.urlopen(req, timeout=_TIMEOUT,
                                 context=ssl_context()) as resp:
-        return json.loads(resp.read(2 * 1024 * 1024))
+        return resp.read(1024 * 1024).decode("utf-8", "replace")
 
 
 def _rmtree(path: Path) -> None:

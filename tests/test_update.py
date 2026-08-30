@@ -180,18 +180,16 @@ def test_failed_install_leaves_no_half_written_version(root, keys):
 
 # ----------------------------------------------------------------- checking
 
-def _release(tag="0.2.0", *, assets=("payload-0.2.0.tar.gz",
-                                     "payload-0.2.0.tar.gz.sig")):
-    return {
-        "tag_name": f"v{tag}",
-        "body": "заметки к релизу",
-        "assets": [{"name": n, "browser_download_url": f"https://x/{n}"}
-                   for n in assets],
-    }
+def _feed(*tags):
+    entries = "".join(
+        f'<entry><id>tag:github.com,2008:Repository/1/{t}</id></entry>'
+        for t in tags)
+    return f'<?xml version="1.0"?><feed>{entries}</feed>'
 
 
 def test_check_reports_a_newer_release(root):
-    found = update.check(current="0.1.0", fetch=lambda url: _release()).found
+    found = update.check(current="0.1.0",
+                         fetch=lambda url: _feed("v0.2.0")).found
     assert found is not None
     assert found.version == "0.2.0"
     assert found.payload_url.endswith("payload-0.2.0.tar.gz")
@@ -199,13 +197,19 @@ def test_check_reports_a_newer_release(root):
 
 
 def test_check_is_quiet_when_already_current(root):
-    res = update.check(current="0.2.0", fetch=lambda url: _release())
+    res = update.check(current="0.2.0", fetch=lambda url: _feed("v0.2.0"))
     assert res.found is None and res.up_to_date
 
 
 def test_check_ignores_an_older_release(root):
-    res = update.check(current="0.3.0", fetch=lambda url: _release())
+    res = update.check(current="0.3.0", fetch=lambda url: _feed("v0.2.0"))
     assert res.found is None and res.up_to_date
+
+
+def test_the_newest_payload_wins_even_when_the_feed_is_unordered(root):
+    res = update.check(current="0.1.0",
+                       fetch=lambda url: _feed("v0.2.0", "v0.10.0", "v0.9.0"))
+    assert res.found.version == "0.10.0"        # numeric, not lexical
 
 
 def test_unreachable_channel_is_not_reported_as_up_to_date(root):
@@ -221,16 +225,23 @@ def test_unreachable_channel_is_not_reported_as_up_to_date(root):
     assert "недоступен" in res.error and "сеть недоступна" in res.error
 
 
-def test_garbage_json_is_an_error_not_silence(root):
-    res = update.check(current="0.1.0", fetch=lambda url: {"nope": 1})
+def test_garbage_response_is_an_error_not_silence(root):
+    res = update.check(current="0.1.0", fetch=lambda url: "<html>418</html>")
     assert res.found is None and not res.up_to_date and res.error
 
 
-def test_release_without_a_signature_asset_is_refused_out_loud(root):
-    rel = _release(assets=("payload-0.2.0.tar.gz",))
-    res = update.check(current="0.1.0", fetch=lambda url: rel)
-    assert res.found is None and not res.up_to_date
-    assert "подписи" in res.error
+def test_a_release_published_without_its_assets_fails_at_download(root, keys):
+    """Assets are derived from the tag, so a tag published without them is
+    only discovered when the download 404s. That path must still refuse
+    cleanly rather than install nothing and report success."""
+    _, pub = keys
+    found = update.Available("0.2.0", "https://x/missing",
+                             "https://x/missing.sig")
+    ok, why = update.fetch_and_install(found, root, pubkey=pub,
+                                       shell_version="0.1.0",
+                                       opener=lambda *a, **kw: (_ for _ in ())
+                                       .throw(OSError("404")))
+    assert not ok and "скачать" in why
 
 
 # ------------------------------------------------------------- trust store
@@ -262,3 +273,50 @@ def test_trust_store_is_never_downgraded_to_unverified(monkeypatch):
     ctx = update.ssl_context()
     assert ctx.verify_mode.name == "CERT_REQUIRED"
     assert ctx.check_hostname is True
+
+
+# --------------------------------------------------- the channel, without the API
+
+ATOM = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry><id>tag:github.com,2008:Repository/1/shell-v0.2.0</id>
+    <title>Оболочка 0.2.0</title></entry>
+  <entry><id>tag:github.com,2008:Repository/1/v0.2.0</id>
+    <title>v0.2.0 — payload</title></entry>
+  <entry><id>tag:github.com,2008:Repository/1/v0.1.9</id>
+    <title>v0.1.9 — payload</title></entry>
+</feed>"""
+
+
+def test_shell_releases_do_not_shadow_the_payload_channel():
+    """Both kinds live in one repository, and GitHub's `latest` pointer knows
+    nothing about the difference: publishing a shell DMG made it `latest` and
+    the updater reported a release with no payload (2026-08-30). The tag
+    pattern is what separates them."""
+    res = update.check(current="0.1.0", fetch=lambda url: ATOM)
+    assert res.found is not None
+    assert res.found.version == "0.2.0"
+    assert "shell" not in res.found.payload_url
+
+
+def test_asset_urls_are_derived_not_queried():
+    """Deriving them from the tag keeps the whole check on github.com, which
+    has no per-IP hourly cap — the REST API has one, and 60/hour is shared by
+    every install behind the same address."""
+    res = update.check(current="0.1.0", fetch=lambda url: ATOM)
+    assert res.found.payload_url == (
+        "https://github.com/ssheleg/vibe-bridge/releases/download/"
+        "v0.2.0/payload-0.2.0.tar.gz")
+    assert res.found.sig_url == res.found.payload_url + ".sig"
+
+
+def test_only_shell_releases_published_means_nothing_to_take():
+    feed = ATOM.replace("Repository/1/v0.2.0", "Repository/1/shell-v0.3.0")
+    feed = feed.replace("Repository/1/v0.1.9", "Repository/1/shell-v0.1.9")
+    res = update.check(current="0.1.0", fetch=lambda url: feed)
+    assert res.found is None and res.up_to_date
+
+
+def test_an_unparsable_feed_is_an_error_not_silence():
+    res = update.check(current="0.1.0", fetch=lambda url: "<html>418</html>")
+    assert res.found is None and not res.up_to_date and res.error
