@@ -55,7 +55,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** исполнение упало после Allow → тост «не получилось: <причина>», запись «ошибка» в журнале; робот получает честную ошибку
 - **Status:** draft
-- **Coverage:** macbridge/web.py:156, macbridge/webui/index.html:1, macbridge/server.py:65; live-проверено в браузере 2026-08-29 (гейтвей→карточка→Разрешить→Calculator)
+- **Coverage:** vibebridge/web.py:156, vibebridge/webui/index.html:1, vibebridge/server.py:65; live-проверено в браузере 2026-08-29 (гейтвей→карточка→Разрешить→Calculator)
 
 ### SCN-002: ACT-согласие — таймаут и отказ
 - **Persona:** P-01
@@ -73,7 +73,7 @@ P-03 член семьи).
 - **States covered:** error
 - **Errors & recovery:** «Nothing can fail» — таймаут сам является обработкой отсутствия ответа
 - **Status:** draft
-- **Coverage:** macbridge/consent.py:85 (таймаут=отказ), macbridge/server.py:65 (аудит)
+- **Coverage:** vibebridge/consent.py:85 (таймаут=отказ), vibebridge/server.py:65 (аудит)
 
 ### SCN-003: Грант «Allow 15 min»
 - **Persona:** P-01
@@ -92,7 +92,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** пауза во время гранта → пауза сильнее: вызовы отклоняются, грант не тикает заново после снятия паузы (остаток сохраняется)
 - **Status:** draft
-- **Coverage:** macbridge/consent.py:85 (грант), macbridge/web.py:181 (отзыв)
+- **Coverage:** vibebridge/consent.py:85 (грант), vibebridge/web.py:181 (отзыв)
 
 ### SCN-004: Согласие с телефона — пуш и гонка решений
 - **Persona:** P-01
@@ -110,7 +110,7 @@ P-03 член семьи).
 - **States covered:** success, error
 - **Errors & recovery:** пуш не доставлен/телефон офлайн → работает обычный таймаут SCN-002; страница решения открыта после истечения → «запрос уже истёк», без кнопок; решение пришло после таймаута → игнорируется, страница говорит «истёк»
 - **Status:** draft
-- **Coverage:** macbridge/push.py:1 (VAPID+прунинг), macbridge/web.py:1 (watcher+/api/push/*), macbridge/webui/sw.js:1 (кнопки Android, тап iOS); ядро гонки: macbridge/consent.py:58; live с телефона — Human step (serve-toggle тейлнета)
+- **Coverage:** vibebridge/push.py:1 (VAPID+прунинг), vibebridge/web.py:1 (watcher+/api/push/*), vibebridge/webui/sw.js:1 (кнопки Android, тап iOS); ядро гонки: vibebridge/consent.py:58; live с телефона — Human step (serve-toggle тейлнета)
 
 ### SCN-005: Пауза моста — эффект и видимость
 - **Persona:** P-01
@@ -129,7 +129,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** «Nothing can fail» — пауза локальна и не зависит от сети; рассинхрон поверхностей ≤ нескольких секунд допустим, дефолт — отклонять
 - **Status:** draft
-- **Coverage:** macbridge/consent.py:85, macbridge/web.py:174 (пауза с панели); сводное уведомление — T-PANEL
+- **Coverage:** vibebridge/consent.py:85, vibebridge/web.py:174 (пауза с панели); сводное уведомление — T-PANEL
 
 ## pult
 
@@ -166,7 +166,7 @@ P-03 член семьи).
 - **States covered:** error, success
 - **Errors & recovery:** сценарий сам описывает деградацию; recovery автоматический при возврате робота
 - **Status:** draft
-- **Coverage:** macbridge/robot.py:60 (status, offline_since sticky), macbridge/webui/index.html:1 (карточка «недоступен с»); live — после M-ROBOT
+- **Coverage:** vibebridge/robot.py:60 (status, offline_since sticky), vibebridge/webui/index.html:1 (карточка «недоступен с»); live — после M-ROBOT
 
 ### SCN-008: Чат с роботом — happy
 - **Persona:** P-01
@@ -184,7 +184,7 @@ P-03 член семьи).
 - **States covered:** loading, success
 - **Errors & recovery:** ответ не пришёл за таймаут-контракт мозга (150 с) → «Робот думает дольше обычного — ответ придёт событием либо попробуйте ещё раз»; ввод сохранён
 - **Status:** draft
-- **Coverage:** macbridge/robot.py:84 (chat, 150s+retry-once), macbridge/web.py:1 (/api/robot/chat), webui чат-вкладка; live — после M-ROBOT
+- **Coverage:** vibebridge/robot.py:84 (chat, 150s+retry-once), vibebridge/web.py:1 (/api/robot/chat), webui чат-вкладка; live — после M-ROBOT
 
 ### SCN-009: Чат — мозг молчит или робот пропал
 - **Persona:** P-01
@@ -201,7 +201,7 @@ P-03 член семьи).
 - **States covered:** error
 - **Errors & recovery:** сам сценарий — обработка ошибки
 - **Status:** draft
-- **Coverage:** macbridge/robot.py:84 (undelivered/slow ветки), webui «не доставлено»+повтор
+- **Coverage:** vibebridge/robot.py:84 (undelivered/slow ветки), webui «не доставлено»+повтор
 
 ### SCN-010: Событие робота → уведомление ОС
 - **Persona:** P-01
@@ -219,7 +219,7 @@ P-03 член семьи).
 - **States covered:** success
 - **Errors & recovery:** уведомления запрещены на уровне ОС → лента остаётся полным источником; настройки панели показывают «уведомления выключены в системе» со ссылкой на системные настройки
 - **Status:** draft
-- **Coverage:** частично: macbridge/web.py:1 (event-consumer, пауза-сводка), macbridge/robot.py:131 (events SSE); источник событий — M-ROBOT
+- **Coverage:** частично: vibebridge/web.py:1 (event-consumer, пауза-сводка), vibebridge/robot.py:131 (events SSE); источник событий — M-ROBOT
 
 ### SCN-011: Журнал действий и фильтр отказов
 - **Persona:** P-01
@@ -237,7 +237,7 @@ P-03 член семьи).
 - **States covered:** empty, success, loading
 - **Errors & recovery:** файл журнала недоступен → «журнал недоступен: <причина>», панель работает дальше
 - **Status:** draft
-- **Coverage:** macbridge/audit.py:63 (read_entries), macbridge/web.py:203 (/api/journal), macbridge/webui/index.html:1 (фильтры+пагинация)
+- **Coverage:** vibebridge/audit.py:63 (read_entries), vibebridge/web.py:203 (/api/journal), vibebridge/webui/index.html:1 (фильтры+пагинация)
 
 ### SCN-012: Обновление робота с панели
 - **Persona:** P-01
@@ -255,7 +255,7 @@ P-03 член семьи).
 - **States covered:** loading, success, error
 - **Errors & recovery:** робот не вернулся за разумное время → «робот не вышел на связь после обновления HH:MM; его собственный откат-механизм вернёт прошлую версию — что проверить: …» (авто-rollback — контракт робота R1.51); отказ триггера → причина + retry
 - **Status:** draft
-- **Coverage:** macbridge/robot.py:117 (trigger_update), webui двухшаговая кнопка+прогресс; live — после M-ROBOT
+- **Coverage:** vibebridge/robot.py:117 (trigger_update), webui двухшаговая кнопка+прогресс; live — после M-ROBOT
 
 ## onboarding
 
@@ -277,7 +277,7 @@ P-03 член семьи).
 - **States covered:** loading, success
 - **Errors & recovery:** карта меньше минимума → сказано сразу на шаге выбора; сеть оборвалась при скачивании образа → докачка/повтор шага, не с нуля
 - **Status:** draft
-- **Coverage:** частично (WIZARD-a): macbridge/wizard.py:1 (генераторы firstrun/cmdline/NM/unit/token), macbridge/web.py:1 (/api/wizard/*), webui-карточка; запись образа+элевация — B-9
+- **Coverage:** частично (WIZARD-a): vibebridge/wizard.py:1 (генераторы firstrun/cmdline/NM/unit/token), vibebridge/web.py:1 (/api/wizard/*), webui-карточка; запись образа+элевация — B-9
 
 ### SCN-014: SD-визард — ошибка записи
 - **Persona:** P-02
@@ -313,7 +313,7 @@ P-03 член семьи).
 - **States covered:** loading, success
 - **Errors & recovery:** любой пункт чеклиста красный → назван пункт, причина и следующее действие; тестовый ACT отклонён случайно → пункт можно перезапустить
 - **Status:** draft
-- **Coverage:** мост-сторона: macbridge/web.py:1 (/pair одноразовый, перенастройка юга на лету, уведомление «связан»); робот-сторона и чеклист-UI — M-ROBOT/B-9
+- **Coverage:** мост-сторона: vibebridge/web.py:1 (/pair одноразовый, перенастройка юга на лету, уведомление «связан»); робот-сторона и чеклист-UI — M-ROBOT/B-9
 
 ### SCN-016: Пейринг — робот не появился
 - **Persona:** P-02
@@ -349,7 +349,7 @@ P-03 член семьи).
 - **States covered:** empty, success
 - **Errors & recovery:** порт панели занят → система выбирает свободный и работает; конфликт версии конфига → честное сообщение с предложением сброса
 - **Status:** draft
-- **Coverage:** частично: macbridge/webui/index.html:1 (вкладки, панель), macbridge/app.py:1 (трей-состояния); инсталлеры — T-PLATFORM
+- **Coverage:** частично: vibebridge/webui/index.html:1 (вкладки, панель), vibebridge/app.py:1 (трей-состояния); инсталлеры — T-PLATFORM
 
 ## platform
 
@@ -369,7 +369,7 @@ P-03 член семьи).
 - **States covered:** error, success
 - **Errors & recovery:** сам сценарий — контракт честной деградации (принцип 2 vision)
 - **Status:** draft
-- **Coverage:** macbridge/capabilities.py probe_availability + macbridge/platforms/{windows,linux}.py (probe_extras, единый контракт имён, честные причины по таблице паритета); tests/test_platforms.py (12); Win/Linux-паки реализованы, live на этих ОС — B-1 (нужны машины)
+- **Coverage:** vibebridge/capabilities.py probe_availability + vibebridge/platforms/{windows,linux}.py (probe_extras, единый контракт имён, честные причины по таблице паритета); tests/test_platforms.py (12); Win/Linux-паки реализованы, live на этих ОС — B-1 (нужны машины)
 
 ### SCN-019: Телефон вне сети — честная PWA
 - **Persona:** P-01
@@ -386,7 +386,7 @@ P-03 член семьи).
 - **States covered:** error
 - **Errors & recovery:** сам сценарий — обработка недоступности
 - **Status:** draft
-- **Coverage:** macbridge/webui/sw.js:1 (offline-fallback), macbridge/webui/offline.html:1 (диагностика одним экраном: VPN/компьютер/сеть — v1 объединяет два состояния сценария в один честный чек-лист)
+- **Coverage:** vibebridge/webui/sw.js:1 (offline-fallback), vibebridge/webui/offline.html:1 (диагностика одним экраном: VPN/компьютер/сеть — v1 объединяет два состояния сценария в один честный чек-лист)
 
 ### SCN-020: macOS TCC — первый скриншот
 - **Persona:** P-01
@@ -404,7 +404,7 @@ P-03 член семьи).
 - **States covered:** error, success
 - **Errors & recovery:** сам сценарий — обработка отсутствия прав; правило fail-fast ≤8 с сохраняется (капабилити не виснет)
 - **Status:** draft
-- **Coverage:** none yet *(fail-fast контракт: macbridge/capabilities.py:90–94)*
+- **Coverage:** none yet *(fail-fast контракт: vibebridge/capabilities.py:90–94)*
 
 ### SCN-021: Мост обновился сам
 - **Persona:** P-01

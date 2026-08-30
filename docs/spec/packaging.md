@@ -1,28 +1,99 @@
-# Упаковка и дистрибуция — runbook (research-notes §D)
+# Упаковка и дистрибуция — runbook
 
-Статус: **не выполнено на этой машине** — требует самих ОС и подписных
-сертификатов (board B-4). Код к упаковке готов: единое ядро (Python),
-трей-абстракция (`vibebridge/tray.py`: rumps на macOS, pystray на
-Win/Linux), extras `[macos]`/`[windows]`/`[linux]`. Ниже — воспроизводимая
-последовательность на каждый OS, чтобы шаг был исполним без повторного
-исследования.
+**macOS: исполнено 2026-08-30** (board B-4, macOS-нога). Windows/Linux —
+по-прежнему runbook: нужны сами ОС и подписные сертификаты.
 
-## macOS — Briefcase → подписанный+нотаризованный .app/DMG
+Архитектура дистрибуции — ADR-0006: подписанная оболочка `.app` + обновляемый
+payload. Граница проведена по признаку «Mach-O или нет»: все нативные
+библиотеки лежат внутри подписанного бандла, наружу выходит только наш чистый
+Python. Поэтому library validation остаётся ВКЛЮЧЁННОЙ.
+
+## macOS — одна команда
 
 ```bash
-uv pip install briefcase
-briefcase create macOS && briefcase build macOS
-# entitlements в pyproject [tool.briefcase]: LSUIElement=true (трей без дока),
-# Screen Recording / Accessibility / AppleEvents для TCC-READ
-briefcase package macOS --identity "Developer ID Application: <TEAM>"
-# нотарификация — Briefcase гоняет notarytool; нужен App-Specific Password
+scripts/build_app.sh              # тесты+линт → каркас → зависимости → ключ → подпись → DMG
+scripts/build_app.sh --notarize   # то же плюс нотаризация и staple
 ```
 
-Первый запуск подписанного .app поднимает системные диалоги TCC — после
-выдачи `screenshot`/`list_apps` (System Events) переходят из
-`needs-permission` в `available` без правок кода (probe перечитывает при
-старте). desktop-notifier требует подписанный бандл для
-UNUserNotificationCenter — до подписи работает osascript-fallback.
+Что она делает и почему именно так:
+
+| Шаг | Почему не иначе |
+|---|---|
+| прогон тестов, `ruff`, `ux-lint` | сборка не должна уносить в DMG то, что не проходит гейты |
+| `briefcase create/update` | stub-бинарь, Python.framework, Info.plist, entitlements — чужая отлаженная работа |
+| зависимости ставятся **этим скриптом**, не `briefcase create` | `briefcase create` завис на разрешении набора, содержащего sdist-only пакет (`rumps` не публикует wheel), 12 минут при 0% CPU — 2026-08-30 |
+| `release_pubkey.raw` кладётся в `Contents/Resources` | якорь доверия для каждого будущего payload; подписывается вместе с бандлом |
+| `briefcase package -p dmg -i "<Developer ID>"` | подпись изнутри наружу; `--deep` для подписи Apple не рекомендует |
+| проверка `flags=0x10000(runtime)` через переменную, не через `\| grep -q` | `grep -q` выходит по первому совпадению, `codesign` получает SIGPIPE, `set -o pipefail` объявляет пайп упавшим — скрипт врал про отсутствие hardened runtime |
+
+**Entitlements — два дефолта Briefcase выключены явно** (`pyproject.toml`):
+`disable-library-validation` и `allow-unsigned-executable-memory`. Briefcase
+выдаёт их каждому macOS-приложению; нам не нужен ни один, а с включённым
+`disable-library-validation` Gatekeeper применяет дополнительные проверки.
+
+**Зависимости, без которых бандл врёт** (проверено живьём):
+
+| Пакет | Что ломается без него |
+|---|---|
+| `pyobjc-framework-Quartz` | preflight прав на экран не отвечает → карта способностей объявляет `screenshot: available`, а вызов падает |
+| `certifi` (через `pywebpush`) | у Python в бандле нет системного хранилища CA: **каждая** проверка обновлений падает с `CERTIFICATE_VERIFY_FAILED` |
+| `std-nslog` | у приложения из меню-бара нет терминала; без него stdout/stderr не попадают в Console.app |
+
+`universal_build = false` — сборка только под arm64: `rumps` публикуется
+исходником, а универсальная сборка Briefcase требует бинарных колёс.
+Intel-Маки этой сборкой не поддерживаются; чтобы поддержать — нужно собрать
+колесо `rumps` самим и подложить его через `--find-links`.
+
+### Нотаризация
+
+Один раз завести профиль (нужен app-specific password с appleid.apple.com):
+
+```bash
+xcrun notarytool store-credentials vibe-bridge \
+  --apple-id <apple-id> --team-id KJ35UYYL22 --password <app-specific-password>
+```
+
+Дальше `scripts/build_app.sh --notarize`. Staple ложится на `.app` и `.dmg`;
+на `.zip` — нельзя.
+
+Вердикт `spctl -a -vvv -t exec`:
+
+| До нотаризации | После |
+|---|---|
+| `rejected` / `source=Unnotarized Developer ID` | `accepted` / `source=Notarized Developer ID` |
+
+`rejected` до нотаризации — норма, а не поломка подписи.
+
+## Релиз payload
+
+```bash
+# один раз на машине релиза
+python scripts/release_key.py generate      # приватный ключ → keychain, не в репо
+
+python scripts/build_payload.py             # dist/payload-<v>.tar.gz + .sig
+gh release create v<v> dist/payload-<v>.tar.gz dist/payload-<v>.tar.gz.sig \
+  --repo ssheleg/vibe-bridge
+```
+
+Сборка payload детерминирована (фиксированные mtime, сортировка, обнулённый
+gzip-MTIME): две сборки одного коммита дают одинаковые байты, поэтому подпись
+можно проверить пересборкой, а не принять на веру.
+
+**Когда нужен релиз ОБОЛОЧКИ, а не payload:** любое добавление или бамп
+сторонней зависимости — они живут в бандле. Тогда же поднимается `SHELL_MIN` в
+`scripts/build_payload.py`, иначе новый payload встанет на старую оболочку и
+не сможет импортировать то, что ему нужно.
+
+**Ротация ключа релизов:** удалить запись из keychain
+(`security delete-generic-password -s vibe-bridge-release`), сгенерировать
+заново, **выпустить новую оболочку** с новым публичным ключом. Старые
+установки без новой оболочки перестанут принимать обновления — это ожидаемая
+цена ротации, и она означает, что ключ нельзя терять: приватная половина
+существует в одном экземпляре (board B-10).
+
+**Кэш GitHub:** `/releases/latest` отдаётся через CDN и минуту-другую после
+публикации может показывать предыдущий тег. Мост в это время честно говорит
+«обновлений нет» — он не ошибается, он повторяет то, что ответил канал.
 
 ## Windows — PyInstaller + инсталлер, подпись MS Trusted Signing
 
@@ -45,21 +116,20 @@ pyinstaller --onedir --name vibe-bridge -m vibebridge.app
 #   инсталлер печатает подсказку, не тянет молча
 ```
 
-## Автообновление
+Автообновление на Win/Linux: тот же контракт оболочка+payload (`vbboot`
+кроссплатформенный), но проверка подписи оболочки — средствами платформы.
+Для `.deb` self-upgrade выключается (правило Syncthing).
 
-- macOS: Sparkle 2 (EdDSA) поверх подписанного бандла, ЛИБО
-  Ollama-паттерн — стабильная подписанная оболочка + самообновляемый
-  Python-payload под ней (не трогает TCC-грант).
-- Win: проверка версии + перезапуск инсталлера.
-- Linux: self-upgrade только для AppImage/tarball, выключен для .deb.
+## Что проверено на живой ОС (macOS, 2026-08-30)
 
-## Что проверить на живой ОС (закрывает B-1/B-4)
+1. `.app` из `/Applications` поднимает трей и панель; MCP отдаёт 20 инструментов.
+2. Карта способностей: 10 из 10 `available`; `screenshot` исполняется реально.
+3. Автозапуск регистрируется как Login Item (`SMAppService` → `enabled`).
+4. Второй экземпляр отказывается стартовать: «порт 48620 уже занят».
+5. Обновление payload с GitHub Releases: подпись проверена, версия
+   установлена, после перезапуска мост работает на ней (`source: payload`).
+6. **TCC-грант пережил обновление** — скриншот работает без повторной выдачи прав.
+7. Откат: подсаженная сбойная версия отвергнута и помещена в карантин, мост
+   поднялся на предыдущем коде **в том же запуске**.
 
-1. `python -m vibebridge.app` поднимает трей (pystray) и панель.
-2. Карта способностей отдаёт правильные статусы: Windows — все `available`
-   при установленных extras; GNOME Wayland — `list_apps`/`frontmost`
-   `unavailable` с причиной, скриншот `unavailable` без grim.
-3. Робот через мост зовёт `screenshot`/`clipboard_write` → исполняется или
-   отвечает честной причиной (не виснет).
-4. Подпись/нотарификация проходят; первый запуск на чистой машине не
-   ловит Gatekeeper/SmartScreen-блок.
+Не проверено: нотаризация (нужны креды оператора) и Win/Linux (нужны машины).

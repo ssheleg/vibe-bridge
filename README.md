@@ -14,11 +14,27 @@ loopback-only MCP server plus a menu-bar UI that gates every *action* behind
 your explicit consent and logs everything.
 
 ```
-Robot (Pi) ──Tailscale──▶ agentgateway :4000 (role robot) ──localhost──▶ mac-bridge :48620
+Robot (Pi) ──Tailscale──▶ agentgateway :4000 (role robot) ──localhost──▶ vibe-bridge :48620
                                                                           ├ MCP server (10 tools)
                                                                           ├ menu bar: 🤖 pause / consent / log
-                                                                          └ audit.log (~/Library/Logs/mac-bridge)
+                                                                          └ audit.log (~/Library/Logs/vibe-bridge)
 ```
+
+## Установка (macOS)
+
+Скачайте DMG из [релизов](https://github.com/ssheleg/vibe-bridge/releases),
+перетащите `vibe-bridge.app` в «Программы» и запустите. Приложение живёт в
+меню-баре (без иконки в доке), само регистрируется в System Settings → General
+→ Login Items и **обновляется само**: скачивает только собственный код,
+проверяет Ed25519-подпись до распаковки и применяет версию при следующем
+запуске. Права, выданные приложению (запись экрана, автоматизация), при
+обновлении не сбрасываются — подпись бандла не меняется (ADR-0006).
+
+Сломанная версия не может оставить вас без моста: она помечается карантином, и
+мост поднимается на предыдущем коде в том же запуске. Текущая версия, источник
+и автозапуск видны в панели → Настройки → «Приложение».
+
+Сборка из исходников — `scripts/build_app.sh` (см. `docs/spec/packaging.md`).
 
 ## Tools
 
@@ -36,7 +52,7 @@ with an app blocklist (Terminal, Keychain).
   15 minutes per action-class, then asks again.
 - **Kill switch**: menu → pause → every tool (READ too) returns 503-style
   refusal. A paused bridge looks like a closed laptop to the robot.
-- **Audit**: every call (allowed or refused) → `~/Library/Logs/mac-bridge/audit.log`
+- **Audit**: every call (allowed or refused) → `~/Library/Logs/vibe-bridge/audit.log`
   (0600) and the last few in the menu.
 
 ## Run (dev)
