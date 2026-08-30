@@ -13,7 +13,8 @@
 | Run | Date | Commit | Outcome |
 |---|---|---|---|
 | v2-design | 2026-08-29 | 736cf87 | complete — REQ-01..10 закрыты |
-| build (сегмент 1) | 2026-08-29 | 5246b13…58619be | T-WS/CORE/NORTH/PANEL/SOUTH/PHONE/WIZARD-a shipped (86 тестов, 2 live-бага пойманы браузером); осталось: T-ROBOT (репо робота, деплой = авторизация оператора), B-9 WIZARD-b, T-PLATFORM |
+| build (сегмент 1) | 2026-08-29 | 5246b13…58619be | T-WS/CORE/NORTH/PANEL/SOUTH/PHONE/WIZARD-a; 2 live-бага пойманы браузером |
+| build (сегмент 2) | 2026-08-30 | 99403e4…2a89543 | T-ROBOT (bridge-api смержен в fleet-ветку робота a2348d9, живьём: чат+статус+события), T-PLATFORM (rename vibe-bridge, Win/Linux паки+трей, packaging-runbook); 103 теста моста + 1780 робота. Осталось: B-9 WIZARD-b, B-1/B-4 live Win/Linux+подпись (машины), телефон (владелец) |
 
 ## Recent log
 
