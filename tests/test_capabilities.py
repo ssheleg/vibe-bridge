@@ -11,12 +11,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from macbridge.capabilities import (
+from vibebridge.capabilities import (
     CapabilityError,
     Runner,
     build_capabilities,
 )
-from macbridge.consent import ToolClass
+from vibebridge.consent import ToolClass
 
 
 class FakeRunner(Runner):

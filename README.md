@@ -1,8 +1,10 @@
-# mac-bridge
+# vibe-bridge
 
-Menu-bar MCP bridge: **robot-vibecoder ↔ this Mac**, with the human in the loop.
+Пульт и руки робота на компьютере владельца: **robot-vibecoder ↔ этот компьютер**,
+человек в контуре. Панель (статус/чат/журнал/согласия), PWA с пушами на телефон,
+MCP-инструменты с консентом, онбординг новой Pi.
 
-> Evolving into **vibe-bridge** — the cross-platform bridge. Vision:
+> Vision:
 > [docs/ux/vision.md](docs/ux/vision.md) · scenarios: [docs/ux/scenarios.md](docs/ux/scenarios.md) ·
 > architecture: [docs/spec/architecture.md](docs/spec/architecture.md)
 
@@ -41,7 +43,7 @@ with an app blocklist (Terminal, Keychain).
 
 ```bash
 uv sync
-uv run python -m macbridge.app        # menu-bar app + MCP server
+uv run python -m vibebridge.app       # tray + panel + MCP server
 ```
 
 ## Packaging (for real macOS permissions)

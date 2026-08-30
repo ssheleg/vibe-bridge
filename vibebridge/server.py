@@ -26,7 +26,7 @@ from .capabilities import (
 )
 from .consent import ConsentEngine, allowed, refusal_text
 
-log = logging.getLogger("mac-bridge.server")
+log = logging.getLogger("vibe-bridge.server")
 
 BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 48620
@@ -57,7 +57,7 @@ def build_server(
     # M4 off-switch is retired: a foreign Host now gets 421 again.
     from mcp.server.transport_security import TransportSecuritySettings
     mcp = FastMCP(
-        "mac-bridge", host=BRIDGE_HOST, port=BRIDGE_PORT,
+        "vibe-bridge", host=BRIDGE_HOST, port=BRIDGE_PORT,
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=allowed_hosts,

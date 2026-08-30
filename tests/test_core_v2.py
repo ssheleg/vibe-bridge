@@ -10,15 +10,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from macbridge.audit import AuditLog
-from macbridge.capabilities import (
+from vibebridge.audit import AuditLog
+from vibebridge.capabilities import (
     Capability,
     ToolClass,
     build_capabilities,
     probe_availability,
 )
-from macbridge.consent import ConsentEngine, Decision
-from macbridge.server import dispatch
+from vibebridge.consent import ConsentEngine, Decision
+from vibebridge.server import dispatch
 
 
 class FakeRunner:

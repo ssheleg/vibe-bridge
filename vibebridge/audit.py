@@ -18,8 +18,16 @@ from pathlib import Path
 class AuditLog:
     def __init__(self, path: Path | None = None, *, tail: int = 50,
                  max_bytes: int = 5_000_000) -> None:
-        self.path = path or (
-            Path.home() / "Library" / "Logs" / "mac-bridge" / "audit.log")
+        if path is None:
+            logs = Path.home() / "Library" / "Logs"
+            new_dir, legacy = logs / "vibe-bridge", logs / "mac-bridge"
+            if legacy.is_dir() and not new_dir.exists():
+                try:
+                    legacy.rename(new_dir)   # журнал переезжает вместе с именем
+                except OSError:
+                    new_dir = legacy
+            path = new_dir / "audit.log"
+        self.path = path
         self._max_bytes = max_bytes
         self._lock = threading.Lock()
         self._recent: deque[dict] = deque(maxlen=tail)

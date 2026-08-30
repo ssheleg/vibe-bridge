@@ -10,10 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from starlette.testclient import TestClient
 
-from macbridge.audit import AuditLog
-from macbridge.consent import ConsentEngine
-from macbridge.state import BridgeState
-from macbridge.web import build_app
+from vibebridge.audit import AuditLog
+from vibebridge.consent import ConsentEngine
+from vibebridge.state import BridgeState
+from vibebridge.web import build_app
 
 
 def _fill(aud: AuditLog) -> None:

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- LaunchAgent: vibe-bridge (панель+MCP+трей) в Aqua-сессии владельца.
+     Установка: cp launchd/me.sshlg.vibe-bridge.plist ~/Library/LaunchAgents/
+       && launchctl bootstrap gui/$UID ~/Library/LaunchAgents/me.sshlg.vibe-bridge.plist
+     TCC-зависимые READ (скриншот) получат права после упаковки в .app (B-4). -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>me.sshlg.vibe-bridge</string>
+  <key>ProgramArguments</key><array><string>/Users/sshlg/DATA/vibe-bridge/scripts/run.sh</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>StandardErrorPath</key><string>/tmp/vibe-bridge.err</string>
+  <key>StandardOutPath</key><string>/tmp/vibe-bridge.out</string>
+</dict></plist>

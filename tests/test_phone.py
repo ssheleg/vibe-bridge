@@ -12,13 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from starlette.testclient import TestClient
 
-from macbridge.audit import AuditLog
-from macbridge.capabilities import Capability, ToolClass
-from macbridge.consent import ConsentEngine, Decision
-from macbridge.push import PushSender, ensure_vapid_keys
-from macbridge.server import dispatch
-from macbridge.state import BridgeState
-from macbridge.web import build_app
+from vibebridge.audit import AuditLog
+from vibebridge.capabilities import Capability, ToolClass
+from vibebridge.consent import ConsentEngine, Decision
+from vibebridge.push import PushSender, ensure_vapid_keys
+from vibebridge.server import dispatch
+from vibebridge.state import BridgeState
+from vibebridge.web import build_app
 
 
 def _state(tmp_path) -> BridgeState:

@@ -14,12 +14,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from starlette.testclient import TestClient
 
-from macbridge.audit import AuditLog
-from macbridge.capabilities import Capability, ToolClass
-from macbridge.consent import ConsentEngine
-from macbridge.server import dispatch
-from macbridge.state import BridgeState
-from macbridge.web import build_app
+from vibebridge.audit import AuditLog
+from vibebridge.capabilities import Capability, ToolClass
+from vibebridge.consent import ConsentEngine
+from vibebridge.server import dispatch
+from vibebridge.state import BridgeState
+from vibebridge.web import build_app
 
 
 class FakeRunner:
@@ -178,7 +178,7 @@ def test_sse_bus_pushes_pending_snapshot(tmp_path):
     an endless StreamingResponse wedges TestClient teardown."""
     import asyncio
 
-    from macbridge.web import EventBus, _snapshot
+    from vibebridge.web import EventBus, _snapshot
 
     consent = ConsentEngine(ask_timeout_s=5.0)
     audit = AuditLog(tmp_path / "audit.log")
@@ -205,7 +205,7 @@ def test_sse_bus_pushes_pending_snapshot(tmp_path):
     asyncio.run(scenario())
     req = consent.pending()
     if req:                                          # tidy: let thread die
-        from macbridge.consent import Decision
+        from vibebridge.consent import Decision
         req.resolve(Decision.DENY)
 
 
@@ -229,7 +229,7 @@ def test_pause_endpoint_toggles(tmp_path):
 
 
 def test_grants_revoke_endpoint(tmp_path):
-    from macbridge.consent import ToolClass as TC
+    from vibebridge.consent import ToolClass as TC
     app, consent, *_ = _mk(tmp_path)
     consent._grant_until[TC.ACT] = consent._clock() + 600
     with TestClient(app) as c:

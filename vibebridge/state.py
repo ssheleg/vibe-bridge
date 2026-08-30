@@ -16,14 +16,25 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 
-def default_state_path() -> Path:
+def _config_base(name: str) -> Path:
     if sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support" / "mac-bridge"
-    elif os.name == "nt":  # pragma: no cover - exercised on Windows only
-        base = Path(os.environ.get("APPDATA", Path.home())) / "mac-bridge"
-    else:  # pragma: no cover - exercised on Linux only
-        base = Path(os.environ.get("XDG_CONFIG_HOME",
-                                   Path.home() / ".config")) / "mac-bridge"
+        return Path.home() / "Library" / "Application Support" / name
+    if os.name == "nt":  # pragma: no cover - exercised on Windows only
+        return Path(os.environ.get("APPDATA", Path.home())) / name
+    return Path(os.environ.get("XDG_CONFIG_HOME",  # pragma: no cover - Linux
+                               Path.home() / ".config")) / name
+
+
+def default_state_path() -> Path:
+    base = _config_base("vibe-bridge")
+    legacy = _config_base("mac-bridge")
+    # Волна переименования (ADR-0005): один атомарный перенос каталога —
+    # пейринг-креды и VAPID-ключи обязаны пережить рестарт под новым именем.
+    if legacy.is_dir() and not base.exists():
+        try:
+            legacy.rename(base)
+        except OSError:  # pragma: no cover - разные тома и т.п.
+            base = legacy          # честно живём на старом пути
     return base / "state.json"
 
 

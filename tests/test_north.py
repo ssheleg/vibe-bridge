@@ -12,13 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from starlette.testclient import TestClient
 
-from macbridge.audit import AuditLog
-from macbridge.capabilities import ALIASES, build_capabilities
-from macbridge.consent import ConsentEngine
-from macbridge.net import allowed_hosts
-from macbridge.server import build_server
-from macbridge.state import BridgeState
-from macbridge.web import build_app
+from vibebridge.audit import AuditLog
+from vibebridge.capabilities import ALIASES, build_capabilities
+from vibebridge.consent import ConsentEngine
+from vibebridge.net import allowed_hosts
+from vibebridge.server import build_server
+from vibebridge.state import BridgeState
+from vibebridge.web import build_app
 
 
 class FakeRunner:
@@ -86,7 +86,7 @@ def test_act_tool_does_not_block_event_loop(tmp_path):
     """Regression: an ACT call awaiting consent parks in a worker thread.
     Awaiting dispatch() inline froze the whole loop — panel, SSE and other
     sessions went dark for the length of the dialog (caught live 2026-08-29)."""
-    from macbridge.capabilities import Capability, ToolClass
+    from vibebridge.capabilities import Capability, ToolClass
 
     async def scenario():
         eng = ConsentEngine(ask_timeout_s=0.6)   # request will time out

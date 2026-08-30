@@ -15,7 +15,7 @@ import logging
 
 from .state import BridgeState
 
-log = logging.getLogger("mac-bridge.push")
+log = logging.getLogger("vibe-bridge.push")
 
 
 def ensure_vapid_keys(state: BridgeState) -> None:

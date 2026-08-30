@@ -1,4 +1,4 @@
-# CLAUDE.md — vibe-bridge (repo: mac-bridge)
+# CLAUDE.md — vibe-bridge
 
 Кроссплатформенный bridge робот↔устройство владельца: MCP-сервер с
 консент-движком, аудитом, веб-панелью и треем. Канон UX —
