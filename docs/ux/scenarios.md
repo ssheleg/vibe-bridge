@@ -367,7 +367,7 @@ P-03 член семьи).
 - **States covered:** error, success
 - **Errors & recovery:** сам сценарий — контракт честной деградации (принцип 2 vision)
 - **Status:** draft
-- **Coverage:** macbridge/capabilities.py:220 (probe), macbridge/server.py:65 (честный отказ до консента), macbridge/web.py:187 (карта)
+- **Coverage:** macbridge/capabilities.py probe_availability + macbridge/platforms/{windows,linux}.py (probe_extras, единый контракт имён, честные причины по таблице паритета); tests/test_platforms.py (12); Win/Linux-паки реализованы, live на этих ОС — B-1 (нужны машины)
 
 ### SCN-019: Телефон вне сети — честная PWA
 - **Persona:** P-01

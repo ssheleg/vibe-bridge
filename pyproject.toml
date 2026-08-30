@@ -11,14 +11,23 @@ dependencies = [
     # exactly such a mismatch. Bump TOGETHER with the robot's HERMES_VERSION.
     "mcp==1.26.0",
     "pywebpush>=2.4.0",
-    "rumps>=0.4",
 ]
+
+[project.optional-dependencies]
+# Per-OS capability packs. The core installs on any OS; a capability that
+# needs a third-party lib degrades to an honest "install …[<os>]" error
+# until the extra is present (vibebridge/platforms/*). rumps is macOS-only
+# (menu bar); pystray backs the Win/Linux tray.
+macos = ["rumps>=0.4"]
+windows = ["mss>=9", "PyGetWindow>=0.0.9", "windows-toasts>=1.1", "pystray>=0.19"]
+linux = ["mss>=9", "pystray>=0.19"]
 
 [dependency-groups]
 dev = [
     "pytest>=8",
     "pytest-timeout>=2.4.0",
     "ruff>=0.6",
+    "rumps>=0.4",   # dev host is macOS — keep the tray runnable via `uv run`
 ]
 
 [tool.ruff]

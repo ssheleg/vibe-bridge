@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -186,6 +187,17 @@ _STR = {"type": "string"}
 
 
 def build_capabilities() -> dict[str, Capability]:
+    """Единый MCP-контракт, платформенный пак по sys.platform (spec §5)."""
+    if sys.platform == "darwin":
+        return _build_darwin()
+    if sys.platform.startswith("win"):  # pragma: no cover - win host only
+        from .platforms import windows
+        return windows.build_capabilities()
+    from .platforms import linux
+    return linux.build_capabilities()
+
+
+def _build_darwin() -> dict[str, Capability]:
     caps = [
         Capability("screenshot", ToolClass.READ,
                    "смотрю на экран Мака", _screenshot, {},
@@ -248,10 +260,24 @@ def probe_availability(caps: dict[str, Capability], *,
                          "reason": f"на этом компьютере нет команды "
                                    f"«{missing[0]}»"}
             continue
-        status, reason = "available", ""
-        if name == "screenshot" and _screen_capture_granted() is False:
-            status = "needs-permission"
-            reason = ("нужны права «Запись экрана» — Настройки → "
-                      "Конфиденциальность и безопасность → Запись экрана")
-        out[name] = {"status": status, "reason": reason}
+        extra = _platform_probe_extras(name)
+        if extra is not None:
+            out[name] = {"status": extra[0], "reason": extra[1]}
+            continue
+        out[name] = {"status": "available", "reason": ""}
     return out
+
+
+def _platform_probe_extras(name: str) -> tuple[str, str] | None:
+    """Пере-статусы платформенного пака поверх бинарной probe."""
+    if sys.platform == "darwin":
+        if name == "screenshot" and _screen_capture_granted() is False:
+            return ("needs-permission",
+                    "нужны права «Запись экрана» — Настройки → "
+                    "Конфиденциальность и безопасность → Запись экрана")
+        return None
+    if sys.platform.startswith("win"):  # pragma: no cover - win host only
+        from .platforms import windows
+        return windows.probe_extras(name)
+    from .platforms import linux
+    return linux.probe_extras(name)

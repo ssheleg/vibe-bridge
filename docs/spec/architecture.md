@@ -109,6 +109,8 @@ uvicorn + asyncio — worker thread; ConsentEngine — единственная 
 | `automation` | ACT | osascript + блоклист | PowerShell + блоклист | defer | defer |
 | `clipboard_read/write` | ACT | ship | ship | ship (xclip) | ship (wl-clipboard) |
 
+**Статус (T-PLATFORM 2026-08-30):** паки Windows и Linux реализованы (`vibebridge/platforms/`), единый контракт имён, честная деградация по таблице; extras `[windows]`/`[linux]` в pyproject. Живая проверка на этих ОС — B-1 (нужны машины).
+
 Инварианты: shell и произвольные файлы отсутствуют по построению;
 `automation` всегда ACT + блоклист (Terminal/Keychain на macOS; аналог для
 PowerShell — профили, реестр-редактирование системных ключей и запуск
