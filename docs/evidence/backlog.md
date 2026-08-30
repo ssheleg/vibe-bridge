@@ -15,7 +15,8 @@ Priorities re-derived at each run's close-out.
 | B-6 | P3 | Figma-визуальный проход по wireframes | brief-2026-08-29 CO-2 | open |
 | B-7 | P3 | Снять `mac_*`-алиасы инструментов — вместе с бампом Hermes/`mcp` | spec §5, close-out 2026-08-29 | open |
 | B-10 | P2 | Приватный Ed25519-ключ релизов существует в одном экземпляре (keychain этой машины) — нужна процедура бэкапа и ротации; потеря = невозможность выпускать обновления | brief-2026-08-30 CO-4 | open |
-| B-11 | P1 | Нотаризация macOS-сборки: оператору завести профиль `xcrun notarytool store-credentials vibe-bridge` (нужен app-specific password), дальше `scripts/build_app.sh --notarize` | brief-2026-08-30 REQ-10 | human step |
+| B-11 | P1 | ~~Нотаризация macOS-сборки~~ **ЗАКРЫТА 2026-08-30**: профиль заведён оператором, `--notarize` прошёл (Accepted), staple на .app и .dmg, `spctl` → accepted; DMG в релизе `shell-v0.1.0` | brief-2026-08-30 REQ-10 | done |
 | B-12 | P3 | Лицензия репозитория: сейчас `LicenseRef-Proprietary` (все права сохранены) — решить, открывать ли под MIT, как остальная семья | brief-2026-08-30 | open |
 | B-13 | P3 | Иконка приложения — сплошная заливка, сгенерированная stdlib'ом; нужен настоящий значок (`/sheleg-design`) | brief-2026-08-30 | open |
 | B-14 | P2 | Побочный приватный репозиторий `sshlg/vibe-bridge` создан `gh repo create` по ошибке; удалить (у токена нет scope `delete_repo` — шаг оператора) | brief-2026-08-30 | human step |
+| B-15 | P2 | App-specific password для notarytool засветился в транскрипте сессии — отозвать на appleid.apple.com и, если понадобится, завести профиль заново (сам профиль в keychain останется рабочим до отзыва) | build-3 close-out | human step |
