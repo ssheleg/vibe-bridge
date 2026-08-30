@@ -507,13 +507,20 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
 
         from . import __version__, update
 
-        found = await asyncio.to_thread(update.check, current=__version__)
-        if found is None:
-            return JSONResponse({
-                "found": False, "installed": False,
-                "message": ("обновлений нет либо канал недоступен — "
-                            "мост продолжает работать на текущей версии"),
-            })
+        result = await asyncio.to_thread(update.check, current=__version__)
+        if result.found is None:
+            # Two different answers, and the owner is told which one it is.
+            message = (result.error or
+                       "обновлений нет — установлена последняя версия")
+            if result.error:
+                audit.record(tool="update", tool_class="SYS",
+                             decision="unavailable", ok=False,
+                             line=f"проверка обновлений: {result.error}",
+                             detail=result.error)
+            return JSONResponse({"found": False, "installed": False,
+                                 "reachable": not result.error,
+                                 "message": message})
+        found = result.found
 
         from vbboot.runner import shell_version
         shell = shell_version()

@@ -71,7 +71,7 @@ def test_no_pending_update_reads_as_none_not_as_the_running_version(client):
 
 def test_check_reports_when_there_is_nothing_newer(client, monkeypatch):
     from vibebridge import update
-    monkeypatch.setattr(update, "check", lambda **kw: None)
+    monkeypatch.setattr(update, "check", lambda **kw: update.Check())
     body = client.post("/api/update/check").json()
     assert body["found"] is False
     assert body["message"]
@@ -81,7 +81,7 @@ def test_check_reports_a_network_failure_honestly(client, monkeypatch):
     """`check` swallows the traceback; the panel must still not claim the
     bridge is up to date when nobody could ask."""
     from vibebridge import update
-    monkeypatch.setattr(update, "check", lambda **kw: None)
+    monkeypatch.setattr(update, "check", lambda **kw: update.Check())
     body = client.post("/api/update/check").json()
     assert body["found"] is False
 
@@ -91,7 +91,7 @@ def test_check_that_finds_an_update_installs_and_journals_it(client, tmp_path,
     from vibebridge import update
     found = update.Available(version="9.9.9", payload_url="https://x/p",
                              sig_url="https://x/p.sig", notes="")
-    monkeypatch.setattr(update, "check", lambda **kw: found)
+    monkeypatch.setattr(update, "check", lambda **kw: update.Check(found=found))
     monkeypatch.setattr("vbboot.runner.shell_version", lambda: "0.1.0")
     monkeypatch.setattr(update, "fetch_and_install",
                         lambda *a, **kw: (True, "версия 9.9.9 установлена"))
@@ -110,7 +110,7 @@ def test_a_refused_update_is_journalled_as_a_failure(client, monkeypatch):
     from vibebridge import update
     found = update.Available(version="9.9.9", payload_url="https://x/p",
                              sig_url="https://x/p.sig", notes="")
-    monkeypatch.setattr(update, "check", lambda **kw: found)
+    monkeypatch.setattr(update, "check", lambda **kw: update.Check(found=found))
     monkeypatch.setattr("vbboot.runner.shell_version", lambda: "0.1.0")
     monkeypatch.setattr(
         update, "fetch_and_install",
@@ -165,7 +165,7 @@ def test_a_dev_checkout_refuses_to_update_instead_of_pretending(client,
     from vibebridge import update
     found = update.Available(version="9.9.9", payload_url="https://x/p",
                              sig_url="https://x/p.sig", notes="")
-    monkeypatch.setattr(update, "check", lambda **kw: found)
+    monkeypatch.setattr(update, "check", lambda **kw: update.Check(found=found))
     monkeypatch.setattr("vbboot.runner.shell_version", lambda: None)
 
     body = client.post("/api/update/check").json()

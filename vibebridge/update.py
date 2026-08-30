@@ -126,36 +126,53 @@ def install(blob: bytes, signature: bytes, version: str, root: Path, *,
         _rmtree(tmp)
 
 
-def check(*, current: str, fetch=None) -> Available | None:
-    """Ask the release channel what the newest version is. None means "no
-    update to take" for every reason there is — current, older, unreachable,
-    malformed, or published without a signature."""
+@dataclass(frozen=True)
+class Check:
+    """The answer to "is there an update?", with the two negatives kept
+    apart: `up_to_date` means we asked and there is nothing, `error` means we
+    could not ask. Collapsing them into one None told the owner "обновлений
+    нет" while the bundle was in fact failing to reach GitHub (2026-08-30) —
+    the panel reported calm and the bridge was blind."""
+    found: Available | None = None
+    error: str = ""
+
+    @property
+    def up_to_date(self) -> bool:
+        return self.found is None and not self.error
+
+
+def check(*, current: str, fetch=None) -> Check:
+    """Ask the release channel what the newest version is."""
     fetch = fetch or _fetch_json
     try:
         data = fetch(RELEASE_API)
         tag = str(data["tag_name"]).lstrip("vV")
         assets = {a["name"]: a["browser_download_url"]
                   for a in data.get("assets", [])}
-    except (KeyError, TypeError, ValueError, OSError,
-            urllib.error.URLError):
-        return None
+    except (KeyError, TypeError, ValueError) as exc:
+        return Check(error=f"канал релизов ответил неожиданным форматом: {exc}")
+    except (OSError, urllib.error.URLError) as exc:
+        return Check(error=f"канал релизов недоступен: {exc}")
 
     new, now = layout.parse(tag), layout.parse(current)
-    if not new or not now or new <= now:
-        return None
+    if not new or not now:
+        return Check(error=f"непонятный номер версии: {tag!r} / {current!r}")
+    if new <= now:
+        return Check()                       # asked, nothing newer
 
     payload = PAYLOAD_ASSET.format(version=tag)
     if payload not in assets or f"{payload}.sig" not in assets:
-        return None
-    return Available(version=tag, payload_url=assets[payload],
-                     sig_url=assets[f"{payload}.sig"],
-                     notes=str(data.get("body") or ""))
+        return Check(error=(f"релиз {tag} опубликован без payload или без "
+                            f"подписи — не устанавливаю"))
+    return Check(found=Available(version=tag, payload_url=assets[payload],
+                                 sig_url=assets[f"{payload}.sig"],
+                                 notes=str(data.get("body") or "")))
 
 
 def download(url: str, *, opener=None) -> bytes | None:
     """Fetch an asset, capped. None on any failure — callers treat that as
     "no update this time", not as an error to surface."""
-    opener = opener or urllib.request.urlopen
+    opener = opener or _open_verified
     try:
         with opener(url, timeout=_TIMEOUT) as resp:
             blob = resp.read(_MAX_PAYLOAD + 1)
@@ -178,6 +195,10 @@ def fetch_and_install(found: Available, root: Path, *, pubkey: bytes | None,
 
 
 # ------------------------------------------------------------------ helpers
+
+def _open_verified(url: str, timeout: int = _TIMEOUT):
+    return urllib.request.urlopen(url, timeout=timeout, context=ssl_context())
+
 
 def _extract(blob: bytes, dest: Path) -> tuple[bool, str]:
     """Unpack with `filter="data"`: absolute paths, `..` and device nodes are
@@ -208,11 +229,34 @@ def _shell_supports(required: str, have: str) -> bool:
     return bool(need and got and got >= need)
 
 
+def ssl_context():
+    """A trust store the packaged app actually has.
+
+    A Python bundled inside a .app has no system CA store to fall back on:
+    the first packaged build failed every release check with
+    `CERTIFICATE_VERIFY_FAILED … unable to get local issuer certificate`
+    (2026-08-30), and it looked exactly like "no updates". `httpx` and
+    `requests` — the bridge's other HTTP callers — already carry `certifi`;
+    this gives the same roots to the stdlib client used here.
+
+    Never falls back to an unverified context: an updater that drops
+    certificate checking to keep working has removed the reason to trust the
+    channel at all.
+    """
+    import ssl
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except (ImportError, OSError):
+        return ssl.create_default_context()
+
+
 def _fetch_json(url: str) -> dict:
     req = urllib.request.Request(
         url, headers={"Accept": "application/vnd.github+json",
                       "User-Agent": "vibe-bridge-updater"})
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=_TIMEOUT,
+                                context=ssl_context()) as resp:
         return json.loads(resp.read(2 * 1024 * 1024))
 
 

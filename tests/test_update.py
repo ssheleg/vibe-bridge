@@ -191,7 +191,7 @@ def _release(tag="0.2.0", *, assets=("payload-0.2.0.tar.gz",
 
 
 def test_check_reports_a_newer_release(root):
-    found = update.check(current="0.1.0", fetch=lambda url: _release())
+    found = update.check(current="0.1.0", fetch=lambda url: _release()).found
     assert found is not None
     assert found.version == "0.2.0"
     assert found.payload_url.endswith("payload-0.2.0.tar.gz")
@@ -199,23 +199,66 @@ def test_check_reports_a_newer_release(root):
 
 
 def test_check_is_quiet_when_already_current(root):
-    assert update.check(current="0.2.0", fetch=lambda url: _release()) is None
+    res = update.check(current="0.2.0", fetch=lambda url: _release())
+    assert res.found is None and res.up_to_date
 
 
 def test_check_ignores_an_older_release(root):
-    assert update.check(current="0.3.0", fetch=lambda url: _release()) is None
+    res = update.check(current="0.3.0", fetch=lambda url: _release())
+    assert res.found is None and res.up_to_date
 
 
-def test_check_never_raises_on_a_network_error(root):
+def test_unreachable_channel_is_not_reported_as_up_to_date(root):
+    """The distinction this whole type exists for. Live on 2026-08-30 the
+    packaged app could not reach GitHub and the panel said "обновлений нет":
+    a blind bridge reporting calm."""
     def boom(url):
         raise OSError("сеть недоступна")
-    assert update.check(current="0.1.0", fetch=boom) is None
+
+    res = update.check(current="0.1.0", fetch=boom)
+    assert res.found is None
+    assert not res.up_to_date
+    assert "недоступен" in res.error and "сеть недоступна" in res.error
 
 
-def test_check_never_raises_on_garbage_json(root):
-    assert update.check(current="0.1.0", fetch=lambda url: {"nope": 1}) is None
+def test_garbage_json_is_an_error_not_silence(root):
+    res = update.check(current="0.1.0", fetch=lambda url: {"nope": 1})
+    assert res.found is None and not res.up_to_date and res.error
 
 
-def test_release_without_a_signature_asset_is_not_offered(root):
+def test_release_without_a_signature_asset_is_refused_out_loud(root):
     rel = _release(assets=("payload-0.2.0.tar.gz",))
-    assert update.check(current="0.1.0", fetch=lambda url: rel) is None
+    res = update.check(current="0.1.0", fetch=lambda url: rel)
+    assert res.found is None and not res.up_to_date
+    assert "подписи" in res.error
+
+
+# ------------------------------------------------------------- trust store
+
+def test_updater_carries_its_own_ca_roots():
+    """A bundled Python has no system CA store. Without certifi the first
+    packaged build reported CERTIFICATE_VERIFY_FAILED for every check, and
+    the panel rendered that as "обновлений нет"."""
+    import certifi
+    ctx = update.ssl_context()
+    assert ctx.verify_mode.name == "CERT_REQUIRED"
+    assert ctx.check_hostname is True
+    assert certifi.where()
+
+
+def test_trust_store_is_never_downgraded_to_unverified(monkeypatch):
+    """Even with certifi missing, verification stays on: an updater that
+    turns off certificate checks to keep working has thrown away the reason
+    to trust the channel."""
+    import builtins
+    real_import = builtins.__import__
+
+    def no_certifi(name, *a, **kw):
+        if name == "certifi":
+            raise ImportError("no certifi")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", no_certifi)
+    ctx = update.ssl_context()
+    assert ctx.verify_mode.name == "CERT_REQUIRED"
+    assert ctx.check_hostname is True
