@@ -72,18 +72,20 @@ def main() -> int:
         return 1
 
     root = layout.payload_root()
-    chosen = runner.choose_payload(root, seed=_seed_dir())
-    runner.activate(chosen, root)
 
-    if chosen.fell_back:
-        _complain("обновление не запустилось — мост вернулся на предыдущую "
-                  "версию, подробности в журнале")
+    def load(_chosen):
+        from vibebridge.app import run
+        return run
 
     try:
-        from vibebridge.app import run
-    except Exception as exc:                # noqa: BLE001 - payload may be bad
-        _complain(f"не удалось загрузить код моста ({chosen.version}): {exc}")
+        run, chosen = runner.run_payload(root, seed=_seed_dir(), loader=load)
+    except Exception as exc:                # noqa: BLE001 - even the seed failed
+        _complain(f"не удалось загрузить код моста: {exc}")
         return 1
+
+    if chosen.fell_back:
+        _complain("обновление не запустилось — мост работает на предыдущей "
+                  "версии, подробности в журнале")
 
     run()
     return 0

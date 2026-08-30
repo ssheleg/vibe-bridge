@@ -102,18 +102,36 @@ def quarantine(root: Path, version: str) -> None:
     complete_launch(root, version)
 
 
-def resolve(root: Path) -> Path | None:
-    """The version to run, newest first — or None when there is no good one.
+def usable(root: Path) -> Path | None:
+    """Newest version not under quarantine — a PURE read.
 
-    None is not an error: it means the shell runs the seed copy it shipped
-    with. A bridge that refuses to start because an update went wrong is
-    worse than a bridge running last month's code.
+    Deliberately blind to launch markers: a marker means "this version is
+    still proving itself", and only the boot path is entitled to rule on
+    that. See `resolve_for_launch`.
+    """
+    for version in reversed(installed(root)):
+        if not is_quarantined(root, version):
+            return root / version
+    return None
+
+
+def resolve_for_launch(root: Path) -> Path | None:
+    """The version to run — the ONLY function here that writes.
+
+    A launch marker still present means that version's last launch never
+    reported success, so it is quarantined and the next candidate tried.
+    None is not an error: the shell then runs the seed it shipped with. A
+    bridge that refuses to start because an update went wrong is worse than a
+    bridge running last month's code.
+
+    Split from `usable` on 2026-08-30 after the read path took the bridge
+    down: `/api/version` called this through `active_version`, and a panel
+    request inside the settle window condemned the healthy running version.
     """
     for version in reversed(installed(root)):
         if is_quarantined(root, version):
             continue
         if (root / f"{_LAUNCHING}{version}").exists():
-            # Its previous launch never reported success.
             quarantine(root, version)
             continue
         return root / version
@@ -121,7 +139,8 @@ def resolve(root: Path) -> Path | None:
 
 
 def active_version(root: Path) -> str | None:
-    chosen = resolve(root)
+    """What the panel should name as installed. Pure — never quarantines."""
+    chosen = usable(root)
     return chosen.name if chosen else None
 
 

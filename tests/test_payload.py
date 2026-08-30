@@ -46,7 +46,7 @@ def test_incomplete_install_is_invisible(root):
     _install(root, "0.1.0")
     _install(root, "0.2.0", complete=False)
     assert layout.installed(root) == ["0.1.0"]
-    assert layout.resolve(root) == (root / "0.1.0")
+    assert layout.resolve_for_launch(root) == (root / "0.1.0")
 
 
 def test_junk_directory_names_are_ignored(root):
@@ -59,16 +59,16 @@ def test_junk_directory_names_are_ignored(root):
 def test_resolve_picks_the_newest(root):
     _install(root, "0.1.0")
     _install(root, "0.2.0")
-    assert layout.resolve(root) == (root / "0.2.0")
+    assert layout.resolve_for_launch(root) == (root / "0.2.0")
 
 
 def test_resolve_returns_none_when_nothing_is_installed(root):
     """Не бросает: пустой payload — это первый запуск, оболочка берёт seed."""
-    assert layout.resolve(root) is None
+    assert layout.resolve_for_launch(root) is None
 
 
 def test_resolve_survives_a_missing_root(tmp_path):
-    assert layout.resolve(tmp_path / "never-created") is None
+    assert layout.resolve_for_launch(tmp_path / "never-created") is None
 
 
 # ---------------------------------------------------------------- rollback
@@ -79,7 +79,7 @@ def test_version_that_crashed_on_last_launch_is_quarantined(root):
 
     layout.begin_launch(root, "0.2.0")          # marker written, then a crash
     # next boot sees the marker still there
-    assert layout.resolve(root) == (root / "0.1.0")
+    assert layout.resolve_for_launch(root) == (root / "0.1.0")
     assert layout.is_quarantined(root, "0.2.0")
 
 
@@ -90,7 +90,7 @@ def test_clean_launch_clears_the_marker_and_keeps_the_version(root):
     layout.begin_launch(root, "0.2.0")
     layout.complete_launch(root, "0.2.0")
 
-    assert layout.resolve(root) == (root / "0.2.0")
+    assert layout.resolve_for_launch(root) == (root / "0.2.0")
     assert not layout.is_quarantined(root, "0.2.0")
 
 
@@ -98,23 +98,23 @@ def test_quarantine_is_sticky_across_boots(root):
     _install(root, "0.1.0")
     _install(root, "0.2.0")
     layout.begin_launch(root, "0.2.0")
-    layout.resolve(root)                         # first boot quarantines it
-    assert layout.resolve(root) == (root / "0.1.0")   # second boot agrees
+    layout.resolve_for_launch(root)              # first boot quarantines it
+    assert layout.resolve_for_launch(root) == (root / "0.1.0")  # and agrees
 
 
 def test_a_newer_good_version_wins_over_a_quarantined_one(root):
     for v in ("0.1.0", "0.2.0", "0.3.0"):
         _install(root, v)
     layout.begin_launch(root, "0.3.0")
-    assert layout.resolve(root) == (root / "0.2.0")
+    assert layout.resolve_for_launch(root) == (root / "0.2.0")
     _install(root, "0.4.0")
-    assert layout.resolve(root) == (root / "0.4.0")
+    assert layout.resolve_for_launch(root) == (root / "0.4.0")
 
 
 def test_all_versions_quarantined_falls_back_to_none(root):
     _install(root, "0.1.0")
     layout.begin_launch(root, "0.1.0")
-    assert layout.resolve(root) is None          # → bundle seed, not a crash
+    assert layout.resolve_for_launch(root) is None   # → seed, not a crash
 
 
 def test_reinstalling_a_quarantined_version_clears_its_quarantine(root):
@@ -123,12 +123,12 @@ def test_reinstalling_a_quarantined_version_clears_its_quarantine(root):
     _install(root, "0.1.0")
     _install(root, "0.2.0")
     layout.begin_launch(root, "0.2.0")
-    layout.resolve(root)
+    layout.resolve_for_launch(root)
     assert layout.is_quarantined(root, "0.2.0")
 
     layout.mark_installed(root, "0.2.0")
     assert not layout.is_quarantined(root, "0.2.0")
-    assert layout.resolve(root) == (root / "0.2.0")
+    assert layout.resolve_for_launch(root) == (root / "0.2.0")
 
 
 # ---------------------------------------------------------------- pruning
@@ -144,6 +144,49 @@ def test_prune_never_removes_a_version_it_would_roll_back_to(root):
     for v in ("0.1.0", "0.2.0"):
         _install(root, v)
     layout.begin_launch(root, "0.2.0")
-    layout.resolve(root)                  # 0.2.0 quarantined, 0.1.0 is active
+    layout.resolve_for_launch(root)       # 0.2.0 quarantined, 0.1.0 active
     layout.prune(root, keep=1)
     assert (root / "0.1.0").is_dir()      # the one actually in use survives
+
+
+# ---------------------------------------------------- reads must not mutate
+
+def test_reading_the_active_version_never_quarantines_anything(root):
+    """Caught live 2026-08-30, and it took the bridge down.
+
+    `resolve` quarantines a version whose launch marker survived — that is
+    its job at boot. But `active_version` was built on it, `/api/version`
+    called `active_version`, and the panel polls that. One panel request
+    inside the 20-second settle window therefore condemned the version that
+    was running perfectly, and the next launch refused to start it.
+
+    A read is a read. Only the boot path may write.
+    """
+    _install(root, "0.1.0")
+    _install(root, "0.2.0")
+    layout.begin_launch(root, "0.2.0")        # currently settling, healthy
+
+    assert layout.active_version(root) == "0.2.0"
+    assert not layout.is_quarantined(root, "0.2.0")
+    assert (root / f"{layout._LAUNCHING}0.2.0").exists()   # untouched
+
+    # …and the boot path still does its job.
+    assert layout.resolve_for_launch(root) == (root / "0.1.0")
+    assert layout.is_quarantined(root, "0.2.0")
+
+
+def test_active_version_ignores_quarantined_versions(root):
+    _install(root, "0.1.0")
+    _install(root, "0.2.0")
+    layout.quarantine(root, "0.2.0")
+    assert layout.active_version(root) == "0.1.0"
+
+
+def test_boot_path_is_the_only_writer(root):
+    _install(root, "0.2.0")
+    layout.begin_launch(root, "0.2.0")
+    before = sorted(p.name for p in root.iterdir())
+    layout.installed(root)
+    layout.active_version(root)
+    layout.usable(root)
+    assert sorted(p.name for p in root.iterdir()) == before

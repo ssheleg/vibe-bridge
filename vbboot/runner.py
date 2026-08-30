@@ -6,6 +6,7 @@ so each step here assumes the next one might not survive.
 """
 from __future__ import annotations
 
+import contextlib
 import socket
 import sys
 import threading
@@ -56,7 +57,7 @@ def choose_payload(root: Path, *, seed: Path) -> Chosen:
     seed_key = layout.parse(seed_ver) or ()
 
     while True:
-        chosen = layout.resolve(root)
+        chosen = layout.resolve_for_launch(root)
         if chosen is None:
             break
         if not _package_ok(chosen):
@@ -133,6 +134,37 @@ def settle_later(root: Path, version: str,
     timer.daemon = True
     timer.start()
     return timer
+
+
+def run_payload(root: Path, *, seed: Path, loader):
+    """Choose code, load it, and if it will not load, fall back HERE.
+
+    The launch-marker mechanism rolls a bad version back on the *next* boot,
+    which for a login-item app means the owner has no bridge until they
+    notice and start it again (observed 2026-08-30 with a payload that raised
+    on import). So a failure to load is handled in this process: quarantine
+    the version, pick the next candidate, try again. The seed is the floor —
+    if that will not load either, the exception belongs to the caller.
+    """
+    while True:
+        chosen = choose_payload(root, seed=seed)
+        activate(chosen, root)
+        try:
+            return loader(chosen), chosen
+        except Exception:
+            _deactivate(chosen)
+            if chosen.source == "seed":
+                raise                    # nothing left to fall back to
+            layout.quarantine(root, chosen.version)
+
+
+def _deactivate(chosen: Chosen) -> None:
+    """Undo `activate`'s path entry so the next attempt starts clean."""
+    with contextlib.suppress(ValueError):
+        sys.path.remove(str(chosen.path))
+    for name in [m for m in sys.modules if m == "vibebridge"
+                 or m.startswith("vibebridge.")]:
+        del sys.modules[name]
 
 
 def activate(chosen: Chosen, root: Path) -> None:

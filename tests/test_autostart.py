@@ -139,8 +139,20 @@ def test_second_launch_does_not_ask_again():
     them, and a switch the app keeps flipping back is not a switch."""
     state, svc = _State(registered=True), _Service(status=0)
     ok, why = autostart.ensure_registered(state, _SM(svc))
-    assert not ok and not svc.registered
+    assert ok is None and not svc.registered      # None, not False: no failure
     assert "решение за владельцем" in why
+
+
+def test_nothing_to_do_is_not_the_same_as_failed():
+    """Every ordinary launch hits this path. Reporting it as a failure puts
+    a red mark on normal behaviour and trains the owner to ignore red."""
+    settled, _ = autostart.ensure_registered(_State(registered=True),
+                                             _SM(_Service()))
+    failed, _ = autostart.ensure_registered(_State(),
+                                            _SM(_Service(ok=False,
+                                                         err=_Error())))
+    assert settled is None
+    assert failed is False
 
 
 def test_a_failed_registration_is_not_remembered_as_done():

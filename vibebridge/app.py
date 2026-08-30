@@ -60,9 +60,10 @@ def run() -> None:  # pragma: no cover - requires a GUI session
     if sys.platform == "darwin" and ".app/Contents/" in __file__:
         from .autostart import ensure_registered
         ok, why = ensure_registered(state)
-        audit.record(tool="autostart", tool_class="SYS",
-                     decision="auto" if ok else "unavailable", ok=ok,
-                     line=f"автозапуск при входе: {why}", detail=why)
+        if ok is not None:          # None = already settled, nothing happened
+            audit.record(tool="autostart", tool_class="SYS",
+                         decision="auto" if ok else "unavailable", ok=ok,
+                         line=f"автозапуск при входе: {why}", detail=why)
 
     if sys.platform != "darwin":
         # Win/Linux: consent is answered on the panel; the tray is status +
@@ -139,7 +140,7 @@ def run() -> None:  # pragma: no cover - requires a GUI session
 
         def revoke(self, sender) -> None:
             consent.revoke_grants()
-            rumps.notification("mac-bridge", "",
+            rumps.notification("vibe-bridge", "",
                                "Разрешения сброшены — следующее действие спросит снова")
 
     BridgeApp().run()

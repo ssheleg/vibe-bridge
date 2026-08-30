@@ -32,16 +32,21 @@ _HUMAN = {
 }
 
 
-def ensure_registered(state, mod=None) -> tuple[bool, str]:
+def ensure_registered(state, mod=None) -> tuple[bool | None, str]:
     """Register as a Login Item once, on the first launch that can.
 
     Once — because `state.autostart_registered` records that the system was
     asked, and an owner who then switches it off in System Settings must find
     it still off next time. A bridge that re-enables its own autostart every
     launch is a bridge that overrides the owner.
+
+    Returns None for "nothing to do" — distinct from False, which is a real
+    failure. Every ordinary launch takes the None path, and journalling that
+    as a failure put a red ✗ on normal behaviour, which is how a journal
+    teaches its reader to ignore red marks.
     """
     if getattr(state, "autostart_registered", False):
-        return False, "автозапуск уже настраивался — решение за владельцем"
+        return None, "автозапуск уже настроен — решение за владельцем"
     ok, message = enable(mod)
     if ok:
         state.autostart_registered = True

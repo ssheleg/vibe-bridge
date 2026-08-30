@@ -146,3 +146,49 @@ def test_shell_version_outside_a_bundle_is_reported_as_unknown(monkeypatch):
     import vbboot
     monkeypatch.setattr(vbboot, "__file__", "/Users/x/repo/vbboot/__init__.py")
     assert runner.shell_version() is None
+
+
+# ------------------------------------------- a broken payload must not win
+
+def test_a_payload_that_cannot_be_imported_falls_back_in_the_same_launch(
+        tmp_path, bundle, root, monkeypatch):
+    """Live on 2026-08-30 a payload raising on import took the bridge down
+    until someone launched it a second time: the marker mechanism only rolls
+    back on the NEXT boot. For an app that starts at login that means the
+    owner's bridge is simply absent until they notice. The fallback happens
+    now, in this process."""
+    _install(root, "9.9.9")
+    attempts = []
+
+    def loader(chosen):
+        attempts.append(chosen.version)
+        if chosen.version == "9.9.9":
+            raise ImportError("подсаженный дефект")
+        return f"ran {chosen.version}"
+
+    result, chosen = runner.run_payload(root, seed=bundle, loader=loader)
+    assert result == "ran 0.1.0"                 # the seed, in one launch
+    assert attempts == ["9.9.9", "0.1.0"]
+    assert layout.is_quarantined(root, "9.9.9")  # and never offered again
+    assert chosen.source == "seed" and chosen.fell_back
+
+
+def test_a_healthy_payload_is_loaded_once_and_kept(bundle, root):
+    _install(root, "0.2.0")
+    calls = []
+    result, chosen = runner.run_payload(
+        root, seed=bundle, loader=lambda c: calls.append(c.version) or "ok")
+    assert result == "ok" and calls == ["0.2.0"]
+    assert chosen.source == "payload"
+    assert not layout.is_quarantined(root, "0.2.0")
+
+
+def test_fallback_stops_rather_than_looping_when_nothing_loads(bundle, root):
+    """The seed failing too is the end of the line — say so, do not spin."""
+    _install(root, "0.2.0")
+
+    def always_broken(chosen):
+        raise ImportError("всё сломано")
+
+    with pytest.raises(ImportError):
+        runner.run_payload(root, seed=bundle, loader=always_broken)
