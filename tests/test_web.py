@@ -37,10 +37,10 @@ def _act_cap():
                       {"app": {"type": "string"}})
 
 
-def _mk(tmp_path, *, robot_token=None, ask_timeout=5.0):
+def _mk(tmp_path, *, robot_token=None, ask_timeout=5.0, mode="gateway"):
     state = BridgeState(path=tmp_path / "state.json",
                         panel_token="panel-secret",
-                        robot_token=robot_token)
+                        robot_token=robot_token, mode=mode)
     consent = ConsentEngine(ask_timeout_s=ask_timeout)
     audit = AuditLog(tmp_path / "audit.log")
     runner = FakeRunner("done")
@@ -101,8 +101,17 @@ def test_mcp_mounted_gateway_mode_no_token_needed(tmp_path):
         assert r.status_code != 401
 
 
+def test_mcp_gateway_mode_ignores_paired_token(tmp_path):
+    """Регрессия 2026-08-29: пейринг создал robot_token и гейт начал
+    требовать bearer в gateway-режиме — робот получал 401 через гейтвей.
+    Наличие токена ≠ standalone (ADR-0002)."""
+    app, *_ = _mk(tmp_path, robot_token="robo-tok", mode="gateway")
+    with TestClient(app) as c:
+        assert c.get("/mcp").status_code != 401
+
+
 def test_mcp_bearer_enforced_in_standalone_mode(tmp_path):
-    app, *_ = _mk(tmp_path, robot_token="robo-tok")
+    app, *_ = _mk(tmp_path, robot_token="robo-tok", mode="standalone")
     with TestClient(app) as c:
         r = c.get("/mcp")
         assert r.status_code == 401

@@ -73,14 +73,20 @@ _DECISIONS = {
 
 
 class BearerGuard:
-    """401 before the MCP transport unless the configured robot token rides
-    the Authorization header. No token configured (gateway mode) → pass."""
+    """401 before the MCP transport unless the robot token rides the
+    Authorization header — ТОЛЬКО в standalone-режиме (ADR-0002). В
+    gateway-режиме границей служат loopback+agentgateway, и гейт обязан
+    пропускать: ключеваться на «токен существует» нельзя — пейринг создаёт
+    robot_token, не меняя режима, и 2026-08-29 это молча отдало роботу 401
+    на его же mac_*-инструменты на ~15 часов (замечено post-rename
+    проверкой цепи)."""
 
     def __init__(self, app, state: BridgeState) -> None:
         self.app, self.state = app, state
 
     async def __call__(self, scope, receive, send) -> None:
-        token = self.state.robot_token
+        token = (self.state.robot_token
+                 if self.state.mode == "standalone" else None)
         if token and scope["type"] == "http":
             auth = ""
             for k, v in scope.get("headers", []):
