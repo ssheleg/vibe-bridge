@@ -159,12 +159,22 @@ def run_payload(root: Path, *, seed: Path, loader):
 
 
 def _deactivate(chosen: Chosen) -> None:
-    """Undo `activate`'s path entry so the next attempt starts clean."""
+    """Undo `activate` so the next candidate starts clean.
+
+    Only modules that actually came from THIS candidate's directory are
+    dropped. Purging `vibebridge` wholesale reaches into module state the
+    bootstrap does not own — under pytest it evicted the repository's own
+    package and broke 37 unrelated tests (2026-08-30). A failed import
+    usually leaves nothing behind; a partial one leaves exactly the
+    submodules loaded from here, and those are the ones to remove.
+    """
+    prefix = str(chosen.path)
     with contextlib.suppress(ValueError):
-        sys.path.remove(str(chosen.path))
-    for name in [m for m in sys.modules if m == "vibebridge"
-                 or m.startswith("vibebridge.")]:
-        del sys.modules[name]
+        sys.path.remove(prefix)
+    for name, module in list(sys.modules.items()):
+        origin = getattr(module, "__file__", None)
+        if origin and origin.startswith(prefix + "/"):
+            del sys.modules[name]
 
 
 def activate(chosen: Chosen, root: Path) -> None:
