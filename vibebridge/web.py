@@ -81,12 +81,12 @@ class BearerGuard:
     на его же mac_*-инструменты на ~15 часов (замечено post-rename
     проверкой цепи)."""
 
-    def __init__(self, app, state: BridgeState) -> None:
-        self.app, self.state = app, state
+    def __init__(self, app, state: BridgeState, mode: str = "standalone") -> None:
+        self.app, self.state, self.mode = app, state, mode
 
     async def __call__(self, scope, receive, send) -> None:
         token = (self.state.robot_token
-                 if self.state.mode == "standalone" else None)
+                 if self.mode == "standalone" else None)
         if token and scope["type"] == "http":
             auth = ""
             for k, v in scope.get("headers", []):
@@ -180,8 +180,13 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               mcp_allowed_hosts: list[str] | None = None,
               robot: RobotClient | None = None,
               notify=None,
-              push_sender: PushSender | None = None) -> Starlette:
+              push_sender: PushSender | None = None,
+              settings=None) -> Starlette:
+    from .config import load as _load_settings
     from .net import allowed_hosts as _net_allowed_hosts
+
+    if settings is None:
+        settings = _load_settings()
 
     if push_sender is None:
         push_sender = PushSender(state)
@@ -541,6 +546,81 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return JSONResponse({"found": True, "installed": ok,
                              "version": found.version, "message": why})
 
+    async def api_settings(request: Request) -> Response:
+        """The settings in force — never the file's wish.
+
+        `gateway_ok` is the honest half: in gateway mode the MCP endpoint has
+        no bearer check at all, because the agentgateway on this machine is
+        supposed to be the boundary. When it is not running there IS no
+        boundary, and the panel has to say so rather than print the mode and
+        look calm.
+        """
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from .config import config_path, load
+        from .net import gateway_reachable
+
+        # In force = what this process started with. The file is read only to
+        # report its problems and to say whether a restart is owed. Reporting
+        # the FILE would mean the panel shows a port the bridge is not
+        # listening on the moment someone edits it.
+        live = settings
+        on_disk = await asyncio.to_thread(load)
+        pending = [
+            name for name in ("port", "mode", "release_repo",
+                              "update_enabled", "update_interval_s",
+                              "ask_timeout_s")
+            if getattr(live, name) != getattr(on_disk, name)
+        ]
+        body = {
+            "path": str(config_path()),
+            "port": live.port,
+            "mode": live.mode,
+            "release_repo": live.release_repo,
+            "update_enabled": live.update_enabled,
+            "update_interval_hours": round(live.update_interval_s / 3600, 2),
+            "ask_timeout_s": live.ask_timeout_s,
+            "problems": on_disk.problems,
+            "pending": pending,
+            "restart_required": bool(pending),
+            "mcp_url": (f"http://127.0.0.1:{live.port}/mcp"
+                        if live.mode == "gateway"
+                        else f"http://<адрес в tailnet>:{live.port}/mcp"),
+        }
+        if live.mode == "gateway":
+            ok = await asyncio.to_thread(gateway_reachable)
+            body["gateway_ok"] = ok
+            body["mcp_auth"] = "нет — границей служит agentgateway"
+            if not ok:
+                body["warning"] = (
+                    "режим gateway, но agentgateway на этой машине не "
+                    "отвечает: MCP-эндпоинт сейчас БЕЗ аутентификации. "
+                    "Переключитесь на standalone или запустите шлюз.")
+        else:
+            body["gateway_ok"] = None
+            body["mcp_auth"] = ("bearer-токен робота"
+                                if state.robot_token else
+                                "токен появится после связки с роботом")
+        return JSONResponse(body)
+
+    async def api_settings_save(request: Request) -> Response:
+        """Change a setting from the panel. Values the reader would reject are
+        refused here, so the panel never reports a success the bridge will not
+        honour."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from .config import update as save_settings
+        body = await request.json() if await request.body() else {}
+        try:
+            await asyncio.to_thread(save_settings, dict(body))
+        except (ValueError, OSError) as exc:
+            return JSONResponse({"ok": False, "error": str(exc)},
+                                status_code=400)
+        audit.record(tool="settings", tool_class="SYS", decision="auto",
+                     ok=True, line=f"настройки изменены: {', '.join(body)}",
+                     detail="")
+        return JSONResponse({"ok": True, "restart_required": True})
+
     async def api_autoupdate(request: Request) -> Response:
         """The owner's switch for background updating (SCN-021)."""
         if not _authed(request):
@@ -716,6 +796,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/update/check", api_update_check, methods=["POST"]),
             Route("/api/autostart", api_autostart, methods=["POST"]),
             Route("/api/autoupdate", api_autoupdate, methods=["POST"]),
+            Route("/api/settings", api_settings),
+            Route("/api/settings", api_settings_save, methods=["POST"]),
             Route("/api/journal", api_journal),
             Route("/api/robot/status", api_robot_status),
             Route("/api/robot/chat", api_robot_chat, methods=["POST"]),
@@ -733,7 +815,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/wizard/prepare", api_wizard_prepare,
                   methods=["POST"]),
             Route("/events", events),
-            Mount("/", app=BearerGuard(mcp.streamable_http_app(), state)),
+            Mount("/", app=BearerGuard(mcp.streamable_http_app(), state,
+                                       settings.mode)),
         ],
         lifespan=lifespan,
     )

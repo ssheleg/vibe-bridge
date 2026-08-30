@@ -29,7 +29,16 @@ from .consent import ConsentEngine, allowed, refusal_text
 log = logging.getLogger("vibe-bridge.server")
 
 BRIDGE_HOST = "127.0.0.1"
+#: The default. What actually runs comes from `config.load().port` — the two
+#: were the same number for months, and `VIBE_BRIDGE_PORT` moved only the
+#: single-instance guard while uvicorn kept binding this constant.
 BRIDGE_PORT = 48620
+
+
+def bridge_port() -> int:
+    """The port in force, from settings."""
+    from .config import load
+    return load().port
 
 
 def build_server(

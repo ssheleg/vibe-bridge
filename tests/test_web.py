@@ -38,6 +38,10 @@ def _act_cap():
 
 
 def _mk(tmp_path, *, robot_token=None, ask_timeout=5.0, mode="gateway"):
+    # The mode is a SETTING, not state (config.py). It used to live on
+    # BridgeState, which is why these two regressions are phrased around it.
+    from vibebridge.config import Settings
+
     state = BridgeState(path=tmp_path / "state.json",
                         panel_token="panel-secret",
                         robot_token=robot_token, mode=mode)
@@ -45,7 +49,8 @@ def _mk(tmp_path, *, robot_token=None, ask_timeout=5.0, mode="gateway"):
     audit = AuditLog(tmp_path / "audit.log")
     runner = FakeRunner("done")
     app = build_app(consent=consent, audit=audit, state=state, runner=runner,
-                    capabilities={"mac_do": _act_cap()})
+                    capabilities={"mac_do": _act_cap()},
+                    settings=Settings(mode=mode))
     return app, consent, audit, runner
 
 
@@ -278,3 +283,116 @@ def test_decide_by_id_and_stale_id(tmp_path):
         assert ok.status_code == 200
         t.join(timeout=3)
     assert results and results[0]["ok"] is True
+
+
+# ── the settings surface, and the boundary it must not hide ────────────────
+
+def _settings_client(tmp_path, mode="standalone", robot_token=None):
+    from vibebridge.config import Settings
+
+    state = BridgeState(path=tmp_path / "state.json",
+                        panel_token="panel-secret", robot_token=robot_token)
+    app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+                    state=state, settings=Settings(mode=mode))
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "panel-secret")
+    return c
+
+
+def test_settings_endpoint_needs_the_panel_token(tmp_path):
+    from vibebridge.config import Settings
+
+    state = BridgeState(path=tmp_path / "state.json",
+                        panel_token="panel-secret")
+    app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+                    state=state, settings=Settings())
+    assert TestClient(app).get("/api/settings").status_code == 401
+
+
+def test_settings_report_the_values_in_force_and_where_they_live(tmp_path):
+    body = _settings_client(tmp_path).get("/api/settings").json()
+    assert body["mode"] == "standalone"
+    assert body["port"] == 48620
+    assert body["path"].endswith("config.toml")
+
+
+def test_gateway_mode_without_a_gateway_says_the_endpoint_is_open(tmp_path,
+                                                                  monkeypatch):
+    """The most dangerous thing this project can do quietly. In gateway mode
+    /mcp has NO bearer check — the agentgateway is the boundary. With no
+    gateway running there is no boundary, and READ tools (screenshot among
+    them) execute without asking anyone."""
+    from vibebridge import net
+    monkeypatch.setattr(net, "gateway_reachable", lambda *a, **k: False)
+
+    body = _settings_client(tmp_path, mode="gateway").get(
+        "/api/settings").json()
+    assert body["gateway_ok"] is False
+    assert "БЕЗ аутентификации" in body["warning"]
+
+
+def test_gateway_mode_with_a_gateway_present_raises_no_alarm(tmp_path,
+                                                             monkeypatch):
+    from vibebridge import net
+    monkeypatch.setattr(net, "gateway_reachable", lambda *a, **k: True)
+
+    body = _settings_client(tmp_path, mode="gateway").get(
+        "/api/settings").json()
+    assert body["gateway_ok"] is True and "warning" not in body
+
+
+def test_standalone_names_what_actually_guards_the_endpoint(tmp_path):
+    body = _settings_client(tmp_path, mode="standalone",
+                            robot_token="tok").get("/api/settings").json()
+    assert "bearer" in body["mcp_auth"]
+    assert body.get("warning") is None
+
+
+def test_standalone_before_pairing_admits_there_is_no_token_yet(tmp_path):
+    body = _settings_client(tmp_path, mode="standalone").get(
+        "/api/settings").json()
+    assert "после связки" in body["mcp_auth"]
+
+
+def test_a_broken_config_file_is_surfaced_to_the_panel(tmp_path):
+    from vibebridge.config import Settings
+
+    state = BridgeState(path=tmp_path / "state.json",
+                        panel_token="panel-secret")
+    app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+                    state=state, settings=Settings())
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "panel-secret")
+    from vibebridge import config as cfg
+    cfg.config_path().write_text('port = "не число"\n', encoding="utf-8")
+    body = c.get("/api/settings").json()
+    assert body["problems"] and "port" in body["problems"][0]
+
+
+def test_saving_a_setting_from_the_panel_asks_for_a_restart(tmp_path):
+    c = _settings_client(tmp_path)
+    r = c.post("/api/settings", json={"mode": "gateway"})
+    assert r.status_code == 200 and r.json()["restart_required"] is True
+    from vibebridge import config as cfg
+    assert cfg.load().mode == "gateway"
+
+
+def test_saving_a_value_the_bridge_would_reject_fails_loudly(tmp_path):
+    c = _settings_client(tmp_path)
+    r = c.post("/api/settings", json={"mode": "sideways"})
+    assert r.status_code == 400 and not r.json()["ok"]
+
+
+def test_editing_the_file_does_not_change_what_the_panel_claims_is_running(
+        tmp_path):
+    """Otherwise the panel reports a port the bridge is not listening on the
+    instant someone saves the file. In force and on disk are two facts, and
+    the difference between them is itself the news."""
+    c = _settings_client(tmp_path, mode="standalone")
+    from vibebridge import config as cfg
+    cfg.config_path().write_text('port = 9999\n', encoding="utf-8")
+
+    body = c.get("/api/settings").json()
+    assert body["port"] == 48620                 # what is actually bound
+    assert "port" in body["pending"]
+    assert body["restart_required"] is True

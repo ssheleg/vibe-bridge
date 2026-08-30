@@ -13,17 +13,17 @@ import webbrowser
 
 from .audit import AuditLog
 from .consent import ConsentEngine, Decision
-from .server import BRIDGE_HOST, BRIDGE_PORT
+from .server import BRIDGE_HOST
 from .state import BridgeState
 from .tray import make_notifier, run_pystray, tray_title
 from .web import build_app
 
 
-def _serve(app, host: str) -> None:  # pragma: no cover - thin uvicorn shell
+def _serve(app, host: str, port: int) -> None:  # pragma: no cover - uvicorn
     import uvicorn
 
     uvicorn.Server(uvicorn.Config(
-        app, host=host, port=BRIDGE_PORT, log_level="warning",
+        app, host=host, port=port, log_level="warning",
     )).run()   # signal handlers are skipped off the main thread
 
 
@@ -31,14 +31,17 @@ def start_server(consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                  notify) -> None:
     """Build the app and launch uvicorn in a worker thread (the tray owns
     the main thread on every OS). Shared by all backends."""
+    from .config import load as load_settings
+
+    settings = load_settings(create=True)
     web_app = build_app(consent=consent, audit=audit, state=state,
                         notify=notify)
-    if state.mode == "standalone":
+    if settings.mode == "standalone":
         from .net import standalone_bind_host
         bind_host = standalone_bind_host()
     else:
         bind_host = BRIDGE_HOST            # gateway mode: loopback, as M1–M4
-    threading.Thread(target=_serve, args=(web_app, bind_host),
+    threading.Thread(target=_serve, args=(web_app, bind_host, settings.port),
                      name="vibe-bridge-web", daemon=True).start()
 
 
@@ -62,11 +65,16 @@ def start_autoupdate(state: BridgeState, audit: AuditLog):
 
 
 def _panel_url(state: BridgeState) -> str:
-    return f"http://{BRIDGE_HOST}:{BRIDGE_PORT}/?token={state.panel_token}"
+    from .server import bridge_port
+    return f"http://{BRIDGE_HOST}:{bridge_port()}/?token={state.panel_token}"
 
 
 def run() -> None:  # pragma: no cover - requires a GUI session
-    consent = ConsentEngine()
+    from .config import load as load_settings
+
+    settings = load_settings(create=True)
+    consent = ConsentEngine(ask_timeout_s=settings.ask_timeout_s,
+                            grant_ttl_s=settings.grant_ttl_s)
     audit = AuditLog()
     state = BridgeState.load()
     notify = make_notifier()

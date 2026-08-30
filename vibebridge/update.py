@@ -32,6 +32,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from vbboot import layout
 
+#: Defaults. The channel in force comes from settings — a fork that builds its
+#: own .app signs payloads with ITS key, so pointing at this repository would
+#: make every update fail the signature check instead of updating.
 RELEASE_REPO = "ssheleg/vibe-bridge"
 #: The releases Atom feed, NOT the REST API. The API caps unauthenticated
 #: callers at 60 requests per hour PER IP — a cap every install behind one
@@ -40,6 +43,19 @@ RELEASE_REPO = "ssheleg/vibe-bridge"
 #: asset URLs are derived from a tag rather than looked up.
 RELEASE_FEED = f"https://github.com/{RELEASE_REPO}/releases.atom"
 DOWNLOAD_BASE = f"https://github.com/{RELEASE_REPO}/releases/download"
+
+
+def release_repo() -> str:
+    from .config import load
+    return load().release_repo
+
+
+def feed_url(repo: str | None = None) -> str:
+    return f"https://github.com/{repo or release_repo()}/releases.atom"
+
+
+def download_base(repo: str | None = None) -> str:
+    return f"https://github.com/{repo or release_repo()}/releases/download"
 PAYLOAD_ASSET = "payload-{version}.tar.gz"
 #: Payload tags look like `v0.2.0`. Shell releases are tagged `shell-v0.2.0`
 #: and must never be offered as an update: they are a DMG a person installs,
@@ -155,11 +171,12 @@ class Check:
         return self.found is None and not self.error
 
 
-def check(*, current: str, fetch=None) -> Check:
+def check(*, current: str, fetch=None, repo: str | None = None) -> Check:
     """Ask the release channel what the newest payload version is."""
     fetch = fetch or _fetch_text
+    repo = repo or release_repo()
     try:
-        feed = fetch(RELEASE_FEED)
+        feed = fetch(feed_url(repo))
     except (OSError, urllib.error.URLError) as exc:
         return Check(error=f"канал релизов недоступен: {exc}")
 
@@ -176,7 +193,7 @@ def check(*, current: str, fetch=None) -> Check:
 
     tag = max(newer, key=lambda v: layout.parse(v))
     asset = PAYLOAD_ASSET.format(version=tag)
-    url = f"{DOWNLOAD_BASE}/v{tag}/{asset}"
+    url = f"{download_base(repo)}/v{tag}/{asset}"
     return Check(found=Available(version=tag, payload_url=url,
                                  sig_url=f"{url}.sig"))
 
@@ -313,10 +330,11 @@ class AutoUpdater:
     def __init__(self, *, root: Path, audit, state, pubkey: bytes | None,
                  shell_version: str | None, current,
                  interval_s: int | None = None,
-                 first_delay_s: int | None = None) -> None:
+                 first_delay_s: int | None = None, settings=None) -> None:
         self._root = root
         self._audit = audit
         self._state = state
+        self._settings = settings
         self._pubkey = pubkey
         self._shell_version = shell_version
         self._current = current
@@ -332,7 +350,7 @@ class AutoUpdater:
         """One check. True only when a new version was installed. Never
         raises — this runs on a daemon thread inside the tray app, and an
         exception here would end automatic updating with nobody told."""
-        if not getattr(self._state, "auto_update", True):
+        if not self._enabled():
             return False
         if not self._pubkey or not self._shell_version:
             # No bundle, no trust anchor: a development checkout. Retrying
@@ -344,6 +362,15 @@ class AutoUpdater:
         except Exception as exc:                      # noqa: BLE001
             self._report_failure(f"проверка обновлений сорвалась: {exc}")
             return False
+
+    def _enabled(self) -> bool:
+        """The switch lives in settings; `state.auto_update` is honoured for
+        installs that set it before settings existed."""
+        if self._settings is not None:
+            return bool(self._settings.update_enabled)
+        from .config import load
+        return bool(load().update_enabled
+                    and getattr(self._state, "auto_update", True))
 
     def _cycle(self) -> bool:
         result = check(current=self._current())

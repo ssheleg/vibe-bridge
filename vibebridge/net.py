@@ -89,3 +89,21 @@ def standalone_bind_host() -> str:
         if ":" not in ip:          # first IPv4
             return ip
     return "0.0.0.0"  # noqa: S104 - guarded by bearer + host allowlist
+
+
+def gateway_reachable(port: int = 4000, host: str = "127.0.0.1",
+                      timeout: float = 1.5) -> bool:
+    """Is an agentgateway actually listening on this machine?
+
+    In `gateway` mode the bridge does NOT check a bearer token on /mcp — the
+    gateway is the authentication boundary (ADR-0002). If nothing is there,
+    the boundary the mode assumes does not exist and the endpoint is open to
+    every local process. Answering this honestly is what lets the panel say so
+    instead of printing the mode and looking calm.
+    """
+    import socket
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
