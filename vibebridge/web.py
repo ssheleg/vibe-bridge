@@ -25,6 +25,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
+    HTMLResponse,
     JSONResponse,
     RedirectResponse,
     Response,
@@ -61,6 +62,32 @@ def _solid_png(size: int, rgb: tuple[int, int, int] = (0x2F, 0x6F, 0xEB)) -> byt
     ihdr = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) +
             chunk(b"IDAT", idat) + chunk(b"IEND", b""))
+
+#: Shown when someone opens the panel address without a token. It is a page
+#: rather than `{"error":"unauthorized"}` because the reader is a person who
+#: typed the address or lost the tab, and the answer they need is one
+#: sentence. It carries no token: whoever sees this has proved nothing.
+_DOOR_HTML = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>vibe-bridge</title><style>
+body{font:15px/1.6 -apple-system,"SF Pro","Segoe UI",sans-serif;max-width:34rem;
+margin:12vh auto;padding:0 1.5rem;color:#1a1f2b;background:#f7f8fa}
+h1{font-size:1.25rem;margin:0 0 .75rem}
+p{margin:0 0 .75rem}code{background:#e6e9ef;padding:.1em .35em;border-radius:4px}
+.muted{color:#5b6472;font-size:13px}
+@media(prefers-color-scheme:dark){body{background:#0f1218;color:#e8ecf3}
+code{background:#232a36}.muted{color:#8a93a6}}
+</style></head><body>
+<h1>Панель открывается из меню-бара</h1>
+<p>Мост работает, но этот адрес сам по себе ничего не открывает: панель
+защищена ключом, который подставляется автоматически.</p>
+<p>Нажмите значок моста в меню-баре (вверху справа) и выберите
+<b>«Открыть панель»</b>.</p>
+<p class="muted">Значка нет? Значит мост не запущен — откройте
+<code>vibe-bridge</code> из «Программ». Ключ панели хранится в
+<code>~/Library/Application&nbsp;Support/vibe-bridge/state.json</code>; он
+секретный и здесь не показывается.</p>
+</body></html>"""
 
 PANEL_COOKIE = "vb_panel"
 _WEBUI = Path(__file__).parent / "webui"
@@ -242,7 +269,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                             samesite="lax")
             return resp
         if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
+            # A person, not a program, is reading this. The token is never in
+            # the page: whoever can see it here has not proved anything yet.
+            return HTMLResponse(_DOOR_HTML, status_code=401)
         return FileResponse(_WEBUI / "index.html")
 
     async def api_state(request: Request) -> Response:
@@ -546,6 +575,71 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return JSONResponse({"found": True, "installed": ok,
                              "version": found.version, "message": why})
 
+    async def api_robot_attach(request: Request) -> Response:
+        """Attach a robot that already exists.
+
+        The SD-card wizard covers a NEW Raspberry Pi; a person whose robot is
+        already running had no path at all — the panel's only door was
+        "прошейте карту". This is the other door SCN-017 promised.
+        """
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        body = await request.json() if await request.body() else {}
+        base_url = str(body.get("base_url", "")).strip().rstrip("/")
+        if not base_url:
+            return JSONResponse(
+                {"error": "нужен адрес робота (bridge-API), например "
+                          "https://robot.tailnet.ts.net"}, status_code=400)
+        if not base_url.startswith(("http://", "https://")):
+            return JSONResponse(
+                {"error": "адрес должен начинаться с http:// или https://"},
+                status_code=400)
+
+        key = str(body.get("key", "")).strip()
+        state.robot_base_url = base_url
+        state.robot_chat_url = (str(body.get("chat_url", "")).strip()
+                                or state.robot_chat_url)
+        # standalone gates /mcp on this token, so it must exist the moment a
+        # robot is attached — not later, when someone remembers.
+        import secrets as _secrets
+        state.robot_token = state.robot_token or _secrets.token_urlsafe(32)
+        state.robot_chat_key = key or state.robot_token
+        name = str(body.get("name", "")).strip() or "робот"
+        state.robot_name = name
+        await asyncio.to_thread(state.save)
+
+        robot.configure(base_url=state.robot_base_url,
+                        chat_url=state.robot_chat_url,
+                        chat_key=state.robot_chat_key, name=name)
+        robot_state.update({"configured": robot.configured})
+        audit.record(tool="pair", tool_class="act", decision="allow", ok=True,
+                     line=f"робот «{name}» привязан вручную")
+        notify("vibe-bridge", f"Робот «{name}» связан с мостом ✓")
+        return JSONResponse({
+            "ok": True, "name": name,
+            # What the owner must copy into the robot's own configuration.
+            "robot_token": state.robot_token,
+            "bridge_url": f"http://127.0.0.1:{settings.port}",
+        })
+
+    async def api_onboarding(request: Request) -> Response:
+        """What is still missing, as an ordered list the panel can render."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        attached = bool(state.robot_base_url)
+        steps = [
+            {"id": "robot", "title": "Подключить робота",
+             "done": attached,
+             "hint": ("робот на связи" if attached else
+                      "новая Raspberry Pi — через карту; уже работающий "
+                      "робот — вручную, по адресу и ключу")},
+            {"id": "phone", "title": "Открыть панель на телефоне",
+             "done": bool(state.push_subscriptions),
+             "hint": "нужен Tailscale и включённый serve — см. «Телефон»"},
+        ]
+        return JSONResponse({"robot_attached": attached, "steps": steps,
+                             "done": all(s["done"] for s in steps)})
+
     async def api_settings(request: Request) -> Response:
         """The settings in force — never the file's wish.
 
@@ -796,6 +890,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/update/check", api_update_check, methods=["POST"]),
             Route("/api/autostart", api_autostart, methods=["POST"]),
             Route("/api/autoupdate", api_autoupdate, methods=["POST"]),
+            Route("/api/robot/attach", api_robot_attach, methods=["POST"]),
+            Route("/api/onboarding", api_onboarding),
             Route("/api/settings", api_settings),
             Route("/api/settings", api_settings_save, methods=["POST"]),
             Route("/api/journal", api_journal),

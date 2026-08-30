@@ -28,14 +28,13 @@ def _serve(app, host: str, port: int) -> None:  # pragma: no cover - uvicorn
 
 
 def start_server(consent: ConsentEngine, audit: AuditLog, state: BridgeState,
-                 notify) -> None:
+                 notify, settings=None) -> None:
     """Build the app and launch uvicorn in a worker thread (the tray owns
     the main thread on every OS). Shared by all backends."""
-    from .config import load as load_settings
-
-    settings = load_settings(create=True)
+    if settings is None:
+        settings = prepare_settings(state)
     web_app = build_app(consent=consent, audit=audit, state=state,
-                        notify=notify)
+                        notify=notify, settings=settings)
     if settings.mode == "standalone":
         from .net import standalone_bind_host
         bind_host = standalone_bind_host()
@@ -69,16 +68,31 @@ def _panel_url(state: BridgeState) -> str:
     return f"http://{BRIDGE_HOST}:{bridge_port()}/?token={state.panel_token}"
 
 
-def run() -> None:  # pragma: no cover - requires a GUI session
-    from .config import load as load_settings
+def prepare_settings(state: BridgeState):
+    """Settings for this run — after carrying over a pre-settings mode.
 
-    settings = load_settings(create=True)
-    consent = ConsentEngine(ask_timeout_s=settings.ask_timeout_s,
-                            grant_ttl_s=settings.grant_ttl_s)
+    Order matters and is the whole reason this is a function: the migration
+    must see the state file and must run BEFORE anything creates config.toml,
+    because it declines to argue with a file that already exists. Getting it
+    backwards flipped this machine from `gateway` to `standalone` on the first
+    launch after settings landed, and the bridge bound the tailnet interface
+    instead of loopback — the robot's whole path.
+    """
+    from .config import load as load_settings
+    from .config import migrate_from_state
+
+    migrate_from_state(state)
+    return load_settings(create=True)
+
+
+def run() -> None:  # pragma: no cover - requires a GUI session
     audit = AuditLog()
     state = BridgeState.load()
+    settings = prepare_settings(state)
+    consent = ConsentEngine(ask_timeout_s=settings.ask_timeout_s,
+                            grant_ttl_s=settings.grant_ttl_s)
     notify = make_notifier()
-    start_server(consent, audit, state, notify)
+    start_server(consent, audit, state, notify, settings=settings)
 
     # Ask the system to launch us at login — once, ever (SCN-022). Only from
     # a real bundle: in a development checkout `mainAppService` describes

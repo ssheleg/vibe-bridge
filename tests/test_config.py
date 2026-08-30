@@ -241,3 +241,20 @@ def test_migration_is_a_no_op_for_a_fresh_install(home):
 
     cfg.migrate_from_state(_State())
     assert cfg.load().mode == "standalone"
+
+
+def test_startup_actually_runs_the_migration(home, tmp_path):
+    """The unit test above passed for a `migrate_from_state` nobody called.
+
+    That is the second time in this project a function was written, tested and
+    never wired (the first was `layout.prune`), and this one flipped a running
+    machine off loopback. So the test is about the CALL, not the function.
+    """
+    from vibebridge import app as app_mod
+
+    class _State:
+        mode = "gateway"
+
+    settings = app_mod.prepare_settings(_State())
+    assert settings.mode == "gateway"
+    assert (home / "config.toml").exists()

@@ -31,6 +31,8 @@
 | SCN-020 | macOS TCC — первый скриншот | platform | P-01 | ST-011, FLW-02 | draft | — |
 | SCN-021 | Мост обновился сам | platform | P-01 | ST-011, FLW-02 | draft | — |
 | SCN-022 | Мост стартует при входе | platform | P-01 | ST-011, FLW-01 | draft | — |
+| SCN-023 | Настройки, которые можно поменять | platform | P-01 | ST-011, FLW-02 | draft | — |
+| SCN-024 | Режим gateway без шлюза | platform | P-01 | ST-001, ADR-0002 | draft | — |
 
 ## Personas
 
@@ -347,9 +349,9 @@ P-03 член семьи).
 - **Alt paths:** автозапуск отключён владельцем в настройках → уважается
 - **UI elements:** иконка трея, приветственная панель, CTA «Подключить робота»
 - **States covered:** empty, success
-- **Errors & recovery:** порт панели занят → система выбирает свободный и работает; конфликт версии конфига → честное сообщение с предложением сброса
+- **Errors & recovery:** порт занят другим экземпляром → мост не встаёт молча рядом, а называет причину; конфликт версии конфига → файл не применяется, причина показана в панели, умолчания работают; адрес панели открыт без ключа → страница с объяснением, а не JSON
 - **Status:** draft
-- **Coverage:** частично: vibebridge/webui/index.html:1 (вкладки, панель), vibebridge/app.py:1 (трей-состояния); инсталлеры — T-PLATFORM
+- **Coverage:** vibebridge/web.py `_DOOR_HTML` (страница вместо 401-JSON), `/api/onboarding` + карточка «С чего начать» (vibebridge/webui/index.html), `/api/robot/attach` + вкладка «У меня уже есть робот», vibebridge/config.py (версия конфига, честная деградация), vbboot/runner.py guard_single_instance; tests/test_onboarding.py (12), tests/test_config.py (25)
 
 ## platform
 
@@ -443,3 +445,38 @@ P-03 член семьи).
 - **Errors & recovery:** ServiceManagement недоступен (не macOS, старая система, нет PyObjC) → строка «недоступно» с причиной, а не мёртвый переключатель
 - **Status:** draft
 - **Coverage:** vibebridge/autostart.py (SMAppService, честная деградация), vbboot/runner.py guard_single_instance, vibebridge/web.py `/api/version`; tests/test_autostart.py (9), tests/test_bootstrap.py::test_guard_*
+
+### SCN-023: Настройки, которые можно поменять
+- **Persona:** P-01
+- **Feature:** platform
+- **Traces:** ST-011, FLW-02
+- **Entry point:** владелец хочет другой порт, другой режим сети или свой канал обновлений
+- **Preconditions:** мост установлен и хотя бы раз запускался
+- **Steps:**
+  1. Владелец открывает настройки → система показывает режим, адрес MCP, чем защищён эндпоинт и путь к файлу настроек
+  2. Владелец правит `config.toml` → система при следующем запуске применяет правки; до перезапуска панель показывает то, что РАБОТАЕТ, и отдельно — что изменения ждут
+  3. Владелец ошибается в значении → система берёт умолчание, продолжает работать и называет причину в панели
+- **Expected result:** любую операционную величину можно изменить, не трогая исходники; панель никогда не показывает значение, на котором мост не работает
+- **Alt paths:** переменная окружения переопределяет файл на один запуск; режим переключается кнопкой в панели без правки файла
+- **UI elements:** карточка «Доступ и настройки», кнопка переключения режима, строка о ждущих изменениях, список проблем файла
+- **States covered:** success, error
+- **Errors & recovery:** файл не читается / не разбирается / версии из будущего → умолчания и честная строка; недопустимое значение из панели → отказ до записи, а не после
+- **Status:** draft
+- **Coverage:** vibebridge/config.py, vibebridge/web.py `/api/settings`; tests/test_config.py (25), tests/test_web.py (настройки и граница gateway)
+
+### SCN-024: Режим gateway без шлюза
+- **Persona:** P-01
+- **Feature:** platform
+- **Traces:** ST-001, ST-011, ADR-0002
+- **Entry point:** мост в режиме gateway, а agentgateway на машине не запущен
+- **Preconditions:** режим gateway выбран владельцем или перенесён миграцией
+- **Steps:**
+  1. Владелец открывает настройки → система проверяет, отвечает ли шлюз
+  2. Шлюз не отвечает → система прямо говорит: MCP-эндпоинт сейчас без аутентификации, и предлагает переключиться в standalone
+- **Expected result:** отсутствие границы названо словами в тот момент, когда владелец смотрит на настройки, а не остаётся молчаливым свойством конфигурации
+- **Alt paths:** шлюз отвечает → предупреждения нет, строка «Защита MCP» называет, что границей служит он
+- **UI elements:** баннер в карточке «Доступ и настройки», строка «Защита MCP»
+- **States covered:** error, success
+- **Errors & recovery:** сам сценарий — обнаружение отсутствующей границы
+- **Coverage:** vibebridge/net.py `gateway_reachable`, vibebridge/web.py `/api/settings`; tests/test_web.py::test_gateway_mode_without_a_gateway_says_the_endpoint_is_open
+- **Status:** draft

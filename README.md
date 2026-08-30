@@ -55,20 +55,61 @@ with an app blocklist (Terminal, Keychain).
 - **Audit**: every call (allowed or refused) → `~/Library/Logs/vibe-bridge/audit.log`
   (0600) and the last few in the menu.
 
-## Run (dev)
+## Настройки
+
+Всё, что можно поменять, лежит в `~/Library/Application Support/vibe-bridge/config.toml`
+(создаётся при первом запуске, с комментариями): порт, режим сети, канал
+обновлений, интервал проверки, таймаут согласия. Приоритет: переменная
+окружения → файл → умолчание; `VIBE_BRIDGE_PORT` и `VIBE_BRIDGE_MODE`
+переопределяют файл для одного запуска.
+
+Неверное значение **не останавливает мост**: он берёт умолчание и показывает
+причину в панели (Настройки → Доступ и настройки). Правки применяются после
+перезапуска — панель говорит, что они ждут.
+
+Два режима сети:
+
+| Режим | Как робот доходит | Защита `/mcp` |
+|---|---|---|
+| `standalone` (умолчание) | по адресу в tailnet | bearer-токен робота |
+| `gateway` | только loopback, через agentgateway на этой же машине | **никакой** — границей служит шлюз |
+
+Режим `gateway` без запущенного agentgateway оставляет MCP-эндпоинт без
+аутентификации. Мост это проверяет и говорит прямо в панели.
+
+## Подключить робота
+
+Два пути, оба в «Настройках»:
+
+- **Новая Raspberry Pi** — визард пишет на SD-карту Wi-Fi, имя и одноразовый
+  ключ связки; карта едет в робота, он сам приходит на `/pair`.
+- **Уже работающий робот** — форма: адрес его bridge-API и ключ. Мост выдаёт
+  токен, который вы прописываете роботу.
+
+## Запуск из исходников (разработка)
 
 ```bash
 uv sync
-uv run python -m vibebridge.app       # tray + panel + MCP server
+uv run python -m vibebridge.app       # трей + панель + MCP
 ```
 
-## Packaging (for real macOS permissions)
+У этого пути **нет автообновления**: обновление проверяется подписью, а ключ
+лежит в подписанном бандле, которого здесь нет. Панель честно пишет «запущен
+из исходников». Автостарт для разработки — `launchd/me.sshlg.vibe-bridge.dev.plist`
+(инструкция в самом файле); одновременно с установленным `.app` не включайте —
+они подерутся за порт.
 
-System Events / screen capture need TCC permission, granted to a **bundled
-.app**, not to a bare `python`. `scripts/build_app.sh` wraps it with py2app;
-first launch prompts for Accessibility + Screen Recording. Until packaged,
-READ tools that touch System Events fail fast with an honest error (the robot
-says "Мак недоступен для этого действия") — by design, never a hang.
+TCC-права (запись экрана, System Events) выдаются **бандлу**, а не голому
+`python`: до упаковки такие инструменты честно отказывают, а не висят.
+
+## Сборка своей версии
+
+`scripts/build_app.sh` собирает, подписывает и (с `--notarize`) нотаризует
+`.app`. Подпись берётся из `VIBE_SIGN_IDENTITY`, профиль нотаризации — из
+`VIBE_NOTARY_PROFILE`. Свой форк = свой канал: поменяйте `release.repo` в
+`config.toml`, иначе мост будет качать чужие payload'ы и отвергать каждый по
+несовпадению подписи. Подробности — `docs/spec/packaging.md`.
+
 
 ## Wire parity
 
@@ -79,5 +120,5 @@ version on both ends removes a class of protocol-revision breakage. Bump
 ## Tests
 
 ```bash
-uv run python -m pytest tests/ -q     # 24 tests, no screen needed
+uv run python -m pytest tests/ -q     # 252 теста, экран не нужен
 ```

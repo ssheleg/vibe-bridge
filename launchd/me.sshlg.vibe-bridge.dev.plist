@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- DEV-ONLY autostart for a source checkout. The installed .app registers
+     itself as a Login Item instead (SMAppService, SCN-022) — use ONE of them,
+     never both: two bridges race for the same port and whichever loses simply
+     does not come up.
+
+     Label is deliberately NOT the app's bundle identifier: they collided as
+     `me.sshlg.vibe-bridge`, which made "which one is running?" unanswerable
+     from `launchctl` alone.
+
+     Install (replace __REPO__ with the absolute path to your checkout):
+       sed "s|__REPO__|$PWD|" launchd/me.sshlg.vibe-bridge.dev.plist \
+         > ~/Library/LaunchAgents/me.sshlg.vibe-bridge.dev.plist
+       launchctl bootstrap gui/$UID ~/Library/LaunchAgents/me.sshlg.vibe-bridge.dev.plist
+     Remove:
+       launchctl bootout gui/$UID/me.sshlg.vibe-bridge.dev
+       rm ~/Library/LaunchAgents/me.sshlg.vibe-bridge.dev.plist -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>me.sshlg.vibe-bridge.dev</string>
+  <key>ProgramArguments</key><array><string>__REPO__/scripts/run.sh</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>StandardErrorPath</key><string>/tmp/vibe-bridge.dev.err</string>
+  <key>StandardOutPath</key><string>/tmp/vibe-bridge.dev.out</string>
+</dict></plist>

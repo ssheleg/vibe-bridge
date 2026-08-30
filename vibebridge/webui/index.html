@@ -98,6 +98,10 @@ td.mono{font-family:var(--font-data);font-size:12px}
 
 <!-- Дашборд -->
 <section class="view on" id="view-dash">
+  <div class="card" id="welcome" style="display:none;border-color:var(--accent)">
+    <div class="cap">С чего начать</div>
+    <div id="welcomeBody"></div>
+  </div>
   <div class="grid2">
     <div>
       <div class="card" style="margin-top:16px">
@@ -160,8 +164,20 @@ td.mono{font-family:var(--font-data);font-size:12px}
     <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'}).then(refresh)">Отозвать разрешения</button>
   </div>
   <div class="card">
-    <div class="cap">Подключить робота (новая Raspberry Pi)</div>
-    <div id="wizardCard"><p class="empty">Загружаю…</p></div>
+    <div class="cap">Подключить робота</div>
+    <div class="filters" style="margin-bottom:12px">
+      <button class="tab" id="tabAttach" aria-selected="true" onclick="robotPath('attach')">У меня уже есть робот</button>
+      <button class="tab" id="tabWizard" aria-selected="false" onclick="robotPath('wizard')">Новая Raspberry Pi</button>
+    </div>
+    <div id="attachCard">
+      <p style="margin-bottom:8px">Укажите адрес bridge-API робота и его ключ. Мост выдаст токен, который нужно прописать роботу.</p>
+      <div class="field"><label>Адрес робота</label><input id="atUrl" placeholder="https://robot.tailnet.ts.net"></div>
+      <div class="field"><label>Ключ робота (если задан)</label><input id="atKey" type="password" placeholder="можно оставить пустым"></div>
+      <div class="field"><label>Имя</label><input id="atName" value="Вася"></div>
+      <button class="btn primary" onclick="attachRobot()">Привязать</button>
+      <p class="note" id="atNote" style="margin-top:6px"></p>
+    </div>
+    <div id="wizardCard" style="display:none"><p class="empty">Загружаю…</p></div>
   </div>
   <div class="card">
     <div class="cap">Телефон</div>
@@ -172,10 +188,8 @@ td.mono{font-family:var(--font-data);font-size:12px}
     <div id="versionCard"><p class="empty">Загружаю…</p></div>
   </div>
   <div class="card">
-    <div class="cap">Доступ</div>
-    <div class="kv"><span class="k">Режим</span><span class="v" id="modeInfo">gateway (через agentgateway, loopback)</span></div>
-    <div class="kv"><span class="k">MCP-адрес</span><span class="v">127.0.0.1:48620/mcp</span></div>
-    <p class="note" style="margin-top:8px">Пейринг телефона и робота напрямую (standalone-режим) появится с модулями M-PHONE и M-WIZARD.</p>
+    <div class="cap">Доступ и настройки</div>
+    <div id="accessCard"><p class="empty">Загружаю…</p></div>
   </div>
 </section>
 
@@ -315,7 +329,7 @@ document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("clic
   document.querySelectorAll(".tab[data-view]").forEach(x=>x.setAttribute("aria-selected", x===b));
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));
   if (b.dataset.view==="journal") loadJournal(true);
-  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); loadVersion(); }
+  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); loadVersion(); loadAccess(); }
 }));
 /* journal */
 document.querySelectorAll(".tab[data-flt]").forEach(b=>b.addEventListener("click", ()=>{
@@ -337,6 +351,64 @@ async function loadJournal(reset){
   document.getElementById("moreBtn").style.display = cur.offset < page.total ? "inline-block" : "none";
 }
 /* wizard */
+function robotPath(which){
+  const w = which==="wizard";
+  document.getElementById("wizardCard").style.display = w?"":"none";
+  document.getElementById("attachCard").style.display = w?"none":"";
+  document.getElementById("tabWizard").setAttribute("aria-selected", w);
+  document.getElementById("tabAttach").setAttribute("aria-selected", !w);
+  if (w) loadWizard();
+}
+async function attachRobot(){
+  const note = document.getElementById("atNote");
+  note.textContent = "Привязываю…";
+  try{
+    const r = await fetch("/api/robot/attach",{method:"POST",headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({base_url: document.getElementById("atUrl").value,
+                            key: document.getElementById("atKey").value,
+                            name: document.getElementById("atName").value})});
+    const d = await r.json();
+    if(!r.ok){ note.textContent = d.error || "Не получилось."; return; }
+    note.innerHTML = `Робот «${esc(d.name)}» привязан ✓<br>Пропишите роботу этот токен моста:<br>`+
+      `<span class="v mono" style="user-select:all;word-break:break-all">${esc(d.robot_token)}</span>`;
+    loadOnboarding(); refresh();
+  } catch(e){ note.textContent = "Мост не ответил."; }
+}
+async function loadOnboarding(){
+  const card = document.getElementById("welcome");
+  try{
+    const d = await (await fetch("/api/onboarding")).json();
+    if (d.done){ card.style.display = "none"; return; }
+    document.getElementById("welcomeBody").innerHTML =
+      d.steps.map(s=>`<div class="kv"><span class="k">${s.done?"✓":"—"} ${esc(s.title)}</span><span class="v" style="font-family:var(--font-ui)">${esc(s.hint)}</span></div>`).join("")+
+      `<p class="note" style="margin-top:8px">Всё делается в «Настройках»: подключение робота, телефон, автозапуск.</p>`;
+    card.style.display = "";
+  } catch(e){ card.style.display = "none"; }
+}
+async function loadAccess(){
+  const el = document.getElementById("accessCard");
+  try{
+    const s = await (await fetch("/api/settings")).json();
+    const MODE = {standalone:"standalone — робот приходит по сети tailnet, вход по токену",
+                  gateway:"gateway — только loopback, границей служит agentgateway"};
+    let rows = `<div class="kv"><span class="k">Режим</span><span class="v" style="font-family:var(--font-ui)">${esc(MODE[s.mode]||s.mode)}</span></div>`+
+      `<div class="kv"><span class="k">MCP-адрес</span><span class="v">${esc(s.mcp_url)}</span></div>`+
+      `<div class="kv"><span class="k">Защита MCP</span><span class="v" style="font-family:var(--font-ui)">${esc(s.mcp_auth)}</span></div>`+
+      `<div class="kv"><span class="k">Файл настроек</span><span class="v" style="user-select:all">${esc(s.path)}</span></div>`;
+    if (s.warning) rows = `<div class="banner" style="display:block;border-color:var(--danger);color:var(--danger)">${esc(s.warning)}</div>`+rows;
+    if (s.restart_required) rows += `<p class="note" style="margin-top:8px">В файле настроек есть изменения (${s.pending.map(esc).join(", ")}) — они применятся после перезапуска моста.</p>`;
+    if (s.problems && s.problems.length) rows += `<p class="note" style="margin-top:8px;color:var(--warn)">Настройки прочитаны не полностью:<br>${s.problems.map(esc).join("<br>")}</p>`;
+    rows += `<div style="margin-top:12px"><button class="btn ghost" onclick="switchMode('${s.mode==="gateway"?"standalone":"gateway"}')">Переключить в ${s.mode==="gateway"?"standalone":"gateway"}</button></div>`;
+    el.innerHTML = rows;
+  } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить настройки.</p>'; }
+}
+async function switchMode(to){
+  try{
+    const r = await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:to})});
+    if(!r.ok){ const d = await r.json(); alert(d.error||"Не получилось"); return; }
+  } catch(e){}
+  loadAccess();
+}
 async function loadWizard(){
   const el = document.getElementById("wizardCard");
   try{
@@ -390,7 +462,7 @@ async function loadPhone(){
       rows += `<div class="kv"><span class="k">Адрес для телефона</span><span class="v">${esc(p.https_url)}</span></div>`+
         `<p style="margin:8px 0 4px">Откройте эту ссылку на телефоне (перешлите себе — AirDrop/Заметки); она сразу выполнит вход:</p>`+
         `<p class="v mono" style="user-select:all;word-break:break-all">${esc(p.phone_link)}</p>`+
-        `<button class="btn ghost" style="margin-top:6px" onclick="navigator.clipboard.writeText(${JSON.stringify(p.phone_link)}).then(()=>this.textContent='Скопировано ✓')">Скопировать ссылку</button>`;
+        `<button class="btn ghost" style="margin-top:6px" data-link="${esc(p.phone_link)}" onclick="copyLink(this)">Скопировать ссылку</button>`;
     } else if (p.dns_name){
       rows += `<p style="margin-bottom:8px">Панель ещё не опубликована в tailnet по HTTPS. Один раз выполните на этом компьютере:</p>`+
         `<p class="v mono" style="user-select:all">${esc(p.setup_command)}</p>`+
@@ -449,6 +521,15 @@ async function checkUpdate(){
   } catch(e){ note.textContent = "Канал обновлений недоступен — мост продолжает работать."; }
   finally { btn.disabled = false; btn.textContent = "Проверить обновления"; }
 }
+function copyLink(btn){
+  // The link goes through a data- attribute, not inside the onclick string:
+  // JSON.stringify quotes with double quotes and the attribute is delimited
+  // by them, so the handler terminated early and its own source rendered as
+  // the button's label (seen in the browser 2026-08-30).
+  navigator.clipboard.writeText(btn.dataset.link)
+    .then(()=>{ btn.textContent = "Скопировано ✓"; })
+    .catch(()=>{ btn.textContent = "Скопировать не вышло — выделите вручную"; });
+}
 async function enablePush(){
   const note = document.getElementById("pushNote");
   try{
@@ -485,6 +566,8 @@ const es = new EventSource("/events");
 es.addEventListener("state", ev => render(JSON.parse(ev.data)));
 es.onerror = ()=>{ document.getElementById("bridgeState").textContent = "нет связи с мостом"; };
 refresh();
+loadOnboarding();
+loadOnboarding();
 </script>
 </body>
 </html>

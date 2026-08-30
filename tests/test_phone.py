@@ -172,3 +172,21 @@ def test_push_endpoints(tmp_path):
         assert un.json()["ok"] is True
         phone = c.get("/api/phone").json()
         assert "subscriptions" in phone and "setup_command" in phone
+
+
+def test_the_copy_button_does_not_leak_its_handler_into_the_label():
+    """Seen in a browser 2026-08-30: the button read
+    `this.textContent='Скопировано ✓')">Скопировать ссылку`.
+
+    `JSON.stringify` quotes with double quotes and the onclick attribute is
+    delimited by double quotes, so the attribute ended inside the URL and the
+    rest of the handler became visible text. The link travels in a data-
+    attribute now.
+    """
+    from pathlib import Path
+
+    import vibebridge
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    assert "JSON.stringify(p.phone_link)" not in page
+    assert 'data-link="${esc(p.phone_link)}"' in page
+    assert "onclick=\"copyLink(this)\"" in page
