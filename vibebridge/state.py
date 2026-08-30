@@ -63,6 +63,10 @@ class BridgeState:
     # would find it back on after the next launch, and a switch the app keeps
     # undoing is not a switch.
     autostart_registered: bool = False
+    # Background self-update (SCN-021). On by default — a bridge holding the
+    # owner's screen should not sit on a known-fixed version — but the switch
+    # is theirs, and the panel shows which way it is set.
+    auto_update: bool = True
 
     @classmethod
     def load(cls, path: Path | None = None) -> BridgeState:
@@ -82,7 +86,8 @@ class BridgeState:
                        push_subscriptions=data.get("push_subscriptions", []),
                        pending_pair_token=data.get("pending_pair_token"),
                        autostart_registered=data.get(
-                           "autostart_registered", False))
+                           "autostart_registered", False),
+                       auto_update=data.get("auto_update", True))
         state = cls(path=path, panel_token=secrets.token_urlsafe(32))
         state.save()
         return state

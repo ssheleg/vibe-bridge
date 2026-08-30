@@ -42,6 +42,25 @@ def start_server(consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                      name="vibe-bridge-web", daemon=True).start()
 
 
+def start_autoupdate(state: BridgeState, audit: AuditLog):
+    """Arm the background checker. Returns None outside a signed bundle —
+    there is no trust anchor there, so there is nothing to check against."""
+    from vbboot import layout
+    from vbboot.runner import shell_version
+
+    from . import __version__
+    from .update import AutoUpdater, bundled_public_key
+    from .web import _bundle_resources
+
+    updater = AutoUpdater(
+        root=layout.payload_root(), audit=audit, state=state,
+        pubkey=bundled_public_key(_bundle_resources()),
+        shell_version=shell_version(),
+        current=lambda: __version__)
+    updater.start()
+    return updater
+
+
 def _panel_url(state: BridgeState) -> str:
     return f"http://{BRIDGE_HOST}:{BRIDGE_PORT}/?token={state.panel_token}"
 
@@ -64,6 +83,8 @@ def run() -> None:  # pragma: no cover - requires a GUI session
             audit.record(tool="autostart", tool_class="SYS",
                          decision="auto" if ok else "unavailable", ok=ok,
                          line=f"автозапуск при входе: {why}", detail=why)
+
+    start_autoupdate(state, audit)
 
     if sys.platform != "darwin":
         # Win/Linux: consent is answered on the panel; the tray is status +

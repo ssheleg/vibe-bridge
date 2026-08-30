@@ -418,14 +418,24 @@ async function loadVersion(){
       rows += `<div style="margin-top:8px"><button class="btn ghost" onclick="setAutostart(${on?"false":"true"})">${on?"Не запускать при входе":"Запускать при входе"}</button></div>`;
     }
     if (v.pending) rows += `<p class="note" style="margin-top:8px">Готова версия ${esc(v.pending)} — ${esc(v.pending_note)}.</p>`;
-    rows += `<div style="margin-top:12px"><button class="btn ghost" id="updBtn" onclick="checkUpdate()">Проверить обновления</button></div>`+
-      `<p class="note" id="updNote" style="margin-top:6px">Мост обновляется сам и записывает каждое обновление в журнал. Обновляется только его собственный код — права, выданные приложению, при этом не сбрасываются.</p>`;
+    rows += `<div class="kv"><span class="k">Автообновление</span><span class="v">${v.auto_update?"включено — проверяет раз в 6 часов":"выключено"}</span></div>`;
+    rows += `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">`+
+      `<button class="btn ghost" id="updBtn" onclick="checkUpdate()">Проверить обновления</button>`+
+      `<button class="btn ghost" onclick="setAutoUpdate(${v.auto_update?"false":"true"})">${v.auto_update?"Выключить автообновление":"Включить автообновление"}</button>`+
+      `</div>`+
+      `<p class="note" id="updNote" style="margin-top:6px">Обновляется только собственный код моста — права, выданные приложению, при этом не сбрасываются. Каждое обновление и каждый отказ видны в журнале.</p>`;
     el.innerHTML = rows;
   } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить состояние.</p>'; }
 }
 async function setAutostart(on){
   try{
     await fetch("/api/autostart",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:on})});
+  } catch(e){}
+  loadVersion();
+}
+async function setAutoUpdate(on){
+  try{
+    await fetch("/api/autoupdate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:on})});
   } catch(e){}
   loadVersion();
 }

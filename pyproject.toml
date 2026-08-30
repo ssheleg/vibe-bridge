@@ -44,7 +44,7 @@ dev = [
 [tool.briefcase]
 project_name = "vibe-bridge"
 bundle = "me.sshlg"
-version = "0.1.0"
+version = "0.2.0"
 url = "https://github.com/ssheleg/vibe-bridge"
 author = "Sergei Sheleg"
 author_email = "sergey@appvillis.com"
@@ -60,24 +60,19 @@ icon = "packaging/vibe-bridge"
 # is the seed payload a fresh install runs before it has updated once.
 sources = ["vibe_bridge", "vbboot", "vibebridge"]
 test_sources = ["tests"]
-requires = [
-    "mcp==1.26.0",
-    "pywebpush>=2.4.0",
-]
+# Deliberately EMPTY. Briefcase installs requirements with `--only-binary`,
+# and `rumps` publishes no wheel — the step hung for 12 minutes at 0% CPU and,
+# after a scaffold rebuild, failed outright and left no bundle at all
+# (2026-08-30). `scripts/build_app.sh` installs the same set explicitly right
+# afterwards, so this list would only be a second, divergent source of truth.
+requires = []
 
 [tool.briefcase.app.vibe-bridge.macOS]
 universal_build = false   # rumps ships sdist only; see packaging.md
-requires = [
-    "rumps>=0.4",
-    "pyobjc-framework-ServiceManagement>=12",   # SMAppService login item
-    # Quartz answers "does this app hold Screen Recording?" without raising
-    # the prompt. Missing from the first packaged build, which made the
-    # capability map claim a screenshot it could not take (2026-08-30).
-    "pyobjc-framework-Quartz>=12",
-    # A menu-bar app has no terminal: without this, stdout/stderr are dropped
-    # and a failed startup leaves nothing in Console.app to read.
-    "std-nslog>=1.0",
-]
+# Also empty — see the note above. The real list lives in one place:
+# `scripts/build_app.sh`, which installs it into Contents/Resources/app_packages
+# and is the only thing that ever puts a Mach-O inside this bundle.
+requires = []
 
 # Info.plist
 info."LSUIElement" = true        # menu-bar app: no Dock icon, no app switcher

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import tarfile
 import tempfile
+import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -263,3 +264,121 @@ def _fetch_json(url: str) -> dict:
 def _rmtree(path: Path) -> None:
     import shutil
     shutil.rmtree(path, ignore_errors=True)
+
+
+class AutoUpdater:
+    """The background half of self-updating (SCN-021).
+
+    A bridge that only updates when someone opens the panel and presses a
+    button is not a bridge that updates itself, and the README said it did.
+
+    Journal policy is deliberate and is most of the design here. Success that
+    changed nothing writes NOTHING: a line every six hours saying "проверил,
+    ничего нет" trains the owner to scroll past the journal, and the journal
+    is where consent decisions live. A failure is written once and then held
+    until the reason changes or the channel comes back — a laptop closed for a
+    week must not produce twenty-eight identical sentences.
+    """
+
+    #: Between checks. Long: releases are rare and the owner can always press
+    #: the button. Short enough that a security fix lands the same day.
+    INTERVAL_S = 6 * 60 * 60
+    #: After startup, before the first check. The bridge's job at launch is to
+    #: answer the robot, not to talk to GitHub.
+    FIRST_DELAY_S = 5 * 60
+
+    def __init__(self, *, root: Path, audit, state, pubkey: bytes | None,
+                 shell_version: str | None, current,
+                 interval_s: int | None = None,
+                 first_delay_s: int | None = None) -> None:
+        self._root = root
+        self._audit = audit
+        self._state = state
+        self._pubkey = pubkey
+        self._shell_version = shell_version
+        self._current = current
+        self._interval = interval_s or self.INTERVAL_S
+        self._first_delay = (self.FIRST_DELAY_S if first_delay_s is None
+                             else first_delay_s)
+        self._last_error: str | None = None
+        self._stop = threading.Event()
+
+    # ---------------------------------------------------------------- cycle
+
+    def run_once(self) -> bool:
+        """One check. True only when a new version was installed. Never
+        raises — this runs on a daemon thread inside the tray app, and an
+        exception here would end automatic updating with nobody told."""
+        if not getattr(self._state, "auto_update", True):
+            return False
+        if not self._pubkey or not self._shell_version:
+            # No bundle, no trust anchor: a development checkout. Retrying
+            # every cycle and journalling it would drown the journal in a
+            # situation where updating was never possible.
+            return False
+        try:
+            return self._cycle()
+        except Exception as exc:                      # noqa: BLE001
+            self._report_failure(f"проверка обновлений сорвалась: {exc}")
+            return False
+
+    def _cycle(self) -> bool:
+        result = check(current=self._current())
+        if result.error:
+            self._report_failure(result.error)
+            return False
+
+        self._report_recovery()
+        if result.found is None:
+            return False                              # nothing new: stay quiet
+
+        ok, why = fetch_and_install(
+            result.found, self._root, pubkey=self._pubkey,
+            shell_version=self._shell_version)
+        self._audit.record(
+            tool="update", tool_class="SYS",
+            decision="auto" if ok else "unavailable", ok=ok,
+            line=f"обновление {result.found.version}: {why}", detail=why)
+        if ok:
+            # Only after a good install: pruning on failure could delete the
+            # version the bridge would roll back to.
+            layout.prune(self._root, keep=2)
+        return ok
+
+    # --------------------------------------------------------- journal policy
+
+    def _report_failure(self, reason: str) -> None:
+        if reason == self._last_error:
+            return                                    # already said, once
+        self._last_error = reason
+        self._audit.record(tool="update", tool_class="SYS",
+                           decision="unavailable", ok=False,
+                           line=f"проверка обновлений: {reason}",
+                           detail=reason)
+
+    def _report_recovery(self) -> None:
+        if self._last_error is None:
+            return
+        self._last_error = None
+        self._audit.record(tool="update", tool_class="SYS", decision="auto",
+                           ok=True,
+                           line="канал обновлений снова доступен", detail="")
+
+    # ----------------------------------------------------------------- thread
+
+    def start(self) -> threading.Thread:
+        thread = threading.Thread(target=self._loop, name="vibe-bridge-update",
+                                  daemon=True)
+        thread.start()
+        return thread
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _loop(self) -> None:  # pragma: no cover - timing, exercised live
+        if self._stop.wait(self._first_delay):
+            return
+        while True:
+            self.run_once()
+            if self._stop.wait(self._interval):
+                return

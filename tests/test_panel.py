@@ -72,3 +72,39 @@ def test_journal_endpoint_filters(tmp_path):
         assert refused["total"] == 3
         reads = c.get("/api/journal?filter=read").json()
         assert {e["class"] for e in reads["entries"]} == {"read"}
+
+
+def test_pwa_tile_serves_the_real_mark_not_the_placeholder(tmp_path):
+    """The phone's home-screen tile is the app's face on a device the owner
+    carries. It served a flat blue square until 2026-08-30."""
+    from starlette.testclient import TestClient
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import _solid_png, build_app
+
+    state = BridgeState.load(tmp_path / "state.json")
+    app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+                    state=state, notify=lambda *a, **k: None)
+    r = TestClient(app).get("/icon-192.png")
+    assert r.status_code == 200
+    assert r.content.startswith(b"\x89PNG")
+    assert r.content != _solid_png(192)          # not the fallback square
+
+
+def test_every_manifest_icon_size_is_served(tmp_path):
+    from starlette.testclient import TestClient
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    state = BridgeState.load(tmp_path / "state.json")
+    app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+                    state=state, notify=lambda *a, **k: None)
+    client = TestClient(app)
+    for size in (180, 192, 512):
+        assert client.get(f"/icon-{size}.png").status_code == 200
+    assert client.get("/icon-999.png").status_code == 404
