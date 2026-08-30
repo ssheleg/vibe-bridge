@@ -168,6 +168,10 @@ td.mono{font-family:var(--font-data);font-size:12px}
     <div id="phoneCard"><p class="empty">Загружаю…</p></div>
   </div>
   <div class="card">
+    <div class="cap">Приложение</div>
+    <div id="versionCard"><p class="empty">Загружаю…</p></div>
+  </div>
+  <div class="card">
     <div class="cap">Доступ</div>
     <div class="kv"><span class="k">Режим</span><span class="v" id="modeInfo">gateway (через agentgateway, loopback)</span></div>
     <div class="kv"><span class="k">MCP-адрес</span><span class="v">127.0.0.1:48620/mcp</span></div>
@@ -311,7 +315,7 @@ document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("clic
   document.querySelectorAll(".tab[data-view]").forEach(x=>x.setAttribute("aria-selected", x===b));
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));
   if (b.dataset.view==="journal") loadJournal(true);
-  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); }
+  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); loadVersion(); }
 }));
 /* journal */
 document.querySelectorAll(".tab[data-flt]").forEach(b=>b.addEventListener("click", ()=>{
@@ -399,6 +403,41 @@ async function loadPhone(){
       `<p class="note" id="pushNote" style="margin-top:6px">iPhone: сначала «Поделиться → На экран “Домой”», пуши работают только из установленной PWA.</p>`;
     el.innerHTML = rows;
   } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить состояние.</p>'; }
+}
+const SRC = {payload:"обновлён автоматически", seed:"версия из установленного .app",
+  dev:"запущен из исходников (режим разработки)"};
+async function loadVersion(){
+  const el = document.getElementById("versionCard");
+  try{
+    const v = await (await fetch("/api/version")).json();
+    let rows = `<div class="kv"><span class="k">Версия</span><span class="v">${esc(v.running)}</span></div>`+
+      `<div class="kv"><span class="k">Источник</span><span class="v">${esc(SRC[v.source]||v.source)}</span></div>`+
+      `<div class="kv"><span class="k">Автозапуск</span><span class="v">${esc(v.autostart.human)}</span></div>`;
+    if (v.autostart.supported){
+      const on = v.autostart.state === "enabled";
+      rows += `<div style="margin-top:8px"><button class="btn ghost" onclick="setAutostart(${on?"false":"true"})">${on?"Не запускать при входе":"Запускать при входе"}</button></div>`;
+    }
+    if (v.pending) rows += `<p class="note" style="margin-top:8px">Готова версия ${esc(v.pending)} — ${esc(v.pending_note)}.</p>`;
+    rows += `<div style="margin-top:12px"><button class="btn ghost" id="updBtn" onclick="checkUpdate()">Проверить обновления</button></div>`+
+      `<p class="note" id="updNote" style="margin-top:6px">Мост обновляется сам и записывает каждое обновление в журнал. Обновляется только его собственный код — права, выданные приложению, при этом не сбрасываются.</p>`;
+    el.innerHTML = rows;
+  } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить состояние.</p>'; }
+}
+async function setAutostart(on){
+  try{
+    await fetch("/api/autostart",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:on})});
+  } catch(e){}
+  loadVersion();
+}
+async function checkUpdate(){
+  const btn = document.getElementById("updBtn"), note = document.getElementById("updNote");
+  btn.disabled = true; btn.textContent = "Проверяю…";
+  try{
+    const r = await (await fetch("/api/update/check",{method:"POST"})).json();
+    note.textContent = r.message || "";
+    if (r.installed) loadVersion();
+  } catch(e){ note.textContent = "Канал обновлений недоступен — мост продолжает работать."; }
+  finally { btn.disabled = false; btn.textContent = "Проверить обновления"; }
 }
 async function enablePush(){
   const note = document.getElementById("pushNote");

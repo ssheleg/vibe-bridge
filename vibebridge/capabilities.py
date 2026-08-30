@@ -271,7 +271,13 @@ def probe_availability(caps: dict[str, Capability], *,
 def _platform_probe_extras(name: str) -> tuple[str, str] | None:
     """Пере-статусы платформенного пака поверх бинарной probe."""
     if sys.platform == "darwin":
-        if name == "screenshot" and _screen_capture_granted() is False:
+        if name == "screenshot" and _screen_capture_granted() is not True:
+            # `is not True` covers False AND None. None means the preflight
+            # could not run at all, and calling that "available" is how the
+            # packaged app advertised a screenshot it could not take
+            # (2026-08-30): the robot then plans around a capability that
+            # fails at the worst moment. Unknown degrades toward the answer
+            # that costs least when wrong.
             return ("needs-permission",
                     "нужны права «Запись экрана» — Настройки → "
                     "Конфиденциальность и безопасность → Запись экрана")

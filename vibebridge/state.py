@@ -57,6 +57,12 @@ class BridgeState:
     # One-shot pairing token (spec §3): set when the wizard arms pairing,
     # burned on first successful /pair.
     pending_pair_token: str | None = None
+    # Launch at login (SCN-022). Set once, the first time the app registers
+    # itself as a Login Item. It exists so the bridge asks the system ONCE:
+    # without it, an owner who switches autostart off in System Settings
+    # would find it back on after the next launch, and a switch the app keeps
+    # undoing is not a switch.
+    autostart_registered: bool = False
 
     @classmethod
     def load(cls, path: Path | None = None) -> BridgeState:
@@ -74,7 +80,9 @@ class BridgeState:
                        vapid_private=data.get("vapid_private"),
                        vapid_public=data.get("vapid_public"),
                        push_subscriptions=data.get("push_subscriptions", []),
-                       pending_pair_token=data.get("pending_pair_token"))
+                       pending_pair_token=data.get("pending_pair_token"),
+                       autostart_registered=data.get(
+                           "autostart_registered", False))
         state = cls(path=path, panel_token=secrets.token_urlsafe(32))
         state.save()
         return state

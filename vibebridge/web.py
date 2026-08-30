@@ -146,6 +146,34 @@ class EventBus:
             await asyncio.sleep(self._interval)
 
 
+def _bundle_resources() -> Path | None:
+    """`Contents/Resources` when running from a signed .app, else None.
+
+    Anchored on `vbboot`, never on this file. `vbboot` is the shell and never
+    leaves the bundle; `vibebridge` is the payload and lives in Application
+    Support the moment the first update lands. Anchoring here would find the
+    bundle exactly once — on a fresh install — and every later update would
+    refuse itself for want of a public key.
+
+    None is what a development checkout gets, and it makes `install` refuse
+    deliberately: the trust anchor is the signed bundle, so code running
+    outside one has no channel it is entitled to trust.
+    """
+    import vbboot
+    here = Path(vbboot.__file__).resolve()
+    for parent in here.parents:
+        if parent.name == "Resources" and parent.parent.name == "Contents":
+            return parent
+    return None
+
+
+def _payload_source(root: Path, running: str) -> str:
+    """Where the running code came from, for the settings card."""
+    if _bundle_resources() is None:
+        return "dev"
+    return "payload" if (root / running).is_dir() else "seed"
+
+
 def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               runner: Runner | None = None,
               capabilities: dict[str, Capability] | None = None,
@@ -439,6 +467,95 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return JSONResponse({"ok": True, "written": written,
                              "bridge_url": info["bridge_url"]})
 
+    async def api_version(request: Request) -> Response:
+        """What code is running, where it came from, what is waiting.
+
+        `pending` is the honest half: an installed version is NOT the running
+        one until the next launch (ADR-0006), and a panel that showed only
+        the newest number on disk would report an update the robot is not
+        actually talking to.
+        """
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from vbboot import layout as _layout
+
+        from . import __version__, update
+        from .autostart import status as autostart_status
+
+        root = _layout.payload_root()
+        installed = await asyncio.to_thread(_layout.active_version, root)
+        pending = installed if installed and installed != __version__ else None
+        auto = await asyncio.to_thread(autostart_status)
+        return JSONResponse({
+            "running": __version__,
+            "source": _payload_source(root, __version__),
+            "pending": pending,
+            "pending_note": ("обновление скачано и применится после "
+                             "перезапуска моста" if pending else ""),
+            "repo": update.RELEASE_REPO,
+            "autostart": {"state": auto.state, "human": auto.human,
+                          "supported": auto.supported, "detail": auto.detail},
+        })
+
+    async def api_update_check(request: Request) -> Response:
+        """Ask the channel, and take what it offers. Every outcome — nothing
+        newer, unreachable, refused signature, installed — leaves the bridge
+        running and, when it matters, a line in the journal."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from vbboot import layout as _layout
+
+        from . import __version__, update
+
+        found = await asyncio.to_thread(update.check, current=__version__)
+        if found is None:
+            return JSONResponse({
+                "found": False, "installed": False,
+                "message": ("обновлений нет либо канал недоступен — "
+                            "мост продолжает работать на текущей версии"),
+            })
+
+        from vbboot.runner import shell_version
+        shell = shell_version()
+        if shell is None:
+            return JSONResponse({
+                "found": True, "installed": False, "version": found.version,
+                "message": ("мост запущен не из установленного приложения — "
+                            "обновляться нечему"),
+            })
+        ok, why = await asyncio.to_thread(
+            update.fetch_and_install, found, _layout.payload_root(),
+            pubkey=update.bundled_public_key(_bundle_resources()),
+            shell_version=shell)
+        audit.record(tool="update", tool_class="SYS",
+                     decision="auto" if ok else "unavailable", ok=ok,
+                     line=(f"обновление {found.version}: {why}"), detail=why)
+        return JSONResponse({"found": True, "installed": ok,
+                             "version": found.version, "message": why})
+
+    async def api_autostart(request: Request) -> Response:
+        """Turn launch-at-login on or off from the panel. The system switch
+        in Login Items stays authoritative — this only asks."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from .autostart import disable, enable
+        from .autostart import status as autostart_status
+
+        body = await request.json() if await request.body() else {}
+        want = bool(body.get("enabled", True))
+        ok, why = await asyncio.to_thread(enable if want else disable)
+        if ok and want:
+            state.autostart_registered = True
+            await asyncio.to_thread(state.save)
+        audit.record(tool="autostart", tool_class="SYS",
+                     decision="auto" if ok else "unavailable", ok=ok,
+                     line=(f"автозапуск {'включён' if want else 'выключен'} "
+                           f"из панели: {why}"), detail=why)
+        auto = await asyncio.to_thread(autostart_status)
+        return JSONResponse({"ok": ok, "message": why, "state": auto.state,
+                             "human": auto.human,
+                             "supported": auto.supported})
+
     async def api_journal(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -569,6 +686,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/pause", api_pause, methods=["POST"]),
             Route("/api/grants/revoke", api_revoke_grants, methods=["POST"]),
             Route("/api/capabilities", api_capabilities),
+            Route("/api/version", api_version),
+            Route("/api/update/check", api_update_check, methods=["POST"]),
+            Route("/api/autostart", api_autostart, methods=["POST"]),
             Route("/api/journal", api_journal),
             Route("/api/robot/status", api_robot_status),
             Route("/api/robot/chat", api_robot_chat, methods=["POST"]),

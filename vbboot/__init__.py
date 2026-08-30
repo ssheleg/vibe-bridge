@@ -1,0 +1,14 @@
+"""vbboot — the shell's bootstrap, the one part that never updates itself.
+
+It ships INSIDE the signed .app bundle (ADR-0006) and its whole job is to
+decide which copy of `vibebridge` to run, then hand over. Two rules follow
+from living in the bundle:
+
+* it imports nothing from `vibebridge` — that package is the payload, and the
+  bootstrap must be able to run when the payload is missing, half-written or
+  broken;
+* it uses the standard library only — every third-party dependency lives in
+  the bundle beside it, but taking one here would tie the trust anchor to a
+  wheel it does not need.
+"""
+__all__ = ["layout"]

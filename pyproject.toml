@@ -2,6 +2,10 @@
 name = "vibe-bridge"
 version = "0.1.0"
 description = "vibe-bridge: пульт и руки робота на компьютере владельца — консент, панель, PWA"
+# Публичный репозиторий без лицензии = все права сохранены; это и записано
+# явно, чтобы сборка не выбирала лицензию за владельца. Открыть код (MIT, как
+# у остальной семьи) можно в любой момент — отозвать выданную лицензию нельзя.
+license = "LicenseRef-Proprietary"
 requires-python = ">=3.12"
 dependencies = [
     # Wire parity with the robot: Hermes 0.19 ships mcp==1.26.0 as its MCP
@@ -28,7 +32,64 @@ dev = [
     "pytest-timeout>=2.4.0",
     "ruff>=0.6",
     "rumps>=0.4",   # dev host is macOS — keep the tray runnable via `uv run`
+    "briefcase>=0.4",   # builds the signed shell (ADR-0006); build-time only
 ]
+
+# ---------------------------------------------------------------- packaging
+# The signed shell (ADR-0006). It carries the Python runtime, every
+# third-party dependency and a seed copy of `vibebridge`; the code that
+# updates itself lives OUTSIDE the bundle and is chosen by `vbboot` at
+# startup. Keeping every .so inside the signed bundle is what lets us run
+# with library validation ON — see the entitlements below.
+[tool.briefcase]
+project_name = "vibe-bridge"
+bundle = "me.sshlg"
+version = "0.1.0"
+url = "https://github.com/ssheleg/vibe-bridge"
+author = "Sergei Sheleg"
+author_email = "sergey@appvillis.com"
+
+[tool.briefcase.app.vibe-bridge]
+formal_name = "vibe-bridge"
+description = "Пульт и руки робота на компьютере владельца"
+long_description = """Мост между роботом и компьютером владельца: MCP-сервер с
+консент-движком, панель, PWA для телефона и иконка в меню-баре.
+"""
+icon = "packaging/vibe-bridge"
+# Both packages ship inside the bundle: `vbboot` IS the shell, `vibebridge`
+# is the seed payload a fresh install runs before it has updated once.
+sources = ["vibe_bridge", "vbboot", "vibebridge"]
+test_sources = ["tests"]
+requires = [
+    "mcp==1.26.0",
+    "pywebpush>=2.4.0",
+]
+
+[tool.briefcase.app.vibe-bridge.macOS]
+universal_build = false   # rumps ships sdist only; see packaging.md
+requires = [
+    "rumps>=0.4",
+    "pyobjc-framework-ServiceManagement>=12",   # SMAppService login item
+    # Quartz answers "does this app hold Screen Recording?" without raising
+    # the prompt. Missing from the first packaged build, which made the
+    # capability map claim a screenshot it could not take (2026-08-30).
+    "pyobjc-framework-Quartz>=12",
+    # A menu-bar app has no terminal: without this, stdout/stderr are dropped
+    # and a failed startup leaves nothing in Console.app to read.
+    "std-nslog>=1.0",
+]
+
+# Info.plist
+info."LSUIElement" = true        # menu-bar app: no Dock icon, no app switcher
+info."NSAppleEventsUsageDescription" = "Мост выполняет действия, которые робот запросил у вас — открыть приложение, прочитать список окон. Каждое действие спрашивает разрешение отдельно."
+info."NSSystemAdministrationUsageDescription" = "Скриншот экрана делается только по запросу робота и только после вашего разрешения."
+
+# Entitlements. Briefcase grants the two below to every macOS app by default;
+# we turn both OFF. Every Mach-O this process loads lives inside the signed
+# bundle, so library validation costs us nothing and disabling it would earn
+# the app extra Gatekeeper scrutiny for no reason (ADR-0006).
+entitlement."com.apple.security.cs.disable-library-validation" = false
+entitlement."com.apple.security.cs.allow-unsigned-executable-memory" = false
 
 [tool.ruff]
 line-length = 88

@@ -53,6 +53,17 @@ def run() -> None:  # pragma: no cover - requires a GUI session
     notify = make_notifier()
     start_server(consent, audit, state, notify)
 
+    # Ask the system to launch us at login — once, ever (SCN-022). Only from
+    # a real bundle: in a development checkout `mainAppService` describes
+    # whatever binary is hosting Python, and registering that would put the
+    # wrong thing in the owner's Login Items.
+    if sys.platform == "darwin" and ".app/Contents/" in __file__:
+        from .autostart import ensure_registered
+        ok, why = ensure_registered(state)
+        audit.record(tool="autostart", tool_class="SYS",
+                     decision="auto" if ok else "unavailable", ok=ok,
+                     line=f"автозапуск при входе: {why}", detail=why)
+
     if sys.platform != "darwin":
         # Win/Linux: consent is answered on the panel; the tray is status +
         # open-panel + pause + quit (tray.py, live check = board B-1).

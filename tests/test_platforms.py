@@ -154,3 +154,30 @@ def test_notifier_never_raises(monkeypatch):
     monkeypatch.setitem(sys.modules, "desktop_notifier", None)
     notify = tray.make_notifier()
     notify("заголовок", "текст")            # must not raise on any OS
+
+
+# ── the probe must not turn "cannot answer" into "available" ───────────────
+
+def test_unknown_screen_permission_is_not_reported_as_available(monkeypatch):
+    """Caught live 2026-08-30 on the packaged .app: Quartz was not in the
+    bundle, so the preflight returned None, and the map advertised
+    `screenshot: available` while the call failed with "could not create
+    image from display". A capability map that guesses optimistically is
+    worse than none — the robot plans around it.
+    """
+    from vibebridge import capabilities as caps_mod
+
+    monkeypatch.setattr(caps_mod, "_screen_capture_granted", lambda: None)
+    caps = caps_mod.build_capabilities()
+    got = caps_mod.probe_availability(caps, which=lambda b: f"/usr/bin/{b}")
+    assert got["screenshot"]["status"] == "needs-permission"
+    assert got["screenshot"]["reason"]
+
+
+def test_granted_screen_permission_still_reads_available(monkeypatch):
+    from vibebridge import capabilities as caps_mod
+
+    monkeypatch.setattr(caps_mod, "_screen_capture_granted", lambda: True)
+    caps = caps_mod.build_capabilities()
+    got = caps_mod.probe_availability(caps, which=lambda b: f"/usr/bin/{b}")
+    assert got["screenshot"]["status"] == "available"
