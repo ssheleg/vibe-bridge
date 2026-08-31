@@ -113,11 +113,22 @@ def run() -> None:  # pragma: no cover - requires a GUI session
 
     start_autoupdate(state, audit)
 
+    from .desktop import MainWindow, MascotWindow
+
+    base = _panel_url(state).split("/?")[0]
+    # The app's own window. Without it, launching from /Applications produced
+    # nothing visible at all: LSUIElement keeps it out of the Dock and the
+    # panel lived in a browser.
+    window = MainWindow(_panel_url(state))
+    ok, why = window.show()
+    if not ok:
+        audit.record(tool="window", tool_class="SYS", decision="unavailable",
+                     ok=False, line=f"окно приложения: {why}", detail=why)
+
     pet = None
     if settings.mascot_window:
-        from .mascot_window import MascotWindow
-        pet = MascotWindow(f"{_panel_url(state).split('/?')[0]}"
-                           f"/mascot?token={state.panel_token}")
+        pet = MascotWindow(f"{base}/mascot?token={state.panel_token}",
+                           on_panel=window.show)
         ok, why = pet.show()
         audit.record(tool="mascot", tool_class="SYS",
                      decision="auto" if ok else "unavailable", ok=ok,
@@ -138,7 +149,8 @@ def run() -> None:  # pragma: no cover - requires a GUI session
             self.menu = [
                 rumps.MenuItem("Мост активен", callback=None),
                 None,
-                rumps.MenuItem("Открыть панель", callback=self.open_panel),
+                rumps.MenuItem("Открыть окно", callback=self.open_window),
+                rumps.MenuItem("Панель в браузере", callback=self.open_panel),
                 rumps.MenuItem("🤖 Показать питомца", callback=self.toggle_pet),
                 rumps.MenuItem("⏸ Поставить робота на паузу",
                                callback=self.toggle_pause),
@@ -187,6 +199,11 @@ def run() -> None:  # pragma: no cover - requires a GUI session
                 self.menu["Последние действия"].title = "Последние: " + \
                     (lines[0] if lines else "—")
 
+        def open_window(self, _sender) -> None:
+            ok, why = window.show()
+            if not ok:
+                rumps.notification("vibe-bridge", "", why)
+
         def open_panel(self, _sender) -> None:
             webbrowser.open(_panel_url(state))
 
@@ -194,7 +211,7 @@ def run() -> None:  # pragma: no cover - requires a GUI session
             """Show or hide the floating pet, and remember the answer — the
             owner should not have to re-decide it every launch."""
             from .config import update as save_settings
-            from .mascot_window import MascotWindow
+            from .desktop import MascotWindow
 
             nonlocal pet
             if pet is not None and pet.visible:
@@ -203,8 +220,8 @@ def run() -> None:  # pragma: no cover - requires a GUI session
                 save_settings({"mascot_window": False})
                 return
             if pet is None:
-                base = _panel_url(state).split("/?")[0]
-                pet = MascotWindow(f"{base}/mascot?token={state.panel_token}")
+                pet = MascotWindow(f"{base}/mascot?token={state.panel_token}",
+                                   on_panel=window.show)
             ok, why = pet.show()
             sender.title = ("🙈 Скрыть питомца" if ok
                             else "🤖 Питомец недоступен")

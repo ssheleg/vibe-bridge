@@ -315,3 +315,27 @@ def test_startup_tops_up_an_older_file(home):
 
     app_mod.prepare_settings(_State())
     assert "ask_for_read" in (home / "config.toml").read_text()
+
+
+def test_quick_phrases_are_read_as_a_list(home):
+    write(home, '[mascot]\nactions = ["Привет", "Что нового?"]\n')
+    assert cfg.load().mascot_actions == ("Привет", "Что нового?")
+
+
+def test_empty_phrases_are_dropped_rather_than_shown_as_blank_rows(home):
+    write(home, '[mascot]\nactions = ["Привет", "  ", ""]\n')
+    assert cfg.load().mascot_actions == ("Привет",)
+
+
+def test_a_menu_cannot_grow_into_a_panel(home):
+    write(home, '[mascot]\nactions = ' + str(["ф"] * 9).replace("'", '"') + '\n')
+    s = cfg.load()
+    assert len(s.mascot_actions) == 3          # default kept
+    assert any("восьми" in p for p in s.problems)
+
+
+def test_phrases_that_are_not_a_list_are_refused(home):
+    write(home, '[mascot]\nactions = "Привет"\n')
+    s = cfg.load()
+    assert s.mascot_actions == ("Как дела?", "Что нового?", "Расскажи, чем занят")
+    assert s.problems

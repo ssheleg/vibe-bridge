@@ -344,8 +344,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         finally:
             mascot.thinking(False)
         # The brain's own reply, spoken by the face. Nothing is composed here.
-        if answer.get("ok") and answer.get("text"):
-            mascot.say(str(answer["text"]), kind="chat")
+        # The key is `reply` — `RobotClient.chat` has always returned that, and
+        # reading `text` here meant the mascot silently never spoke a single
+        # chat answer (caught live 2026-08-31: it went to "thinking" and then
+        # said nothing, while the chat itself was working).
+        if answer.get("ok") and answer.get("reply"):
+            mascot.say(str(answer["reply"]), kind="chat")
         return JSONResponse(answer)
 
     async def api_robot_update(request: Request) -> Response:
@@ -658,6 +662,14 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return FileResponse(_WEBUI / "mascot.html")
 
+    async def api_mascot_actions(request: Request) -> Response:
+        """The quick phrases for the pet's menu."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from .config import load
+        live = await asyncio.to_thread(load)
+        return JSONResponse({"actions": list(live.mascot_actions)})
+
     async def api_onboarding(request: Request) -> Response:
         """What is still missing, as an ordered list the panel can render."""
         if not _authed(request):
@@ -935,6 +947,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/robot/attach", api_robot_attach, methods=["POST"]),
             Route("/api/onboarding", api_onboarding),
             Route("/api/mascot", api_mascot),
+            Route("/api/mascot/actions", api_mascot_actions),
             Route("/mascot", mascot_page),
             Route("/mascot.js", _static("mascot.js", "application/javascript")),
             Route("/api/settings", api_settings),

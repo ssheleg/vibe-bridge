@@ -111,7 +111,7 @@ def test_states_never_rely_on_colour_alone():
 def test_the_window_is_wide_enough_for_all_three_answers():
     """At 300px «Отклонить» was clipped off the right edge (seen on screen
     2026-08-31). A refusal button you cannot reach is the worst one to lose."""
-    from vibebridge import mascot_window as mw
+    from vibebridge import desktop as mw
     assert mw.DEFAULT_SIZE[0] >= 340
 
 
@@ -132,3 +132,39 @@ def test_the_welcome_card_still_loads_on_first_paint():
     page = (WEBUI / "index.html").read_text()
     tail = page.rsplit("</script>", 2)[-2]
     assert "loadOnboarding();" in tail
+
+
+def test_the_mascot_speaks_the_reply_under_the_key_the_client_returns(tmp_path):
+    """`RobotClient.chat` answers `{ok, reply}`. Reading `text` here made the
+    mascot go quiet after every chat turn — it showed "thinking" and then
+    nothing, while the chat itself worked fine."""
+    import asyncio
+
+    from vibebridge.robot import RobotClient
+
+    class _Reply:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": "жив"}}]}
+
+    class _Http:
+        async def post(self, *a, **kw):
+            return _Reply()
+
+    client = RobotClient(base_url="https://r", chat_url="https://r",
+                         chat_key="k", name="Вася", http=_Http())
+    answer = asyncio.run(client.chat("как дела"))
+    # The contract the panel and the mascot must both read.
+    assert answer["ok"] and answer["reply"] == "жив"
+    assert "text" not in answer
+
+    from pathlib import Path
+
+    import vibebridge
+    web = (Path(vibebridge.__file__).parent / "web.py").read_text()
+    assert 'answer.get("reply")' in web
+    assert 'answer.get("text")' not in web

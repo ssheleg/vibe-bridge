@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from .state import BridgeState
@@ -19,19 +20,47 @@ from .state import BridgeState
 _TAILSCALE_APP = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 
 
-def tailscale_ips() -> list[str]:
-    exe = shutil.which("tailscale") or (
+#: Both lookups below shell out to the Tailscale CLI (~1.3 s each here) and
+#: both are called on every `build_app`. In production that is once per launch;
+#: in the test suite it was a subprocess pair per web test and turned a
+#: ten-second run into four minutes — which is how a suite stops being run at
+#: all. The answers change when Tailscale reconnects, so they are held for a
+#: minute rather than forever.
+_TAILSCALE_TTL_S = 60.0
+_cache: dict[str, tuple[float, object]] = {}
+
+
+def _cached(key: str, produce, *, force: bool = False):
+    now = time.monotonic()
+    hit = _cache.get(key)
+    if not force and hit is not None and now - hit[0] < _TAILSCALE_TTL_S:
+        return hit[1]
+    value = produce()
+    _cache[key] = (now, value)
+    return value
+
+
+def _tailscale_exe() -> str | None:
+    return shutil.which("tailscale") or (
         _TAILSCALE_APP if Path(_TAILSCALE_APP).exists() else None)
-    if not exe:
-        return []
-    try:
-        out = subprocess.run([exe, "ip"], capture_output=True, text=True,
-                             timeout=3.0)
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if out.returncode != 0:
-        return []
-    return [line.strip() for line in out.stdout.splitlines() if line.strip()]
+
+
+def tailscale_ips(*, force: bool = False) -> list[str]:
+    def produce() -> list[str]:
+        exe = _tailscale_exe()
+        if not exe:
+            return []
+        try:
+            out = subprocess.run([exe, "ip"], capture_output=True, text=True,
+                                 timeout=3.0)
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+        if out.returncode != 0:
+            return []
+        return [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
+
+    # A copy: a caller mutating the result must not poison the next one.
+    return list(_cached("ips", produce, force=force))
 
 
 def allowed_hosts(state: BridgeState,
@@ -50,21 +79,23 @@ def allowed_hosts(state: BridgeState,
     return hosts
 
 
-def tailnet_dns_name() -> str | None:
+def tailnet_dns_name(*, force: bool = False) -> str | None:
     """This machine's MagicDNS name (no trailing dot) — the PWA/push origin
     once `tailscale serve` fronts the panel (ADR-0004). Fail-open None."""
-    exe = shutil.which("tailscale") or (
-        _TAILSCALE_APP if Path(_TAILSCALE_APP).exists() else None)
-    if not exe:
-        return None
-    try:
-        out = subprocess.run([exe, "status", "--json"], capture_output=True,
-                             text=True, timeout=3.0)
-        import json
-        name = json.loads(out.stdout).get("Self", {}).get("DNSName", "")
-        return name.rstrip(".") or None
-    except Exception:
-        return None
+    def produce() -> str | None:
+        exe = _tailscale_exe()
+        if not exe:
+            return None
+        try:
+            out = subprocess.run([exe, "status", "--json"],
+                                 capture_output=True, text=True, timeout=3.0)
+            import json
+            name = json.loads(out.stdout).get("Self", {}).get("DNSName", "")
+            return name.rstrip(".") or None
+        except Exception:
+            return None
+
+    return _cached("dns", produce, force=force)
 
 
 def serve_active(port: int) -> bool:

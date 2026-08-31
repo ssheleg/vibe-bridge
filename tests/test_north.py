@@ -107,3 +107,82 @@ def test_act_tool_does_not_block_event_loop(tmp_path):
         return result
 
     asyncio.run(scenario())
+
+
+def test_tailnet_addresses_are_not_re_shelled_on_every_lookup(monkeypatch):
+    """It runs the Tailscale CLI. Called per `build_app`, that was sixty
+    subprocesses in one suite and an eighty-second run — the cost that makes
+    people stop running the tests."""
+    from vibebridge import net
+
+    calls = []
+
+    def fake_run(*a, **kw):
+        calls.append(a)
+        class R:
+            returncode = 0
+            stdout = "100.64.0.1\n"
+        return R()
+
+    net._cache.clear()
+    monkeypatch.setattr(net.shutil, "which", lambda _: "/usr/bin/tailscale")
+    monkeypatch.setattr(net.subprocess, "run", fake_run)
+
+    first = net.tailscale_ips()
+    for _ in range(20):
+        net.tailscale_ips()
+    assert first == ["100.64.0.1"]
+    assert len(calls) == 1
+
+
+def test_a_forced_lookup_still_asks(monkeypatch):
+    from vibebridge import net
+
+    calls = []
+
+    def fake_run(*a, **kw):
+        calls.append(a)
+        class R:
+            returncode = 0
+            stdout = "100.64.0.2\n"
+        return R()
+
+    net._cache.clear()
+    monkeypatch.setattr(net.shutil, "which", lambda _: "/usr/bin/tailscale")
+    monkeypatch.setattr(net.subprocess, "run", fake_run)
+    net.tailscale_ips()
+    net.tailscale_ips(force=True)
+    assert len(calls) == 2
+
+
+def test_the_cache_does_not_leak_between_callers(monkeypatch):
+    """A caller mutating the returned list must not poison the next one."""
+    from vibebridge import net
+
+    net._cache["ips"] = (__import__("time").monotonic(), ["100.64.0.9"])
+    got = net.tailscale_ips()
+    got.append("подделка")
+    assert net.tailscale_ips() == ["100.64.0.9"]
+
+
+def test_the_magicdns_name_is_cached_too(monkeypatch):
+    """It is the second subprocess `allowed_hosts` runs, and it runs on the
+    same path as the first."""
+    from vibebridge import net
+
+    calls = []
+
+    def fake_run(*a, **kw):
+        calls.append(a)
+        class R:
+            returncode = 0
+            stdout = '{"Self": {"DNSName": "mac.tn.ts.net."}}'
+        return R()
+
+    net._cache.clear()
+    monkeypatch.setattr(net.shutil, "which", lambda _: "/usr/bin/tailscale")
+    monkeypatch.setattr(net.subprocess, "run", fake_run)
+    assert net.tailnet_dns_name() == "mac.tn.ts.net"
+    for _ in range(10):
+        net.tailnet_dns_name()
+    assert len(calls) == 1

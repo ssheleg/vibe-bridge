@@ -74,6 +74,10 @@ ask_for_read = false
 repo = "https://github.com/ssheleg/rpi-ai-assistant.git"
 
 [mascot]
+# Быстрые фразы в меню питомца (клик по нему). Уходят роботу тем же каналом,
+# что и чат в панели. Не больше восьми — это меню, а не панель.
+actions = ["Как дела?", "Что нового?", "Расскажи, чем занят"]
+
 # Показывать питомца отдельным окном поверх экрана? По умолчанию нет — окно,
 # которое появляется поверх всего при первом запуске, владелец не заказывал.
 # В панели персонаж есть всегда. Только macOS.
@@ -100,6 +104,11 @@ class Settings:
     #: The floating pet on the desktop. Off by default: a window that appears
     #: over everything on first launch is a window the owner did not ask for.
     mascot_window: bool = False
+    #: Quick phrases in the pet's menu. They are sent to the robot's brain
+    #: through the chat channel that already exists — a faster surface for it,
+    #: not a new capability.
+    mascot_actions: tuple[str, ...] = ("Как дела?", "Что нового?",
+                                       "Расскажи, чем занят")
     #: Human-readable reasons a value was not honoured. Empty is the good case.
     problems: list[str] = field(default_factory=list)
 
@@ -123,6 +132,7 @@ _FIELDS = (
     ("consent", "ask_for_read", "ask_for_read", "bool"),
     ("robot", "repo", "robot_repo", "url"),
     ("mascot", "window", "mascot_window", "bool"),
+    ("mascot", "actions", "mascot_actions", "phrases"),
 )
 
 #: The comment each key carries when it is added to a file that predates it.
@@ -143,6 +153,9 @@ _NOTES = {
         "Спрашивать и перед READ (скриншот, список окон)? По умолчанию нет:\n"
         "# они мгновенны и видны в журнале сразу после (vision §9.1)."),
     "robot.repo": "Что визард клонирует на новую Raspberry Pi.",
+    "mascot.actions": (
+        "Быстрые фразы в меню питомца. Уходят роботу тем же каналом, что и\n"
+        "# чат в панели. Не больше восьми — это меню, а не панель."),
     "mascot.window": (
         "Показывать питомца отдельным окном поверх экрана? По умолчанию нет —\n"
         "# в панели он есть всегда. Только macOS."),
@@ -303,6 +316,13 @@ def _coerce(value, kind: str, name: str, problems: list[str]):
             if repo.count("/") != 1 or not all(repo.split("/")):
                 raise ValueError("ожидается «владелец/репозиторий»")
             return repo
+        if kind == "phrases":
+            if not isinstance(value, (list, tuple)):
+                raise ValueError("ожидается список строк")
+            items = tuple(str(v).strip() for v in value if str(v).strip())
+            if len(items) > 8:
+                raise ValueError("не больше восьми — это меню, а не панель")
+            return items
         if kind == "bool":
             if not isinstance(value, bool):
                 raise ValueError("ожидается true или false")
@@ -353,6 +373,9 @@ def _write(path: Path, text: str) -> None:
 
 
 def _to_toml(value, kind: str) -> str:
+    if kind == "phrases":
+        inner = ", ".join('"' + str(v).replace('"', "'") + '"' for v in value)
+        return f"[{inner}]"
     if kind == "bool":
         return "true" if value else "false"
     if kind in ("port", "hours", "minutes", "seconds"):
