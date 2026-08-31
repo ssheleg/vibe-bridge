@@ -10,6 +10,7 @@ bundle rather than raising.
 from __future__ import annotations
 
 import json
+import pathlib
 
 import pytest
 
@@ -190,3 +191,22 @@ def test_boot_path_is_the_only_writer(root):
     layout.active_version(root)
     layout.usable(root)
     assert sorted(p.name for p in root.iterdir()) == before
+
+
+def test_the_shell_and_the_payload_carry_one_version():
+    """Two files hold it — `tool.briefcase.version` in pyproject and
+    `__version__` in the package — and on 2026-08-31 they drifted: the shell
+    said 0.14.0 while the payload still said 0.13.0. The update check compares
+    the RUNNING version against the newest release tag, so a payload that
+    misreports its version either reinstalls what is already there or refuses
+    an update that exists. The build script gates on this too; the test is
+    here so a bump caught in review never reaches the build.
+    """
+    import tomllib
+
+    import vibebridge
+
+    proj = tomllib.loads(
+        (pathlib.Path(__file__).parent.parent / "pyproject.toml").read_text())
+    assert vibebridge.__version__ == proj["tool"]["briefcase"]["version"]
+

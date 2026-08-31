@@ -25,6 +25,21 @@ uv run python -m pytest tests/ -q | tail -1
 uv run ruff check
 uv run python docs/ux/lint.py | tail -1
 
+# The shell's version and the payload's must be one number. They come from two
+# files — `tool.briefcase.version` in pyproject and `__version__` in the
+# package — and on 2026-08-31 they drifted: the shell said 0.14.0 while the
+# payload still said 0.13.0. The update check compares the RUNNING version
+# against the newest release tag, so a payload that misreports its version
+# either re-installs what is already there or refuses an update that exists.
+PKG_VERSION="$(uv run python -c "import vibebridge;print(vibebridge.__version__)")"
+PROJ_VERSION="$(uv run python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['tool']['briefcase']['version'])")"
+if [[ "$PKG_VERSION" != "$PROJ_VERSION" ]]; then
+  echo "версии расходятся: пакет $PKG_VERSION, pyproject $PROJ_VERSION" >&2
+  echo "поднимите обе — payload сверяет свою версию с тегом релиза" >&2
+  exit 1
+fi
+echo "версия: $PKG_VERSION (пакет и pyproject сходятся)"
+
 say "Иконка"
 # Regenerated every build: the mark is code, so it cannot drift from the
 # tokens it is drawn from (docs/design/ui.md).
