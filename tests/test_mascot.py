@@ -261,3 +261,16 @@ def test_a_real_answer_is_not_cut_at_two_hundred_characters(clock):
     answer = "Сейчас — тишина и порядок. " * 20      # ~540 chars
     m.say(answer.strip(), kind="chat")
     assert len(m.snapshot()["says"]) > 500
+
+
+def test_fresh_news_outranks_the_offline_status(clock):
+    """A status is what the mascot says when it has nothing to say. The other
+    order hid a just-arrived notification the moment the poller marked the
+    robot offline."""
+    m = _mascot(clock, robot={"online": False, "reason": "нет связи с домом"})
+    m.say("чайник вскипел", kind="notify")
+    assert m.snapshot()["says"] == "чайник вскипел"
+
+    clock.advance(Mascot.SAY_TTL_S + 1)
+    # …and once it has expired, the status is what is left.
+    assert m.snapshot()["says"] == "нет связи с домом"

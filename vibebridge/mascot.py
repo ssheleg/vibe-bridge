@@ -138,11 +138,15 @@ class Mascot:
             return None                      # принцип 3
         if pending is not None:
             return pending.summary
+        # A fresh line outranks the offline reason: news is what just
+        # happened, a status is what we say when there is nothing to say.
+        # The other way round hid a notification the moment the poller
+        # marked the robot offline.
+        line = self._line
+        if line is not None and self._clock() - line.at < self._ttl(line.text):
+            return line.text
         if state == "offline":
             # The robot's own reason, not our sympathy for it.
             reason = str(self._robot.get("reason") or "").strip()
             return reason or None
-        line = self._line
-        if line is None or self._clock() - line.at >= self._ttl(line.text):
-            return None
-        return line.text
+        return None

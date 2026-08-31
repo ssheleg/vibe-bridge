@@ -236,15 +236,22 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     notify = notify or (lambda title, text: None)
     _base_notify = notify
 
-    def notify(title: str, text: str) -> None:
-        """Everything the robot puts on this computer is one stream, so a
-        notification lands in the widget's feed as well as on screen."""
+    def notify(title: str, text: str):
+        """Everything the robot puts on this computer is one stream.
+
+        The head says it too: a notification is the robot talking, and the
+        owner asked for it to come from the character rather than only from a
+        grey system banner. It still goes to the system — a toast survives a
+        hidden pet.
+        """
+        line = f"{title}: {text}" if title else text
         try:
             robot_events.append({"ts": _now_iso(), "kind": "notify",
-                                 "text": f"{title}: {text}" if title else text})
+                                 "text": line})
+            mascot.say(line, kind="notify")
         except Exception:                       # noqa: BLE001 - never fatal
             pass
-        _base_notify(title, text)
+        return _base_notify(title, text)
     robot_state: dict = {"configured": robot.configured, "online": False,
                          "reason": "робот не подключён к панели"
                          if not robot.configured else "ещё не проверял"}

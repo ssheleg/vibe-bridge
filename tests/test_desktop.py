@@ -278,3 +278,63 @@ def test_appkit_does_not_compete_with_the_page_for_the_mouse():
 
     source = Path(mw.__file__).read_text()
     assert "setMovableByWindowBackground_(False)" in source
+
+
+def test_the_window_grows_around_the_character_not_its_own_edge():
+    """Anchoring on the frame let the head shift whenever a resize was
+    measured mid-render — reported three times as «скачет в бок». The anchor
+    is the character's corner and only the owner moves it."""
+    class _P:
+        def __init__(self):
+            self.frames = []
+
+        def frame(self):
+            r = type("R", (), {})()
+            r.origin = type("O", (), {"x": 1000.0, "y": 100.0})()
+            r.size = type("S", (), {"width": 120.0, "height": 96.0})()
+            return r
+
+        def setFrame_display_(self, rect, _):
+            self.frames.append(rect)
+
+        def setFrameOrigin_(self, p):
+            pass
+
+    panel = _P()
+    bridge = mw._Bridge(panel)
+    bridge.handle({"type": "resize", "w": 340, "h": 400})
+    bridge.handle({"type": "resize", "w": 120, "h": 96})
+
+    # Bottom-right corner identical in both: 1000+120 = 1120, y = 100.
+    for rect in panel.frames:
+        assert rect.origin.x + rect.size.width == 1120.0
+        assert rect.origin.y == 100.0
+
+
+def test_dragging_moves_the_anchor_with_the_pet():
+    class _P:
+        def __init__(self):
+            self.origin = (1000.0, 100.0)
+            self.frames = []
+
+        def frame(self):
+            r = type("R", (), {})()
+            r.origin = type("O", (), {"x": self.origin[0],
+                                      "y": self.origin[1]})()
+            r.size = type("S", (), {"width": 120.0, "height": 96.0})()
+            return r
+
+        def setFrameOrigin_(self, p):
+            self.origin = (p[0], p[1])
+
+        def setFrame_display_(self, rect, _):
+            self.frames.append(rect)
+
+    panel = _P()
+    bridge = mw._Bridge(panel)
+    bridge.handle({"type": "drag", "dx": -50, "dy": -30})
+    bridge.handle({"type": "resize", "w": 340, "h": 400})
+    rect = panel.frames[-1]
+    # Anchor followed the drag: right edge 950+120, bottom 130.
+    assert rect.origin.x + rect.size.width == 1070.0
+    assert rect.origin.y == 130.0

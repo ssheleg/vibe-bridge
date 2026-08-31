@@ -66,6 +66,13 @@ class _Bridge:
     def __init__(self, panel, on_panel=None) -> None:  # pragma: no cover - GUI
         self._panel = panel
         self._on_panel = on_panel
+        #: Where the CHARACTER sits on screen (its bottom-right corner in
+        #: Cocoa coordinates). The window is grown and shrunk around this
+        #: point instead of around its own edges: anchoring on the frame made
+        #: the head shift whenever a resize was measured mid-render, and the
+        #: owner reported it three times ("скачет в бок"). An anchor only
+        #: moves when the owner drags it.
+        self._anchor: tuple[float, float] | None = None
 
     def handle(self, body) -> None:         # pragma: no cover - needs a GUI
         try:
@@ -80,10 +87,11 @@ class _Bridge:
             if kind != "drag":
                 return
             frame = self._panel.frame()
-            self._panel.setFrameOrigin_((frame.origin.x + float(body["dx"]),
-                                         # Cocoa's Y grows upward; the page's
-                                         # grows downward.
-                                         frame.origin.y - float(body["dy"])))
+            # Cocoa's Y grows upward; the page's grows downward.
+            x = frame.origin.x + float(body["dx"])
+            y = frame.origin.y - float(body["dy"])
+            self._panel.setFrameOrigin_((x, y))
+            self._anchor = (x + frame.size.width, y)
         except Exception:                   # noqa: BLE001 - never fatal
             pass
 
@@ -100,12 +108,14 @@ class _Bridge:
         height = max(float(body.get("h", 0)), 90.0)
         width = max(float(body.get("w", 0)), 120.0)
         frame = self._panel.frame()
-        # Bottom-left origin in Cocoa, and the character sits at the bottom of
-        # the page — so keeping origin.y grows the window upward, away from
-        # the Dock, and the character does not jump when the menu opens.
+        if self._anchor is None:
+            self._anchor = (frame.origin.x + frame.size.width, frame.origin.y)
+        right, bottom = self._anchor
+        # The character lives at the page's bottom-right, so pinning that
+        # corner pins the character: the window grows upward and leftward
+        # around a point that does not move.
         self._panel.setFrame_display_(
-            AppKit.NSMakeRect(frame.origin.x + frame.size.width - width,
-                              frame.origin.y, width, height), True)
+            AppKit.NSMakeRect(right - width, bottom, width, height), True)
 
 
 class MainWindow:

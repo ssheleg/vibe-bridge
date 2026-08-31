@@ -384,3 +384,26 @@ def test_the_thread_is_bounded_and_dropped_with_the_session(tmp_path):
     c.cookies.set("vb_panel", "pt")
     c.get("/api/mascot/session")
     assert c.post("/api/mascot/session").status_code == 200
+
+
+def test_the_head_says_a_notification_too(tmp_path):
+    """«лучше чтобы голова робота говорила это» — a notification is the robot
+    talking, not only a grey system banner."""
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings(),
+                    notify=lambda t, x: (True, ""))
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "pt")
+
+    from vibebridge import capabilities as caps
+    caps._notifier("Вася", "чайник вскипел")
+
+    assert "чайник вскипел" in (c.get("/api/mascot").json()["says"] or "")
