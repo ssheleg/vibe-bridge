@@ -115,6 +115,26 @@ _FIELDS = (
     ("robot", "repo", "robot_repo", "url"),
 )
 
+#: The comment each key carries when it is added to a file that predates it.
+#: Same words as the template — the file is the manual, so a setting appended
+#: later must arrive explained rather than as a bare line.
+_NOTES = {
+    "port": "Порт панели и MCP-эндпоинта.            env: VIBE_BRIDGE_PORT",
+    "mode": ("Как робот дотягивается: standalone (tailnet + токен) или "
+             "gateway (loopback,\n# границей служит agentgateway). "
+             "env: VIBE_BRIDGE_MODE"),
+    "release.repo": "Откуда приезжают обновления. Свой форк — свой репозиторий.",
+    "update.enabled": "Фоновая проверка обновлений.",
+    "update.interval_hours": "Как часто проверять.",
+    "update.first_delay_minutes": "Пауза после старта: сначала робот, потом GitHub.",
+    "consent.ask_timeout_s": "Молчание владельца дольше этого = отказ.",
+    "consent.grant_ttl_s": "«Разрешить на 15 минут».",
+    "consent.ask_for_read": (
+        "Спрашивать и перед READ (скриншот, список окон)? По умолчанию нет:\n"
+        "# они мгновенны и видны в журнале сразу после (vision §9.1)."),
+    "robot.repo": "Что визард клонирует на новую Raspberry Pi.",
+}
+
 _ENV = {"VIBE_BRIDGE_PORT": ("port", "port"),
         "VIBE_BRIDGE_MODE": ("mode", "mode")}
 
@@ -164,6 +184,36 @@ def load(*, create: bool = False) -> Settings:
             values[attr] = coerced
 
     return Settings(**values, problems=problems)
+
+
+def top_up() -> None:
+    """Add settings this version knows to a file written by an older one.
+
+    The template is only written when the file is created, so every setting
+    added afterwards is invisible to anyone who already had a config — they
+    would have to read release notes to learn a switch exists. Values are
+    never touched; only missing keys are appended, each with its comment.
+    """
+    path = config_path()
+    if not path.exists():
+        return
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, tomllib.TOMLDecodeError):
+        return                       # a broken file is not ours to rewrite
+
+    text = path.read_text(encoding="utf-8")
+    changed = False
+    for section, key, attr, kind in _FIELDS:
+        holder = raw.get(section, {}) if section else raw
+        if isinstance(holder, dict) and key in holder:
+            continue
+        note = _NOTES.get(f"{section}.{key}" if section else key)
+        literal = _to_toml(getattr(Settings, attr), kind)
+        text = _rewrite(text, section, key, literal, note=note)
+        changed = True
+    if changed:
+        _write(path, text)
 
 
 def migrate_from_state(state) -> None:
@@ -297,7 +347,8 @@ def _to_toml(value, kind: str) -> str:
     return f'"{value}"'
 
 
-def _rewrite(text: str, section: str | None, key: str, literal: str) -> str:
+def _rewrite(text: str, section: str | None, key: str, literal: str,
+             note: str | None = None) -> str:
     """Set `key` in `section`, preserving every comment around it.
 
     Rewriting rather than re-serialising: the template's comments are the only
@@ -338,5 +389,7 @@ def _rewrite(text: str, section: str | None, key: str, literal: str) -> str:
     if not done:
         if section and f"[{section}]" not in text:
             out.append(f"\n[{section}]")
+        if note:
+            out.append(f"# {note}")
         out.append(f"{key} = {literal}")
     return "\n".join(out) + "\n"

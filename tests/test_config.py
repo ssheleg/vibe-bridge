@@ -258,3 +258,60 @@ def test_startup_actually_runs_the_migration(home, tmp_path):
     settings = app_mod.prepare_settings(_State())
     assert settings.mode == "gateway"
     assert (home / "config.toml").exists()
+
+
+# --------------------------------------------------- keeping the file current
+
+def test_settings_added_later_appear_in_an_existing_file(home):
+    """The file IS the documentation. Written once at first run, it goes
+    stale the moment a setting is added: this machine's config, created by
+    0.3.0, simply had no `ask_for_read` — so the owner could not discover the
+    switch, only the release notes could tell them."""
+    write(home, 'version = 1\nport = 9000\n')
+    cfg.top_up()
+    text = (home / "config.toml").read_text()
+    assert "ask_for_read" in text and "[robot]" in text
+    assert cfg.load().port == 9000            # untouched
+
+
+def test_top_up_carries_the_comment_that_explains_the_new_setting(home):
+    write(home, "port = 9000\n")
+    cfg.top_up()
+    text = (home / "config.toml").read_text()
+    line = next(i for i, ln in enumerate(text.splitlines())
+                if ln.startswith("ask_for_read"))
+    before = text.splitlines()[:line]
+    assert any(ln.strip().startswith("#") for ln in before[-4:])
+
+
+def test_top_up_never_changes_a_value_the_owner_set(home):
+    write(home, '[consent]\nask_timeout_s = 5\nask_for_read = true\n')
+    cfg.top_up()
+    s = cfg.load()
+    assert s.ask_timeout_s == 5 and s.ask_for_read is True
+
+
+def test_top_up_is_idempotent(home):
+    cfg.load(create=True)
+    cfg.top_up()
+    first = (home / "config.toml").read_text()
+    cfg.top_up()
+    assert (home / "config.toml").read_text() == first
+
+
+def test_top_up_does_nothing_without_a_file(home):
+    cfg.top_up()
+    assert not (home / "config.toml").exists()
+
+
+def test_startup_tops_up_an_older_file(home):
+    """Same lesson as the migration: a function nobody calls does nothing."""
+    from vibebridge import app as app_mod
+
+    write(home, "port = 9000\n")
+
+    class _State:
+        mode = "standalone"
+
+    app_mod.prepare_settings(_State())
+    assert "ask_for_read" in (home / "config.toml").read_text()

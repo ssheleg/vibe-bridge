@@ -79,10 +79,14 @@ def prepare_settings(state: BridgeState):
     instead of loopback — the robot's whole path.
     """
     from .config import load as load_settings
-    from .config import migrate_from_state
+    from .config import migrate_from_state, top_up
 
     migrate_from_state(state)
-    return load_settings(create=True)
+    settings = load_settings(create=True)
+    # A file written by an older version lacks every setting added since; the
+    # file is the manual, so bring it up to date without touching values.
+    top_up()
+    return settings
 
 
 def run() -> None:  # pragma: no cover - requires a GUI session
