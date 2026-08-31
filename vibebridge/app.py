@@ -97,6 +97,9 @@ def run() -> None:  # pragma: no cover - requires a GUI session
                             grant_ttl_s=settings.grant_ttl_s,
                             ask_for_read=settings.ask_for_read)
     notify = make_notifier()
+    backend = getattr(notify, "backend", "неизвестно")
+    audit.record(tool="notify", tool_class="SYS", decision="auto", ok=True,
+                 line=f"канал уведомлений: {backend}", detail="")
     start_server(consent, audit, state, notify, settings=settings)
 
     # Ask the system to launch us at login — once, ever (SCN-022). Only from

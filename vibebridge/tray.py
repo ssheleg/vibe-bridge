@@ -19,36 +19,60 @@ from .consent import ConsentEngine, ToolClass
 
 
 def make_notifier():
-    """One notifier for all three OSes. Prefers desktop-notifier (native
-    UNUserNotificationCenter / WinRT / DBus); falls back to osascript on
-    macOS, then to a no-op — a lost toast must never hurt the bridge."""
+    """One notifier for all three OSes, and it says which one it is.
+
+    Prefers desktop-notifier (native UNUserNotificationCenter / WinRT / DBus)
+    so the toast carries the app's name and icon; falls back to osascript on
+    macOS, which posts as Script Editor — recognisable, and worth knowing
+    about rather than discovering from a screenshot.
+
+    Every failure is REPORTED, not swallowed. The previous version returned
+    None whatever happened, so the capability told the robot "notification
+    shown" while nothing appeared on screen (reported 2026-08-31: «в
+    системное от apple scripts и там ничего нет»). Lying to the robot about
+    a delivered message is exactly what «честный отказ» forbids.
+
+    Returns a callable with a `.backend` attribute; calling it returns
+    (ok, reason).
+    """
     try:  # desktop-notifier is async-native; we drive it synchronously
         from desktop_notifier import DesktopNotifierSync
         notifier = DesktopNotifierSync(app_name="vibe-bridge")
 
-        def _notify(title: str, text: str) -> None:
+        def _native(title: str, text: str) -> tuple[bool, str]:
             try:
                 notifier.send(title=str(title)[:60], message=str(text)[:180])
-            except Exception:
-                pass
-        return _notify
-    except Exception:
-        pass
+                return True, ""
+            except Exception as exc:          # noqa: BLE001 - reported
+                return False, f"уведомление не показано: {exc}"
+        _native.backend = "desktop-notifier"   # type: ignore[attr-defined]
+        return _native
+    except Exception as exc:                   # noqa: BLE001
+        why = str(exc)
+
     if sys.platform == "darwin":
         import subprocess
 
-        def _notify(title: str, text: str) -> None:
+        def _osa(title: str, text: str) -> tuple[bool, str]:
             t = str(text).replace('"', "'")[:180]
             h = str(title).replace('"', "'")[:60]
             try:
-                subprocess.run(
+                p = subprocess.run(
                     ["osascript", "-e",
                      f'display notification "{t}" with title "{h}"'],
-                    capture_output=True, timeout=5)
-            except Exception:
-                pass
-        return _notify
-    return lambda title, text: None
+                    capture_output=True, timeout=5, text=True)
+            except Exception as exc:           # noqa: BLE001
+                return False, f"уведомление не показано: {exc}"
+            if p.returncode != 0:
+                return False, (p.stderr or "osascript отказал").strip()[:160]
+            return True, ""
+        _osa.backend = f"osascript (без имени приложения: {why[:60]})"  # type: ignore[attr-defined]
+        return _osa
+
+    def _none(title: str, text: str) -> tuple[bool, str]:
+        return False, "на этой системе показывать уведомления нечем"
+    _none.backend = "нет"                      # type: ignore[attr-defined]
+    return _none
 
 
 def tray_title(consent: ConsentEngine) -> str:

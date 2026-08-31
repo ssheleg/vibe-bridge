@@ -146,7 +146,14 @@ def _notify(r: Runner, args: dict) -> str:
     text = str(args.get("text", ""))
     title = str(args.get("title", "Робот"))
     if _notifier is not None:
-        _notifier(title, text)
+        got = _notifier(title, text)
+        # The notifier reports; older callables returned None. A robot told
+        # "shown" about a toast nobody saw is a lie, and this surface exists
+        # to refuse those.
+        if isinstance(got, tuple):
+            ok, why = got
+            if not ok:
+                raise CapabilityError(why or "уведомление не показано")
         return "notification shown"
     # No app notifier (a bare checkout): osascript still works, it just shows
     # up unattributed.

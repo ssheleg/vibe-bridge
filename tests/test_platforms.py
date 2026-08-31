@@ -235,3 +235,39 @@ def test_without_an_app_notifier_it_still_notifies():
     assert calls and calls[0][0] == "osascript"
     # Quotes are neutralised so the AppleScript literal cannot be broken open.
     assert '"да"' not in calls[0][2]
+
+
+def test_the_notifier_says_which_channel_it_is_using():
+    """It fell back to osascript silently, so the toast arrived as Script
+    Editor with nothing in it and there was no way to know why."""
+    from vibebridge.tray import make_notifier
+
+    n = make_notifier()
+    assert getattr(n, "backend", None)
+
+
+def test_a_failed_notification_is_refused_not_reported_as_shown():
+    """The capability answered "notification shown" whatever happened —
+    telling the robot a message was delivered when nothing appeared."""
+    import pytest
+
+    from vibebridge import capabilities as caps
+
+    caps.set_notifier(lambda t, x: (False, "нет разрешения на уведомления"))
+    try:
+        with pytest.raises(caps.CapabilityError) as exc:
+            caps._notify(object(), {"title": "Вася", "text": "привет"})
+        assert "разрешения" in str(exc.value)
+    finally:
+        caps.set_notifier(None)
+
+
+def test_a_notifier_that_reports_success_is_believed():
+    from vibebridge import capabilities as caps
+
+    caps.set_notifier(lambda t, x: (True, ""))
+    try:
+        assert caps._notify(object(), {"title": "a", "text": "b"}) == \
+            "notification shown"
+    finally:
+        caps.set_notifier(None)
