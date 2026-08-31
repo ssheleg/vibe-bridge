@@ -90,7 +90,8 @@ def run() -> None:  # pragma: no cover - requires a GUI session
     state = BridgeState.load()
     settings = prepare_settings(state)
     consent = ConsentEngine(ask_timeout_s=settings.ask_timeout_s,
-                            grant_ttl_s=settings.grant_ttl_s)
+                            grant_ttl_s=settings.grant_ttl_s,
+                            ask_for_read=settings.ask_for_read)
     notify = make_notifier()
     start_server(consent, audit, state, notify, settings=settings)
 

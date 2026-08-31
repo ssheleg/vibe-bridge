@@ -64,6 +64,14 @@ first_delay_minutes = 5   # пауза после старта: сначала �
 [consent]
 ask_timeout_s = 60        # молчание владельца дольше этого = отказ
 grant_ttl_s = 900         # «разрешить на 15 минут»
+# Спрашивать и перед READ-инструментами (скриншот, список окон)? По умолчанию
+# нет: они мгновенны и видны в журнале сразу после (vision §9.1). Включите,
+# если хотите, чтобы про экран спрашивали отдельно.
+ask_for_read = false
+
+[robot]
+# Что визард клонирует на новую Raspberry Pi. Свой форк робота — свой адрес.
+repo = "https://github.com/ssheleg/rpi-ai-assistant.git"
 '''
 
 
@@ -77,6 +85,12 @@ class Settings:
     update_first_delay_s: int = 5 * 60
     ask_timeout_s: float = 60.0
     grant_ttl_s: float = 900.0
+    #: Ask before READ tools too (screenshot, list of windows). Off because
+    #: vision §9.1 answers READ with "видно в журнале сразу после"; on because
+    #: some owners want to be asked before their screen is read.
+    ask_for_read: bool = False
+    #: What the SD-card wizard clones onto a new robot. A fork needs its own.
+    robot_repo: str = "https://github.com/ssheleg/rpi-ai-assistant.git"
     #: Human-readable reasons a value was not honoured. Empty is the good case.
     problems: list[str] = field(default_factory=list)
 
@@ -97,6 +111,8 @@ _FIELDS = (
     ("update", "first_delay_minutes", "update_first_delay_s", "minutes"),
     ("consent", "ask_timeout_s", "ask_timeout_s", "seconds"),
     ("consent", "grant_ttl_s", "grant_ttl_s", "seconds"),
+    ("consent", "ask_for_read", "ask_for_read", "bool"),
+    ("robot", "repo", "robot_repo", "url"),
 )
 
 _ENV = {"VIBE_BRIDGE_PORT": ("port", "port"),
@@ -214,6 +230,11 @@ def _coerce(value, kind: str, name: str, problems: list[str]):
             if mode not in MODES:
                 raise ValueError(f"должно быть {' или '.join(MODES)}")
             return mode
+        if kind == "url":
+            url = str(value)
+            if not url.startswith(("https://", "http://")):
+                raise ValueError("ожидается http:// или https://")
+            return url
         if kind == "repo":
             repo = str(value)
             if repo.count("/") != 1 or not all(repo.split("/")):

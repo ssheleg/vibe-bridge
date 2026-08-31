@@ -108,18 +108,50 @@ def shell_version() -> str | None:
 
 def guard_single_instance(port: int, host: str = "127.0.0.1") -> str | None:
     """None when the port is ours to take; otherwise the reason, in words the
-    owner can act on. Binding is the only honest test — a running bridge is
-    exactly a process already holding this port."""
+    owner can act on.
+
+    The bridge does NOT fall back to a free port, though `architecture.md`
+    once promised it would. This port is a contract: the robot reaches the
+    bridge at a fixed address, through an agentgateway route or its own
+    configuration, so moving quietly would leave a bridge that runs and a
+    robot that cannot find it — the worst of both. Refusing is right; refusing
+    without naming the holder or the way out is not.
+    """
     probe = socket.socket()
     try:
         probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind((host, port))
     except OSError:
-        return (f"порт {port} уже занят — похоже, мост уже запущен "
-                f"(проверьте меню-бар и `launchctl list | grep vibe-bridge`)")
+        holder = _port_holder(port)
+        who = f" — его держит {holder}" if holder else ""
+        return (f"порт {port} занят{who}. Если это второй экземпляр моста — "
+                f"закройте лишний (значок в меню-баре). Если порт нужен "
+                f"другой программе — поменяйте port в config.toml "
+                f"(~/Library/Application Support/vibe-bridge/config.toml)")
     finally:
         probe.close()
     return None
+
+
+def _port_holder(port: int) -> str | None:
+    """Name the process sitting on the port. Best effort: "занято" is not
+    something an owner can act on, "занято вот этим" is."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-F", "cp"],
+            capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    name = pid = None
+    for line in out.stdout.splitlines():
+        if line.startswith("p"):
+            pid = line[1:]
+        elif line.startswith("c"):
+            name = line[1:]
+    if not name:
+        return None
+    return f"{name} (pid {pid})" if pid else name
 
 
 def settle_later(root: Path, version: str,

@@ -493,7 +493,11 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                 wiz.prepare_boot_partition, mount,
                 hostname=hostname, ssid=str(body["ssid"]),
                 psk=str(body["psk"]), token=info["token"],
-                bridge_url=info["bridge_url"], name=str(body["name"]))
+                bridge_url=info["bridge_url"], name=str(body["name"]),
+                # The panel never passed this, so the wizard always cloned
+                # the hardcoded default — a fork's robot got someone else's
+                # repository written onto its card.
+                repo_url=settings.robot_repo)
         except OSError as exc:
             return JSONResponse(
                 {"error": f"не удалось записать на карту: {exc}"},
@@ -674,6 +678,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             "update_enabled": live.update_enabled,
             "update_interval_hours": round(live.update_interval_s / 3600, 2),
             "ask_timeout_s": live.ask_timeout_s,
+            "ask_for_read": live.ask_for_read,
+            "robot_repo": live.robot_repo,
             "problems": on_disk.problems,
             "pending": pending,
             "restart_required": bool(pending),

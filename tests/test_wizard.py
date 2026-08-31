@@ -159,3 +159,35 @@ def test_pair_without_chat_key_defaults_to_robot_token(tmp_path):
         assert r.status_code == 200
         assert state.robot_chat_key == r.json()["robot_token"]
         assert robot.chat_key == state.robot_chat_key
+
+
+def test_the_card_carries_the_configured_robot_repository(tmp_path):
+    """`prepare_boot_partition` took `repo_url` from the first day and the
+    panel never passed it, so every card cloned the hardcoded default — a
+    fork's robot would be provisioned from somebody else's repository."""
+    from starlette.testclient import TestClient
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    boot = tmp_path / "boot"
+    boot.mkdir()
+    (boot / "cmdline.txt").write_text("console=serial0\n")
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings(robot_repo="https://example.org/mine.git"))
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "pt")
+    r = c.post("/api/wizard/prepare", json={
+        "mount_path": str(boot), "ssid": "wifi", "psk": "pw", "name": "Вася"})
+    assert r.status_code == 200, r.text
+
+    written = "\n".join(p.read_text() for p in boot.rglob("*")
+                        if p.is_file() and p.suffix in ("", ".sh", ".txt"))
+    assert "example.org/mine.git" in written
+    assert "ssheleg/rpi-ai-assistant" not in written

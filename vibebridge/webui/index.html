@@ -398,9 +398,20 @@ async function loadAccess(){
     if (s.warning) rows = `<div class="banner" style="display:block;border-color:var(--danger);color:var(--danger)">${esc(s.warning)}</div>`+rows;
     if (s.restart_required) rows += `<p class="note" style="margin-top:8px">В файле настроек есть изменения (${s.pending.map(esc).join(", ")}) — они применятся после перезапуска моста.</p>`;
     if (s.problems && s.problems.length) rows += `<p class="note" style="margin-top:8px;color:var(--warn)">Настройки прочитаны не полностью:<br>${s.problems.map(esc).join("<br>")}</p>`;
-    rows += `<div style="margin-top:12px"><button class="btn ghost" onclick="switchMode('${s.mode==="gateway"?"standalone":"gateway"}')">Переключить в ${s.mode==="gateway"?"standalone":"gateway"}</button></div>`;
+    rows += `<div class="kv"><span class="k">Спрашивать перед чтением экрана</span><span class="v" style="font-family:var(--font-ui)">${s.ask_for_read?"да — скриншот и список окон спросят согласия":"нет — исполняются сразу, видны в журнале"}</span></div>`;
+    rows += `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">`+
+      `<button class="btn ghost" onclick="switchMode('${s.mode==="gateway"?"standalone":"gateway"}')">Переключить в ${s.mode==="gateway"?"standalone":"gateway"}</button>`+
+      `<button class="btn ghost" onclick="setSetting('ask_for_read',${s.ask_for_read?"false":"true"})">${s.ask_for_read?"Не спрашивать перед чтением":"Спрашивать перед чтением"}</button>`+
+      `</div>`;
     el.innerHTML = rows;
   } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить настройки.</p>'; }
+}
+async function setSetting(key, value){
+  try{
+    const r = await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({[key]:value})});
+    if(!r.ok){ const d = await r.json(); alert(d.error||"Не получилось"); return; }
+  } catch(e){}
+  loadAccess();
 }
 async function switchMode(to){
   try{

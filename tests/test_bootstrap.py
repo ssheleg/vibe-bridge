@@ -192,3 +192,29 @@ def test_fallback_stops_rather_than_looping_when_nothing_loads(bundle, root):
 
     with pytest.raises(ImportError):
         runner.run_payload(root, seed=bundle, loader=always_broken)
+
+
+def test_the_port_message_points_at_the_setting_that_changes_it():
+    """`architecture.md` promised "порт занят → выбрать свободный". That is
+    wrong for THIS port: the robot reaches the bridge at a fixed address —
+    through an agentgateway route or its own configuration — so silently
+    moving would leave a bridge that runs and a robot that cannot find it.
+    Refusing is right; refusing without a way out is not."""
+    with socket.socket() as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        why = runner.guard_single_instance(held.getsockname()[1])
+    assert why is not None
+    assert "config.toml" in why          # where to change it
+    assert "port" in why
+
+
+def test_the_message_names_who_is_holding_the_port_when_it_can():
+    """"Занято" is not actionable; "занято вот этим" is."""
+    with socket.socket() as held:
+        held.bind(("127.0.0.1", 0))
+        held.listen(1)
+        port = held.getsockname()[1]
+        why = runner.guard_single_instance(port)
+    # Our own process holds it in this test, so the name must appear.
+    assert "python" in why.lower() or "pid" in why.lower()

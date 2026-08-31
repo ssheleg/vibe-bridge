@@ -71,10 +71,15 @@ class ConsentRequest:
 class ConsentEngine:
     def __init__(self, *, ask_timeout_s: float = ASK_TIMEOUT_S,
                  grant_ttl_s: float = GRANT_TTL_S,
+                 ask_for_read: bool = False,
                  clock=time.monotonic) -> None:
         self._clock = clock
         self._ask_timeout_s = ask_timeout_s
         self._grant_ttl_s = grant_ttl_s
+        # Vision §9.1 answers READ with "в журнале сразу после", so this is
+        # off by default. It exists because `screenshot` is a READ and some
+        # owners want to be asked before their screen is read.
+        self._ask_for_read = ask_for_read
         self._lock = threading.Lock()
         self._pending: list[ConsentRequest] = []
         self._grant_until: dict[ToolClass, float] = {}
@@ -86,7 +91,7 @@ class ConsentEngine:
         """Block until the owner (or policy) decides. Never raises."""
         if self.paused:
             return Decision.PAUSED
-        if tool_class is ToolClass.READ:
+        if tool_class is ToolClass.READ and not self._ask_for_read:
             return Decision.AUTO
         with self._lock:
             until = self._grant_until.get(tool_class, 0.0)
