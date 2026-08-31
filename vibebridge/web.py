@@ -376,6 +376,14 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             mascot.say(str(answer["reply"]), kind="chat")
         return JSONResponse(answer)
 
+    async def api_robot_system(request: Request) -> Response:
+        """Состояние системы робота — то, ради чего панель перестаёт быть
+        хуже телеграм-бота: температура, нагрузка, память, диск, воздух и
+        живость сервисов, из его же канонического снимка."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse(await robot.system())
+
     async def api_robot_update(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -1006,6 +1014,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/robot/status", api_robot_status),
             Route("/api/robot/chat", api_robot_chat, methods=["POST"]),
             Route("/api/robot/update", api_robot_update, methods=["POST"]),
+            Route("/api/robot/system", api_robot_system),
             Route("/api/push/vapid", api_push_vapid),
             Route("/api/push/subscribe", api_push_subscribe,
                   methods=["POST"]),

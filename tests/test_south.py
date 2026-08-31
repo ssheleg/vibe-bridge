@@ -188,3 +188,77 @@ def test_bridge_api_calls_carry_shared_bearer():
     _run(c.status())
     _run(c.trigger_update())
     assert seen == ["Bearer shared-tok"] * 2
+
+
+# ── системная телеметрия робота ────────────────────────────────────────────
+
+def test_system_returns_what_the_robot_reports(anyio_backend=None):
+    """Робот отдаёт проекцию своего канонического снимка; мост её не
+    переизобретает и не досочиняет."""
+    import asyncio
+
+    import httpx
+
+    from vibebridge.robot import RobotClient
+
+    payload = {"cpu_temp": "48.3°C", "ram": {"pct": 41.2},
+               "services": [{"label": "Мозг (Hermes)", "health": True}]}
+
+    def handler(request):
+        assert request.url.path == "/bridge/system"
+        assert request.headers["authorization"] == "Bearer tok"
+        return httpx.Response(200, json=payload)
+
+    client = RobotClient(base_url="https://r", chat_url="https://r",
+                         chat_key="tok", name="Вася",
+                         http=httpx.AsyncClient(
+                             transport=httpx.MockTransport(handler)))
+    got = asyncio.run(client.system())
+    assert got["ok"] and got["cpu_temp"] == "48.3°C"
+
+
+def test_system_is_honest_when_the_robot_is_old():
+    """Робот, который ещё не обновился, отвечает 404 — это не ошибка моста и
+    не повод показать пустую панель без объяснения."""
+    import asyncio
+
+    import httpx
+
+    from vibebridge.robot import RobotClient
+
+    client = RobotClient(base_url="https://r", chat_url="https://r",
+                         chat_key="tok", name="Вася",
+                         http=httpx.AsyncClient(
+                             transport=httpx.MockTransport(
+                                 lambda r: httpx.Response(404))))
+    got = asyncio.run(client.system())
+    assert not got["ok"]
+    assert "не обновился" in got["error"]
+
+
+def test_system_survives_an_unreachable_robot():
+    import asyncio
+
+    import httpx
+
+    from vibebridge.robot import RobotClient
+
+    def boom(request):
+        raise httpx.ConnectError("нет связи")
+
+    client = RobotClient(base_url="https://r", chat_url="https://r",
+                         chat_key="tok", name="Вася",
+                         http=httpx.AsyncClient(
+                             transport=httpx.MockTransport(boom)))
+    got = asyncio.run(client.system())
+    assert not got["ok"] and got["error"]
+
+
+def test_system_needs_a_configured_robot():
+    import asyncio
+
+    from vibebridge.robot import RobotClient
+
+    got = asyncio.run(RobotClient(base_url=None, chat_url=None, chat_key=None,
+                                  name="робот").system())
+    assert not got["ok"] and "не подключ" in got["error"]

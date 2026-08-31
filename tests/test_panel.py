@@ -108,3 +108,43 @@ def test_every_manifest_icon_size_is_served(tmp_path):
     for size in (180, 192, 512):
         assert client.get(f"/icon-{size}.png").status_code == 200
     assert client.get("/icon-999.png").status_code == 404
+
+
+def test_the_panel_shows_the_robot_system_not_just_its_name(tmp_path):
+    """«Сейчас то, что есть в Telegram-боте и настройки в панели, полностью
+    разные. Нельзя этим заменить» — панель знала имя, версию и аптайм, и
+    больше ничего."""
+    from pathlib import Path
+
+    import vibebridge
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    assert "/api/robot/system" in page
+    for label in ("Температура CPU", "Память", "Диск", "Воздух PM2.5",
+                  "Сервисы"):
+        assert label in page
+    # Bootstrapped, not just defined — the lesson from prune/migrate/top_up.
+    assert "loadSystem();" in page.rsplit("</script>", 2)[-2]
+
+
+def test_service_liveness_is_a_word_as_well_as_a_colour(tmp_path):
+    from pathlib import Path
+
+    import vibebridge
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    assert "работает" in page and "не отвечает" in page
+
+
+def test_the_system_endpoint_is_guarded(tmp_path):
+    from starlette.testclient import TestClient
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings())
+    assert TestClient(app).get("/api/robot/system").status_code == 401

@@ -120,6 +120,10 @@ td.mono{font-family:var(--font-data);font-size:12px}
         <div class="cap">Робот</div>
         <div id="robotCard"><p class="empty">…</p></div>
       </div>
+      <div class="card">
+        <div class="cap">Система робота</div>
+        <div id="systemCard"><p class="empty">Загружаю…</p></div>
+      </div>
     </div>
     <div class="card" style="margin-top:16px;padding:8px 16px">
       <div class="cap" style="padding-top:8px">Последние события</div>
@@ -587,6 +591,41 @@ es.addEventListener("state", ev => render(JSON.parse(ev.data)));
 es.onerror = ()=>{ document.getElementById("bridgeState").textContent = "нет связи с мостом"; };
 refresh();
 loadOnboarding();
+const SVC_DOT = {true:"ok", false:"danger"};
+async function loadSystem(){
+  const el = document.getElementById("systemCard");
+  if (!el) return;
+  try{
+    const d = await (await fetch("/api/robot/system")).json();
+    if (!d.ok){ el.innerHTML = `<p class="empty">${esc(d.error||"нет данных")}</p>`; return; }
+    let rows = "";
+    const kv = (k,v)=>`<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
+    if (d.cpu_temp) rows += kv("Температура CPU", d.cpu_temp);
+    if (d.uptime){
+      if (d.uptime.pretty) rows += kv("Аптайм", d.uptime.pretty);
+      if (d.uptime.load1 != null) rows += kv("Нагрузка", Number(d.uptime.load1).toFixed(2));
+      if (d.uptime.cpu_pct != null) rows += kv("CPU", Math.round(d.uptime.cpu_pct)+"%");
+    }
+    if (d.ram && d.ram.pct != null) rows += kv("Память", Math.round(d.ram.pct)+"%");
+    if (d.disk && d.disk.pct != null) rows += kv("Диск", Math.round(d.disk.pct)+"%");
+    if (d.throttled && d.throttled.ok === false) rows += kv("Питание", "троттлинг — проверьте блок питания");
+    const p = d.peripherals || {};
+    if (p.air_pm25 != null) rows += kv("Воздух PM2.5", p.air_pm25);
+    if (p.fan_mode && p.fan_mode !== "n/a") rows += kv("Вентилятор", p.fan_mode);
+    if (Array.isArray(d.services) && d.services.length){
+      rows += `<div class="cap" style="margin-top:12px">Сервисы</div>`;
+      // Живость несёт точка И слово: цвет в одиночку статус не переносит.
+      rows += d.services.map(s=>{
+        const up = s.health === true || (s.health == null && s.active === true);
+        return `<div class="row"><span class="dot ${SVC_DOT[up]}"></span>`+
+          `<span>${esc(s.label || s.key || s.unit || "сервис")}</span>`+
+          `<span class="t">${up ? "работает" : "не отвечает"}</span></div>`;
+      }).join("");
+    }
+    el.innerHTML = rows || `<p class="empty">Робот не прислал телеметрию.</p>`;
+  } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить состояние системы.</p>'; }
+}
+
 async function tickMascot(){
   const el = document.getElementById("mascot");
   if (!el) return;
@@ -599,6 +638,10 @@ async function tickMascot(){
 }
 tickMascot();
 setInterval(tickMascot, 1500);
+loadSystem();
+// Телеметрию робота собирает он сам — полминуты достаточно, чаще значит
+// платить его временем за цифры, которые столько не меняются.
+setInterval(loadSystem, 30000);
 </script>
 </body>
 </html>

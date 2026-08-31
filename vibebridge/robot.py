@@ -131,6 +131,31 @@ class RobotClient:
 
     # ── update ──────────────────────────────────────────────────────────────
 
+    async def system(self) -> dict[str, Any]:
+        """Телеметрия робота для панели: температура, нагрузка, память, диск,
+        воздух, сервисы.
+
+        Отдельный вызов, а не расширение `status`: статус спрашивают часто и
+        он должен быть дешёвым, а снимок системы собирает робот и незачем
+        платить за него на каждом опросе.
+        """
+        if self.base_url is None:
+            return {"ok": False, "error": "робот не подключён к панели"}
+        try:
+            r = await self._http.get(f"{self.base_url}/bridge/system",
+                                     headers=self._headers(), timeout=10.0)
+            if r.status_code == 404:
+                return {"ok": False,
+                        "error": "робот ещё не обновился — телеметрия "
+                                 "появится после его обновления"}
+            r.raise_for_status()
+            data = r.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            return {"ok": False, "error": f"телеметрия недоступна: {_speakable(exc)}"}
+        if data.get("error"):
+            return {"ok": False, "error": str(data["error"])}
+        return {"ok": True, **data}
+
     async def trigger_update(self) -> dict[str, Any]:
         if self.base_url is None:
             return {"ok": False, "error": "робот не подключён"}
