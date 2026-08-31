@@ -254,3 +254,27 @@ def test_the_web_view_follows_the_window_it_lives_in():
     source = Path(mw.__file__).read_text()
     assert source.count("setAutoresizingMask_") == 2      # both windows
     assert "NSViewWidthSizable" in source and "NSViewHeightSizable" in source
+
+
+def test_the_pet_window_can_take_the_keyboard():
+    """A borderless window returns NO from `canBecomeKeyWindow`, so the
+    widget's text field could not be typed into at all. Titled with hidden
+    chrome looks the same and can take focus."""
+    from pathlib import Path
+
+    source = Path(mw.__file__).read_text()
+    assert "NSWindowStyleMaskBorderless" not in source
+    assert "NSWindowStyleMaskTitled" in source
+    assert "setTitlebarAppearsTransparent_(True)" in source
+    # …but only when a control needs it, so dragging still does not steal it.
+    assert "setBecomesKeyOnlyIfNeeded_(True)" in source
+
+
+def test_appkit_does_not_compete_with_the_page_for_the_mouse():
+    """`movableByWindowBackground` swallowed the mouse-down under a possible
+    window drag, so `pointerup` never reached the page: clicking the pet did
+    nothing. The page drags through the message handler instead."""
+    from pathlib import Path
+
+    source = Path(mw.__file__).read_text()
+    assert "setMovableByWindowBackground_(False)" in source

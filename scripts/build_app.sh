@@ -119,10 +119,15 @@ if [[ $NOTARIZE -eq 1 ]]; then
   xcrun stapler staple "$DMG"
   xcrun stapler staple "$APP"
   say "Вердикт Gatekeeper"
-  spctl -a -vvv -t exec "$APP" 2>&1 | tail -2
+  spctl -a -vvv -t exec "$APP" 2>&1 | tail -2 || true
 else
   say "Вердикт Gatekeeper (до нотаризации — 'rejected' здесь ожидаем)"
-  spctl -a -vvv -t exec "$APP" 2>&1 | tail -2
+  # `|| true`: spctl EXITS NON-ZERO for an unnotarized app, which is the
+  # expected state here. Under `set -e` that killed the script at its
+  # second-to-last line — silently, after the DMG was already built — so every
+  # `&&` step a caller chained after it was skipped and stale builds got
+  # installed and "verified" for several rounds (2026-08-31).
+  spctl -a -vvv -t exec "$APP" 2>&1 | tail -2 || true
   echo
   echo "Нотаризация не выполнялась. Один раз заведите профиль:"
   echo "  xcrun notarytool store-credentials $PROFILE \\"

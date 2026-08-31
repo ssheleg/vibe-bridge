@@ -214,16 +214,36 @@ class MascotWindow:
 
         panel = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
             rect,
-            # Borderless + non-activating: clickable without stealing focus
-            # from whatever the owner is typing in.
-            AppKit.NSWindowStyleMaskBorderless
+            # Titled — not borderless — with the title bar made invisible.
+            # A borderless window returns NO from `canBecomeKeyWindow`, so the
+            # keyboard never reaches it: the widget's text field could not be
+            # typed into at all (reported 2026-08-31). Titled + hidden chrome
+            # looks identical and can take focus.
+            AppKit.NSWindowStyleMaskTitled
+            | AppKit.NSWindowStyleMaskFullSizeContentView
             | AppKit.NSWindowStyleMaskNonactivatingPanel,
             AppKit.NSBackingStoreBuffered, False)
+        panel.setTitlebarAppearsTransparent_(True)
+        panel.setTitleVisibility_(1)            # NSWindowTitleHidden
+        for button in (AppKit.NSWindowCloseButton,
+                       AppKit.NSWindowMiniaturizeButton,
+                       AppKit.NSWindowZoomButton):
+            widget = panel.standardWindowButton_(button)
+            if widget is not None:
+                widget.setHidden_(True)
+        # Focus only when a control actually needs it: clicking the character
+        # or dragging must still not pull focus out of what the owner is
+        # typing elsewhere.
+        panel.setBecomesKeyOnlyIfNeeded_(True)
         panel.setOpaque_(False)
         panel.setBackgroundColor_(AppKit.NSColor.clearColor())
         panel.setHasShadow_(False)          # the page draws its own
         panel.setLevel_(AppKit.NSFloatingWindowLevel)
-        panel.setMovableByWindowBackground_(True)
+        # OFF on purpose. The page does the dragging through the message
+        # handler; leaving AppKit's own background-drag on made it swallow the
+        # mouse-down under a possible window drag, so `pointerup` never reached
+        # the page and the click did nothing at all (2026-08-31).
+        panel.setMovableByWindowBackground_(False)
         panel.setHidesOnDeactivate_(False)
         panel.setCollectionBehavior_(
             AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces

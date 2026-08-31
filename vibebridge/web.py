@@ -174,6 +174,11 @@ class EventBus:
             await asyncio.sleep(self._interval)
 
 
+def _now_iso() -> str:
+    from datetime import UTC, datetime
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
 def _bundle_resources() -> Path | None:
     """`Contents/Resources` when running from a signed .app, else None.
 
@@ -229,6 +234,17 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                                       or state.robot_token),
                             name=state.robot_name or "робот")
     notify = notify or (lambda title, text: None)
+    _base_notify = notify
+
+    def notify(title: str, text: str) -> None:
+        """Everything the robot puts on this computer is one stream, so a
+        notification lands in the widget's feed as well as on screen."""
+        try:
+            robot_events.append({"ts": _now_iso(), "kind": "notify",
+                                 "text": f"{title}: {text}" if title else text})
+        except Exception:                       # noqa: BLE001 - never fatal
+            pass
+        _base_notify(title, text)
     robot_state: dict = {"configured": robot.configured, "online": False,
                          "reason": "робот не подключён к панели"
                          if not robot.configured else "ещё не проверял"}
@@ -657,6 +673,17 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse(mascot.snapshot())
 
+    async def api_mascot_stream(request: Request) -> Response:
+        """Everything the robot has said or shown lately, newest last.
+
+        One stream: replies, events and notifications are all the robot
+        communicating with its owner, and splitting them across surfaces is
+        what made the widget feel like three half-features.
+        """
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse({"items": list(robot_events)[-40:]})
+
     async def api_mascot_dismiss(request: Request) -> Response:
         """The owner clicked the bubble away. Better than waiting out a timer
         they did not set."""
@@ -896,8 +923,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                 await asyncio.sleep(30.0)
                 continue
             async for ev in robot.events():
-                ev = {"ts": ev.get("ts"), "kind": ev.get("kind", "event"),
-                      "text": str(ev.get("text", ""))[:200]}
+                ev = {"ts": ev.get("ts") or _now_iso(),
+                      "kind": ev.get("kind", "event"),
+                      "text": str(ev.get("text", ""))[:400],
+                      # Optional, for when the robot starts sending media:
+                      # {"url": …, "type": "image"|"audio"|"video"|"link"}.
+                      "media": ev.get("media") or None}
                 robot_events.append(ev)
                 if consent.paused:
                     missed_while_paused["n"] += 1
@@ -966,6 +997,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/mascot/actions", api_mascot_actions),
             Route("/api/mascot/dismiss", api_mascot_dismiss,
                   methods=["POST"]),
+            Route("/api/mascot/stream", api_mascot_stream),
             Route("/mascot", mascot_page),
             Route("/mascot.js", _static("mascot.js", "application/javascript")),
             Route("/api/settings", api_settings),

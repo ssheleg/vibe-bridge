@@ -75,6 +75,17 @@ width:320px;margin-bottom:8px;display:none;overflow:hidden}
 .dialog .head{display:flex;align-items:center;gap:8px;padding:8px 10px;
 border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
 .dialog .head .grow{margin-left:auto}
+.dialog .head .who{color:var(--ink);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.dot.on{background:var(--ok)} .dot.off{background:var(--muted)}
+.stat{display:flex;gap:10px;flex-wrap:wrap;padding:7px 10px;font-size:11px;
+color:var(--muted);border-bottom:1px solid var(--border);background:var(--panel-2)}
+.turn.sys .what{background:transparent;border:1px dashed var(--border-strong);
+color:var(--muted);font-size:12px}
+.media{margin-top:6px}
+.media img,.media video{max-width:100%;border-radius:8px;display:block}
+.media audio{width:100%}
+.media a{display:inline-block;margin-top:4px;font-size:12px;color:var(--accent)}
 .dialog .head button{background:none;border:0;color:var(--accent);
 font:600 12px var(--font-ui);cursor:pointer;padding:2px 4px}
 .turns{max-height:240px;overflow-y:auto;padding:8px 10px;
@@ -108,7 +119,6 @@ const native = window.webkit && window.webkit.messageHandlers
 /* Session-scoped, in this page only. "Новый" mints a new id, which is how the
    owner starts a fresh context — the brain keeps the thread, we just name it. */
 let session = "pet-" + Math.random().toString(36).slice(2, 10);
-let turns = [];
 let busy = false;
 
 function esc(x){
@@ -155,21 +165,79 @@ async function toggleDialog(force){
   if (input) input.focus();
 }
 
+/* One stream. A reply, an event and a notification are all the robot
+   communicating with its owner; splitting them across three surfaces is what
+   made the widget feel like three half-features. Ordering is by arrival. */
+let stream = [];
+let seen = new Set();
+let status = {};
+
+function mediaOf(item){
+  if (item.media && item.media.url) return item.media;
+  // The robot sends text today; a bare media URL inside it is still media.
+  const m = String(item.text || "").match(/https?:\/\/\S+/);
+  if (!m) return null;
+  const url = m[0].replace(/[),.]+$/, "");
+  const ext = url.split("?")[0].split(".").pop().toLowerCase();
+  if (["png","jpg","jpeg","gif","webp","heic"].includes(ext)) return {url, type:"image"};
+  if (["mp4","mov","webm","m4v"].includes(ext)) return {url, type:"video"};
+  if (["mp3","m4a","wav","ogg","aac"].includes(ext)) return {url, type:"audio"};
+  return {url, type:"link"};
+}
+
+function mediaHtml(media){
+  if (!media) return "";
+  const u = esc(media.url);
+  const open = `<a href="${u}" target="_blank" rel="noreferrer">открыть в браузере</a>`;
+  if (media.type === "image") return `<div class="media"><img src="${u}" alt="">${open}</div>`;
+  if (media.type === "video") return `<div class="media"><video src="${u}" controls preload="metadata"></video>${open}</div>`;
+  if (media.type === "audio") return `<div class="media"><audio src="${u}" controls></audio>${open}</div>`;
+  return `<div class="media">${open}</div>`;
+}
+
+async function pullStream(){
+  try{
+    const d = await (await fetch("/api/mascot/stream")).json();
+    for (const it of (d.items || [])){
+      const key = (it.ts || "") + "|" + (it.text || "");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      stream.push({who: "Вася", text: it.text, kind: it.kind || "event",
+                   media: mediaOf(it)});
+    }
+  } catch(e){}
+}
+
 async function renderDialog(){
   let quick = [];
   try{ quick = (await (await fetch("/api/mascot/actions")).json()).actions || []; }
   catch(e){}
+  await pullStream();
 
-  const body = turns.length
-    ? turns.map(t => `<div class="turn ${t.who === "Вы" ? "me" : "bot"}">`+
-        `<span class="who">${esc(t.who)}</span>`+
-        `<span class="what">${t.who === "Вы" ? esc(t.text) : fmt(t.text)}</span></div>`).join("")
-    : `<div class="empty">Спросите робота о чём-нибудь. Контекст разговора живёт у его мозга — здесь только этот сеанс.</div>`;
+  const rows = stream.length
+    ? stream.map(t => {
+        const mine = t.who === "Вы";
+        const cls = mine ? "me" : (t.kind && t.kind !== "chat" ? "sys" : "bot");
+        return `<div class="turn ${cls}"><span class="who">${esc(t.who)}</span>`+
+          `<span class="what">${mine ? esc(t.text) : fmt(t.text)}`+
+          mediaHtml(t.media) + `</span></div>`;
+      }).join("")
+    : `<div class="empty">Здесь всё, что говорит робот: ответы, события, уведомления. Спросите его о чём-нибудь — контекст разговора живёт у его мозга.</div>`;
+
+  const online = status.online;
+  const bits = [];
+  if (status.uptime_h != null) bits.push(`аптайм ${status.uptime_h} ч`);
+  if (status.orchestrator) bits.push(`мозг ${esc(status.orchestrator)}`);
+  if (status.version) bits.push(esc(String(status.version).split("+")[0]));
 
   dlg.innerHTML =
-    `<div class="head"><span>Разговор</span><span class="grow"></span>`+
+    `<div class="head"><span class="dot ${online ? "on" : "off"}"></span>`+
+    `<span class="who">${esc(status.name || "Робот")}</span>`+
+    `<span>${online ? "в сети" : esc(status.reason || "не на связи")}</span>`+
+    `<span class="grow"></span>`+
     `<button id="newDlg">Новый</button><button id="closeDlg">Закрыть</button></div>`+
-    `<div class="turns" id="turns">${body}</div>`+
+    (bits.length ? `<div class="stat">${bits.join(" · ")}</div>` : "")+
+    `<div class="turns" id="turns">${rows}</div>`+
     (quick.length ? `<div class="chips">${quick.map((q,i)=>
         `<button data-q="${i}">${esc(q)}</button>`).join("")}</div>` : "")+
     `<div class="ask"><input id="ask" placeholder="${busy ? "Робот думает…" : "Сказать роботу…"}"`+
@@ -177,8 +245,10 @@ async function renderDialog(){
     `<button class="btn ghost" id="panelBtn">Панель</button></div>`;
 
   dlg.querySelector("#newDlg").onclick = () => {
+    // A new id is how the owner starts a fresh context; the brain keeps the
+    // thread, we only name it. The stream is cleared with it.
     session = "pet-" + Math.random().toString(36).slice(2, 10);
-    turns = [];
+    stream = [];
     renderDialog();
   };
   dlg.querySelector("#closeDlg").onclick = () => toggleDialog(false);
@@ -203,15 +273,17 @@ async function renderDialog(){
 async function send(text){
   if (busy) return;
   busy = true;
-  turns.push({who: "Вы", text});
+  stream.push({who: "Вы", text, kind: "chat"});
   await renderDialog();
   try{
     const r = await (await fetch("/api/robot/chat", {method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({text, session})})).json();
-    turns.push({who: "Вася", text: r.ok ? r.reply : (r.error || "не ответил")});
+    const answer = r.ok ? r.reply : (r.error || "не ответил");
+    stream.push({who: "Вася", text: answer, kind: "chat",
+                 media: mediaOf({text: answer})});
   } catch(e){
-    turns.push({who: "Вася", text: "мост не ответил"});
+    stream.push({who: "Вася", text: "мост не ответил", kind: "chat"});
   }
   busy = false;
   if (dialogOpen()) await renderDialog();
@@ -308,8 +380,27 @@ async function tick(){
   }
 }
 
+async function pullStatus(){
+  try{
+    const s = await (await fetch("/api/robot/status")).json();
+    status = {name: s.name, online: s.online, reason: s.reason,
+              version: s.version, orchestrator: s.orchestrator,
+              uptime_h: s.uptime_s != null ? Math.round(s.uptime_s / 3600) : null};
+  } catch(e){}
+}
+
 tick();
+pullStatus();
 setInterval(tick, 1000);
+setInterval(pullStatus, 30000);
+// While the widget is open the feed stays live, but only redraws when a new
+// item actually arrived — a redraw would take the focus out of the input.
+setInterval(async () => {
+  if (!dialogOpen() || busy) return;
+  const before = stream.length;
+  await pullStream();
+  if (stream.length !== before) await renderDialog();
+}, 3000);
 </script>
 </body>
 </html>

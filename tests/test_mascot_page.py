@@ -192,7 +192,7 @@ def test_the_dialogue_keeps_no_history_beyond_the_session():
     """Vision, «Не мессенджер»: the turns live in this page and die with it;
     the context lives in the robot's brain."""
     html = (WEBUI / "mascot.html").read_text()
-    assert "let turns = []" in html
+    assert "let stream = []" in html
     assert "localStorage" not in html and "sessionStorage" not in html
 
 
@@ -227,3 +227,58 @@ def test_the_character_keeps_its_place_when_a_bubble_appears():
     rule = html.split("#mascot{", 1)[1].split("}", 1)[0].replace(" ", "")
     assert "align-items:flex-end" in rule
     assert "flex-direction:column" in rule
+
+
+def test_replies_events_and_notifications_share_one_stream():
+    """The owner's own answer: one feed, because a reply, an event and a
+    notification are all the robot communicating."""
+    html = (WEBUI / "mascot.html").read_text()
+    assert "/api/mascot/stream" in html
+    assert "pullStream" in html
+    # System lines are visually distinct from a reply, not hidden.
+    assert 'cls = mine ? "me" : (t.kind && t.kind !== "chat" ? "sys" : "bot")' in html
+
+
+def test_the_widget_shows_status_without_being_asked():
+    """«мне хотелось бы видеть какой-то активный статус, а не сразу разговор»."""
+    html = (WEBUI / "mascot.html").read_text()
+    assert "/api/robot/status" in html
+    assert "аптайм" in html and "не на связи" in html
+
+
+def test_media_from_the_robot_is_previewed_with_a_way_out():
+    html = (WEBUI / "mascot.html").read_text()
+    for kind in ("image", "video", "audio", "link"):
+        assert f'"{kind}"' in html
+    assert "открыть в браузере" in html
+
+
+def test_a_live_feed_does_not_redraw_over_the_owner_typing():
+    """A blind repaint every few seconds would take the focus out of the
+    input mid-sentence."""
+    html = (WEBUI / "mascot.html").read_text()
+    assert "if (stream.length !== before) await renderDialog();" in html
+
+
+def test_a_notification_reaches_the_stream_as_well_as_the_screen(tmp_path):
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    shown = []
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings(),
+                    notify=lambda t, x: shown.append((t, x)))
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "pt")
+
+    from vibebridge import capabilities as caps
+    caps._notifier("Вася", "чайник вскипел")
+
+    items = c.get("/api/mascot/stream").json()["items"]
+    assert any("чайник вскипел" in i["text"] for i in items)
+    assert shown == [("Вася", "чайник вскипел")]      # still on screen too
