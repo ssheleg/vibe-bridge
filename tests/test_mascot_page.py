@@ -106,9 +106,11 @@ def test_states_never_rely_on_colour_alone():
     """Style-pack rule: colour never carries a state by itself. Here the eyes
     change shape too, so the state survives greyscale."""
     js = (WEBUI / "mascot.js").read_text()
-    for shape in ("calm", "busy", "wide", "closed"):
+    for shape in ("calm", "scan", "wide", "closed"):
         assert f"{shape}:" in js
-    assert "prefers-reduced-motion" in (WEBUI / "mascot.html").read_text()
+    # The shared stylesheet carries the reduced-motion branch for both
+    # surfaces, so neither can ship without it.
+    assert "prefers-reduced-motion" in js
 
 
 def test_the_window_is_wide_enough_for_all_three_answers():
@@ -407,3 +409,77 @@ def test_the_head_says_a_notification_too(tmp_path):
     caps._notifier("Вася", "чайник вскипел")
 
     assert "чайник вскипел" in (c.get("/api/mascot").json()["says"] or "")
+
+
+# ── skins and the motion doctrine ─────────────────────────────────────────
+
+def test_a_skin_can_be_swapped_without_touching_the_states():
+    """A skin decides how a state LOOKS; the bridge decides what it MEANS.
+    That line is what separates a skin from a fork of the mascot."""
+    js = (WEBUI / "mascot.js").read_text()
+    assert "registerMascotSkin(\"vasya\"" in js
+    assert "registerMascotSkin(\"dot\"" in js
+    # A skin system with one skin is an assertion, not a contract.
+    assert js.count("registerMascotSkin(") >= 3        # helper + two skins
+
+
+def test_pause_and_offline_carry_no_motion_at_all():
+    """«Пауза выглядит как отсутствие» — a breathing figure over a stopped
+    bridge says the opposite of what pause means."""
+    js = (WEBUI / "mascot.js").read_text()
+    rule = js.split(".vb-paused, .vb-offline{", 1)[1].split("}", 1)[0]
+    assert "animation:none" in rule.replace(" ", "")
+    assert ".vb-paused *, .vb-offline *{animation:none}" in js
+
+
+def test_only_compositor_safe_properties_are_animated():
+    """The doctrine bans animating layout. The previous version animated SVG
+    geometry attributes (`r`, `cx`), which is exactly that."""
+    js = (WEBUI / "mascot.js").read_text()
+    keyframes = [b.split("}", 1)[0] for b in js.split("@keyframes ")[1:]]
+    for frame in keyframes:
+        for banned in ("width", "height", "top:", "left:", "margin", "padding",
+                       "font-size"):
+            assert banned not in frame
+        assert "transform" in frame or "opacity" in frame
+    assert "attributeName" not in js          # no SMIL geometry animation
+
+
+def test_motion_stays_inside_the_doctrine_ceiling():
+    """UI motion stays at or under 300 ms, and `ease-in` is banned."""
+    js = (WEBUI / "mascot.js").read_text()
+    assert "VB_DUR = 220" in js
+    assert "cubic-bezier(0.23, 1, 0.32, 1)" in js      # the doctrine's ease-out
+    assert "ease-in;" not in js and "ease-in," not in js
+
+
+def test_an_unknown_skin_is_refused_at_write_time(tmp_path, monkeypatch):
+    """Otherwise a typo silently draws the default and the owner wonders why
+    nothing changed."""
+    import pytest
+
+    from vibebridge import config as cfg
+
+    monkeypatch.setattr(cfg, "config_path", lambda: tmp_path / "config.toml")
+    cfg.load(create=True)
+    with pytest.raises(ValueError):
+        cfg.update({"mascot_skin": "дракон"})
+    cfg.update({"mascot_skin": "dot"})
+    assert cfg.load().mascot_skin == "dot"
+
+
+def test_the_state_carries_its_skin(tmp_path):
+    """Otherwise every surface has to ask twice and they can disagree."""
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings(mascot_skin="dot"))
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "pt")
+    assert c.get("/api/mascot").json()["skin"] == "dot"

@@ -633,7 +633,7 @@ async function tickMascot(){
     const snap = await (await fetch("/api/mascot")).json();
     // The panel already shows a consent card of its own; the mascot here is
     // presence, not a second set of buttons for one decision.
-    renderMascot(el, snap, {size: 64, answerable: false});
+    renderMascot(el, snap, {size: 64, answerable: false, skin: snap.skin});
   } catch(e){}
 }
 tickMascot();

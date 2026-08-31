@@ -709,7 +709,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """What the character shows right now, for both surfaces."""
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return JSONResponse(mascot.snapshot())
+        # The skin travels with the state so a surface never has to ask twice.
+        return JSONResponse({**mascot.snapshot(),
+                             "skin": settings.mascot_skin})
 
     async def api_mascot_session(request: Request) -> Response:
         """The pet's conversation id — read it, or mint a new one.
@@ -826,6 +828,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             "ask_for_read": live.ask_for_read,
             "robot_repo": live.robot_repo,
             "mascot_window": live.mascot_window,
+            "mascot_skin": live.mascot_skin,
             "problems": on_disk.problems,
             "pending": pending,
             "restart_required": bool(pending),

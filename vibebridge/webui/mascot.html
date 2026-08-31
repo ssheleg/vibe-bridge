@@ -374,7 +374,7 @@ function paint(snap, force){
     (showBubble ? `<div class="bubble" id="bubble">${fmt(snap.says)}`+
       (snap.actionable ? "" : `<span class="dismiss">нажмите, чтобы убрать</span>`)+
       `</div>` : "") +
-    `<div class="mascot-body">${mascotSvg(snap.state, 72)}</div>` +
+    `<div class="mascot-body">${mascotSvg(snap.state, 72, snap.skin)}</div>` +
     ((snap.actionable && !dialogOpen()) ? `<div class="actions">`+
       `<button class="btn primary" data-d="allow">Разрешить</button>`+
       `<button class="btn ghost" data-d="allow_grant">На 15 мин</button>`+

@@ -32,6 +32,10 @@ VERSION = 1
 
 MODES = ("standalone", "gateway")
 
+#: Skins the bundled `mascot.js` registers. Kept here so a typo is refused at
+#: write time instead of silently drawing the default.
+SKINS = ("vasya", "dot")
+
 _TEMPLATE = '''# vibe-bridge — настройки. Меняются здесь; перезапустите мост после правки.
 # Любое значение можно переопределить переменной окружения (см. ниже) —
 # переменная сильнее файла, файл сильнее умолчания.
@@ -74,6 +78,10 @@ ask_for_read = false
 repo = "https://github.com/ssheleg/rpi-ai-assistant.git"
 
 [mascot]
+# Внешний вид персонажа. Состояния задаёт мост, скин решает только как они
+# ВЫГЛЯДЯТ. Известные: "vasya" (робот), "dot" (минимальная точка).
+skin = "vasya"
+
 # Быстрые фразы в меню питомца (клик по нему). Уходят роботу тем же каналом,
 # что и чат в панели. Не больше восьми — это меню, а не панель.
 actions = ["Как дела?", "Что нового?", "Расскажи, чем занят"]
@@ -104,6 +112,10 @@ class Settings:
     #: The floating pet on the desktop. Off by default: a window that appears
     #: over everything on first launch is a window the owner did not ask for.
     mascot_window: bool = False
+    #: Which drawing the character uses. The states are the bridge's; a skin
+    #: only decides how they LOOK — that line is what separates a skin from a
+    #: fork of the mascot.
+    mascot_skin: str = "vasya"
     #: Quick phrases in the pet's menu. They are sent to the robot's brain
     #: through the chat channel that already exists — a faster surface for it,
     #: not a new capability.
@@ -132,6 +144,7 @@ _FIELDS = (
     ("consent", "ask_for_read", "ask_for_read", "bool"),
     ("robot", "repo", "robot_repo", "url"),
     ("mascot", "window", "mascot_window", "bool"),
+    ("mascot", "skin", "mascot_skin", "skin"),
     ("mascot", "actions", "mascot_actions", "phrases"),
 )
 
@@ -156,6 +169,7 @@ _NOTES = {
     "mascot.actions": (
         "Быстрые фразы в меню питомца. Уходят роботу тем же каналом, что и\n"
         "# чат в панели. Не больше восьми — это меню, а не панель."),
+    "mascot.skin": "Внешний вид персонажа: vasya (робот) или dot (точка).",
     "mascot.window": (
         "Показывать питомца отдельным окном поверх экрана? По умолчанию нет —\n"
         "# в панели он есть всегда. Только macOS."),
@@ -316,6 +330,11 @@ def _coerce(value, kind: str, name: str, problems: list[str]):
             if repo.count("/") != 1 or not all(repo.split("/")):
                 raise ValueError("ожидается «владелец/репозиторий»")
             return repo
+        if kind == "skin":
+            name = str(value).strip()
+            if name not in SKINS:
+                raise ValueError(f"известные скины: {', '.join(SKINS)}")
+            return name
         if kind == "phrases":
             if not isinstance(value, (list, tuple)):
                 raise ValueError("ожидается список строк")
