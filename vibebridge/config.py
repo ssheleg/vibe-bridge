@@ -72,6 +72,12 @@ ask_for_read = false
 [robot]
 # Что визард клонирует на новую Raspberry Pi. Свой форк робота — свой адрес.
 repo = "https://github.com/ssheleg/rpi-ai-assistant.git"
+
+[mascot]
+# Показывать питомца отдельным окном поверх экрана? По умолчанию нет — окно,
+# которое появляется поверх всего при первом запуске, владелец не заказывал.
+# В панели персонаж есть всегда. Только macOS.
+window = false
 '''
 
 
@@ -91,6 +97,9 @@ class Settings:
     ask_for_read: bool = False
     #: What the SD-card wizard clones onto a new robot. A fork needs its own.
     robot_repo: str = "https://github.com/ssheleg/rpi-ai-assistant.git"
+    #: The floating pet on the desktop. Off by default: a window that appears
+    #: over everything on first launch is a window the owner did not ask for.
+    mascot_window: bool = False
     #: Human-readable reasons a value was not honoured. Empty is the good case.
     problems: list[str] = field(default_factory=list)
 
@@ -113,6 +122,7 @@ _FIELDS = (
     ("consent", "grant_ttl_s", "grant_ttl_s", "seconds"),
     ("consent", "ask_for_read", "ask_for_read", "bool"),
     ("robot", "repo", "robot_repo", "url"),
+    ("mascot", "window", "mascot_window", "bool"),
 )
 
 #: The comment each key carries when it is added to a file that predates it.
@@ -133,6 +143,9 @@ _NOTES = {
         "Спрашивать и перед READ (скриншот, список окон)? По умолчанию нет:\n"
         "# они мгновенны и видны в журнале сразу после (vision §9.1)."),
     "robot.repo": "Что визард клонирует на новую Raspberry Pi.",
+    "mascot.window": (
+        "Показывать питомца отдельным окном поверх экрана? По умолчанию нет —\n"
+        "# в панели он есть всегда. Только macOS."),
 }
 
 _ENV = {"VIBE_BRIDGE_PORT": ("port", "port"),

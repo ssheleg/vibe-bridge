@@ -1,0 +1,122 @@
+"""The robot's face on this computer — and the rules that keep it a face.
+
+`docs/ux/vision.md` decides almost everything in here by refusing things:
+
+* **«Не второй мозг».** Every line the mascot speaks was said by the robot or
+  done by the bridge. There is no generator, no greeting, no idle chatter and
+  no template that fires on a timer — which is why `says` is None most of the
+  time, and why that is the correct behaviour rather than a gap.
+* **Принцип 3 — пауза выглядит как отсутствие.** Paused, it is silent. Not
+  drowsy, not "back soon": nothing. The agent must find a computer that looks
+  switched off, and the owner must not be invited to answer a request the
+  bridge has already refused.
+* **«Не мессенджер».** One current line, and it expires. The journal is the
+  history; a mascot with a transcript is a chat app with a cartoon on it.
+
+The state is derived, never stored: pause and pending come from the consent
+engine, online from the robot's own status. Two sources of truth for "is the
+bridge paused" is how a face ends up smiling at a stopped bridge.
+"""
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+
+#: Ranked. The first that matches wins, and `asking` outranks everything a
+#: status line could say: a waiting decision must never sit under "робот в
+#: сети".
+STATES = ("paused", "asking", "thinking", "offline", "idle")
+
+
+@dataclass(frozen=True)
+class _Line:
+    text: str
+    kind: str          # event | chat | system
+    at: float
+
+
+class Mascot:
+    """What the character shows right now. Cheap to build, safe to poll."""
+
+    #: How long a line stays in the bubble. Long enough to read a sentence,
+    #: short enough that the mascot is usually silent — which is the honest
+    #: resting state for something with nothing to say.
+    SAY_TTL_S = 25.0
+    #: The bubble is a bubble, not a chat window. A robot reply of two
+    #: thousand words belongs in the chat tab.
+    SAY_MAX_CHARS = 220
+
+    def __init__(self, *, consent, robot_state: dict, clock=time.time) -> None:
+        self._consent = consent
+        self._robot = robot_state
+        self._clock = clock
+        self._line: _Line | None = None
+        self._thinking = False
+
+    # ----------------------------------------------------------------- input
+
+    def say(self, text: str, *, kind: str = "event") -> None:
+        """Record something that actually happened. Callers pass the robot's
+        own words or the bridge's own action — never a composed sentence."""
+        text = (text or "").strip()
+        if not text:
+            return
+        if getattr(self._consent, "paused", False):
+            # Dropped, not queued. Holding it would make lifting the pause
+            # replay a backlog — a messenger's behaviour, and it would also
+            # break «пауза выглядит как отсутствие» a minute late instead of
+            # never. The event is in the journal either way.
+            return
+        if len(text) > self.SAY_MAX_CHARS:
+            text = text[: self.SAY_MAX_CHARS - 1].rstrip() + "…"
+        now = self._clock()
+        if (self._line is not None and self._line.text == text
+                and now - self._line.at >= self.SAY_TTL_S):
+            # A status that repeats must not make its own bubble immortal.
+            return
+        self._line = _Line(text=text, kind=kind, at=now)
+
+    def thinking(self, active: bool) -> None:
+        self._thinking = bool(active)
+
+    # ---------------------------------------------------------------- output
+
+    def snapshot(self) -> dict:
+        paused = bool(getattr(self._consent, "paused", False))
+        pending = None if paused else self._consent.pending()
+        online = bool(self._robot.get("online"))
+
+        if paused:
+            state = "paused"
+        elif pending is not None:
+            state = "asking"
+        elif self._thinking:
+            state = "thinking"
+        elif not online:
+            state = "offline"
+        else:
+            state = "idle"
+
+        return {
+            "state": state,
+            "says": self._says(state, pending, online),
+            "actionable": pending is not None,
+            "request_id": pending.id if pending is not None else None,
+            "tool": pending.tool if pending is not None else None,
+        }
+
+    # --------------------------------------------------------------- private
+
+    def _says(self, state: str, pending, online: bool) -> str | None:
+        if state == "paused":
+            return None                      # принцип 3
+        if pending is not None:
+            return pending.summary
+        if state == "offline":
+            # The robot's own reason, not our sympathy for it.
+            reason = str(self._robot.get("reason") or "").strip()
+            return reason or None
+        line = self._line
+        if line is None or self._clock() - line.at >= self.SAY_TTL_S:
+            return None
+        return line.text

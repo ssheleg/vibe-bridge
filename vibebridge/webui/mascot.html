@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вася</title>
+<style>
+/* The floating window's page. Transparent on purpose: the native panel behind
+   it is borderless and clear, so anything opaque here would draw a grey box on
+   the owner's desktop. */
+:root{--panel:#fff;--ink:#1a1f2b;--muted:#5b6472;--border:#e6e9ef;
+--border-strong:#d7dce4;--accent:#2f6feb;--accent-ink:#fff;--ok:#1a7f37;
+--warn:#9a6700;--danger:#d1242f;--r-control:6px;--r-card:10px;
+--font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;color-scheme:light}
+@media (prefers-color-scheme: dark){:root{color-scheme:dark;--panel:#161b24;
+--ink:#e8ecf3;--muted:#8a93a6;--border:#232a36;--border-strong:#2c3441;
+--accent:#4b8bff;--accent-ink:#0f1218;--ok:#3fb960;--warn:#d9a93f;--danger:#e5534b}}
+*{box-sizing:border-box;margin:0}
+html,body{background:transparent;height:100%}
+body{font:13px/1.45 var(--font-ui);color:var(--ink);
+display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+padding:8px;-webkit-user-select:none;user-select:none}
+/* The character is the drag handle; everything else must stay clickable. */
+.mascot-body{-webkit-app-region:drag;cursor:grab;filter:drop-shadow(0 3px 8px rgba(0,0,0,.28))}
+.mascot-bubble{background:var(--panel);border:1px solid var(--border-strong);
+border-radius:var(--r-card);padding:8px 12px;margin-bottom:8px;max-width:100%;
+box-shadow:0 6px 20px rgba(0,0,0,.18);text-align:center;word-break:break-word}
+.mascot-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+.btn{font:600 12px var(--font-ui);border-radius:var(--r-control);padding:6px 10px;
+border:1px solid transparent;cursor:pointer;white-space:nowrap}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:var(--panel);border-color:var(--border-strong);color:var(--ink)}
+.btn.dangerous{background:var(--panel);border-color:var(--danger);color:var(--danger)}
+@media (prefers-reduced-motion: reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div id="mascot"></div>
+<script src="/mascot.js"></script>
+<script>
+const el = document.getElementById("mascot");
+
+async function decide(id, decision){
+  try{
+    await fetch("/api/consent/decide", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({id, decision})});
+  } catch(e){}
+  tick();
+}
+
+async function tick(){
+  try{
+    const snap = await (await fetch("/api/mascot")).json();
+    renderMascot(el, snap, {size: 72, answerable: true, onDecide: decide});
+  } catch(e){
+    // The bridge went away. Say so rather than freezing on the last mood —
+    // a cheerful mascot over a dead bridge is the exact lie this project
+    // spends its whole design refusing.
+    renderMascot(el, {state:"offline", says:"мост не отвечает"}, {size:72});
+  }
+}
+
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>

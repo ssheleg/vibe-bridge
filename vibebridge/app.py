@@ -113,6 +113,16 @@ def run() -> None:  # pragma: no cover - requires a GUI session
 
     start_autoupdate(state, audit)
 
+    pet = None
+    if settings.mascot_window:
+        from .mascot_window import MascotWindow
+        pet = MascotWindow(f"{_panel_url(state).split('/?')[0]}"
+                           f"/mascot?token={state.panel_token}")
+        ok, why = pet.show()
+        audit.record(tool="mascot", tool_class="SYS",
+                     decision="auto" if ok else "unavailable", ok=ok,
+                     line=f"питомец на экране: {why}", detail=why)
+
     if sys.platform != "darwin":
         # Win/Linux: consent is answered on the panel; the tray is status +
         # open-panel + pause + quit (tray.py, live check = board B-1).
@@ -129,6 +139,7 @@ def run() -> None:  # pragma: no cover - requires a GUI session
                 rumps.MenuItem("Мост активен", callback=None),
                 None,
                 rumps.MenuItem("Открыть панель", callback=self.open_panel),
+                rumps.MenuItem("🤖 Показать питомца", callback=self.toggle_pet),
                 rumps.MenuItem("⏸ Поставить робота на паузу",
                                callback=self.toggle_pause),
                 rumps.MenuItem("Сбросить разрешения",
@@ -178,6 +189,29 @@ def run() -> None:  # pragma: no cover - requires a GUI session
 
         def open_panel(self, _sender) -> None:
             webbrowser.open(_panel_url(state))
+
+        def toggle_pet(self, sender) -> None:
+            """Show or hide the floating pet, and remember the answer — the
+            owner should not have to re-decide it every launch."""
+            from .config import update as save_settings
+            from .mascot_window import MascotWindow
+
+            nonlocal pet
+            if pet is not None and pet.visible:
+                pet.hide()
+                sender.title = "🤖 Показать питомца"
+                save_settings({"mascot_window": False})
+                return
+            if pet is None:
+                base = _panel_url(state).split("/?")[0]
+                pet = MascotWindow(f"{base}/mascot?token={state.panel_token}")
+            ok, why = pet.show()
+            sender.title = ("🙈 Скрыть питомца" if ok
+                            else "🤖 Питомец недоступен")
+            if ok:
+                save_settings({"mascot_window": True})
+            else:
+                rumps.notification("vibe-bridge", "", why)
 
         def toggle_pause(self, sender) -> None:
             consent.paused = not consent.paused

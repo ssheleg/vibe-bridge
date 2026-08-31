@@ -51,9 +51,9 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-data);font-size:11px;border:1px solid var(--border);border-radius:var(--r-pill);padding:2px 8px;color:var(--ink)}
 .chip.okc{background:var(--ok-weak)} .chip.warnc{background:var(--warn-weak)} .chip.dangerc{background:var(--danger-weak)}
 .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.danger{background:var(--danger)} .dot.mut{background:var(--muted)} .dot.info{background:var(--accent)}
-.kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)}
 .kv:last-child{border-bottom:0}
-.kv .k{color:var(--muted)} .kv .v{font-family:var(--font-data)}
+.kv .k{color:var(--muted);flex:none} .kv .v{font-family:var(--font-data);min-width:0;text-align:right;word-break:break-word}
 .row{display:flex;gap:12px;align-items:center;min-height:34px;padding:0 4px;border-bottom:1px solid var(--border);transition:background var(--dur-h) var(--ease)}
 .row:hover{background:var(--panel-2)}
 .row:last-child{border-bottom:0}
@@ -68,6 +68,8 @@ th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute
 td.mono{font-family:var(--font-data);font-size:12px}
 .view{display:none}.view.on{display:block}
 .note{font-size:11px;color:var(--muted)}
+.mascot-bubble{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-card);padding:7px 11px;margin-bottom:8px;max-width:100%;word-break:break-word;font-size:12px}
+.mascot-body{line-height:0}
 </style>
 </head>
 <body>
@@ -109,6 +111,10 @@ td.mono{font-family:var(--font-data);font-size:12px}
         <div class="kv"><span class="k">Состояние</span><span class="v" id="bridgeState">—</span></div>
         <div class="kv"><span class="k">Грант ACT</span><span class="v" id="grantLeft">нет</span></div>
         <div class="kv"><span class="k">Запросов в очереди</span><span class="v" id="pendCount">0</span></div>
+      </div>
+      <div class="card" id="mascotCard" style="text-align:center">
+        <div class="cap" style="text-align:left">Вася</div>
+        <div id="mascot" style="display:flex;flex-direction:column;align-items:center;gap:0"></div>
       </div>
       <div class="card">
         <div class="cap">Робот</div>
@@ -193,6 +199,7 @@ td.mono{font-family:var(--font-data);font-size:12px}
   </div>
 </section>
 
+<script src="/mascot.js"></script>
 <script>
 const DW = {auto:"исполнено", allow:"разрешено", allow_grant:"по гранту",
   deny:"отказ владельца", timeout:"таймаут — отказ", paused:"пауза — отказ",
@@ -398,10 +405,12 @@ async function loadAccess(){
     if (s.warning) rows = `<div class="banner" style="display:block;border-color:var(--danger);color:var(--danger)">${esc(s.warning)}</div>`+rows;
     if (s.restart_required) rows += `<p class="note" style="margin-top:8px">В файле настроек есть изменения (${s.pending.map(esc).join(", ")}) — они применятся после перезапуска моста.</p>`;
     if (s.problems && s.problems.length) rows += `<p class="note" style="margin-top:8px;color:var(--warn)">Настройки прочитаны не полностью:<br>${s.problems.map(esc).join("<br>")}</p>`;
+    rows += `<div class="kv"><span class="k">Питомец на экране</span><span class="v" style="font-family:var(--font-ui)">${s.mascot_window?"показан отдельным окном":"только в панели"}</span></div>`;
     rows += `<div class="kv"><span class="k">Спрашивать перед чтением экрана</span><span class="v" style="font-family:var(--font-ui)">${s.ask_for_read?"да — скриншот и список окон спросят согласия":"нет — исполняются сразу, видны в журнале"}</span></div>`;
     rows += `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">`+
       `<button class="btn ghost" onclick="switchMode('${s.mode==="gateway"?"standalone":"gateway"}')">Переключить в ${s.mode==="gateway"?"standalone":"gateway"}</button>`+
       `<button class="btn ghost" onclick="setSetting('ask_for_read',${s.ask_for_read?"false":"true"})">${s.ask_for_read?"Не спрашивать перед чтением":"Спрашивать перед чтением"}</button>`+
+      `<button class="btn ghost" onclick="setSetting('mascot_window',${s.mascot_window?"false":"true"})">${s.mascot_window?"Убрать питомца с экрана":"Показать питомца на экране"}</button>`+
       `</div>`;
     el.innerHTML = rows;
   } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить настройки.</p>'; }
@@ -578,7 +587,18 @@ es.addEventListener("state", ev => render(JSON.parse(ev.data)));
 es.onerror = ()=>{ document.getElementById("bridgeState").textContent = "нет связи с мостом"; };
 refresh();
 loadOnboarding();
-loadOnboarding();
+async function tickMascot(){
+  const el = document.getElementById("mascot");
+  if (!el) return;
+  try{
+    const snap = await (await fetch("/api/mascot")).json();
+    // The panel already shows a consent card of its own; the mascot here is
+    // presence, not a second set of buttons for one decision.
+    renderMascot(el, snap, {size: 64, answerable: false});
+  } catch(e){}
+}
+tickMascot();
+setInterval(tickMascot, 1500);
 </script>
 </body>
 </html>

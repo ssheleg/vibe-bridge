@@ -41,6 +41,7 @@ from .capabilities import (
     probe_availability,
 )
 from .consent import ConsentEngine, Decision, ToolClass
+from .mascot import Mascot
 from .push import PushSender, ensure_vapid_keys
 from .robot import RobotClient
 from .server import build_server
@@ -233,6 +234,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                          if not robot.configured else "ещё не проверял"}
     robot_events: deque[dict] = deque(maxlen=50)
     missed_while_paused = {"n": 0}
+    # The face. It derives pause and pending from the engine rather than
+    # keeping its own copy — two sources of truth for "is the bridge paused"
+    # is how a mascot ends up smiling at a stopped bridge.
+    mascot = Mascot(consent=consent, robot_state=robot_state)
 
     caps = capabilities or build_capabilities()
     availability = probe_availability(caps)
@@ -333,7 +338,15 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         text = str(body.get("text", "")).strip()
         if not text:
             return JSONResponse({"error": "empty"}, status_code=400)
-        return JSONResponse(await robot.chat(text))
+        mascot.thinking(True)
+        try:
+            answer = await robot.chat(text)
+        finally:
+            mascot.thinking(False)
+        # The brain's own reply, spoken by the face. Nothing is composed here.
+        if answer.get("ok") and answer.get("text"):
+            mascot.say(str(answer["text"]), kind="chat")
+        return JSONResponse(answer)
 
     async def api_robot_update(request: Request) -> Response:
         if not _authed(request):
@@ -626,6 +639,25 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             "bridge_url": f"http://127.0.0.1:{settings.port}",
         })
 
+    async def api_mascot(request: Request) -> Response:
+        """What the character shows right now, for both surfaces."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse(mascot.snapshot())
+
+    async def mascot_page(request: Request) -> Response:
+        """The floating window's page. Same auth as the panel: it answers
+        consent requests, so it is the panel by another name."""
+        token = request.query_params.get("token")
+        if token is not None and token == state.panel_token:
+            resp = RedirectResponse("/mascot", status_code=303)
+            resp.set_cookie(PANEL_COOKIE, state.panel_token, httponly=True,
+                            samesite="lax")
+            return resp
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return FileResponse(_WEBUI / "mascot.html")
+
     async def api_onboarding(request: Request) -> Response:
         """What is still missing, as an ordered list the panel can render."""
         if not _authed(request):
@@ -680,6 +712,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             "ask_timeout_s": live.ask_timeout_s,
             "ask_for_read": live.ask_for_read,
             "robot_repo": live.robot_repo,
+            "mascot_window": live.mascot_window,
             "problems": on_disk.problems,
             "pending": pending,
             "restart_required": bool(pending),
@@ -842,6 +875,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                     missed_while_paused["n"] += 1
                 else:
                     notify(robot.name, ev["text"] or ev["kind"])
+                    # The robot's own words, verbatim — the mascot composes
+                    # nothing («Не второй мозг»).
+                    mascot.say(ev["text"] or ev["kind"], kind="event")
             await asyncio.sleep(10.0)          # stream ended — quiet retry
 
     @contextlib.asynccontextmanager
@@ -898,6 +934,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/autoupdate", api_autoupdate, methods=["POST"]),
             Route("/api/robot/attach", api_robot_attach, methods=["POST"]),
             Route("/api/onboarding", api_onboarding),
+            Route("/api/mascot", api_mascot),
+            Route("/mascot", mascot_page),
+            Route("/mascot.js", _static("mascot.js", "application/javascript")),
             Route("/api/settings", api_settings),
             Route("/api/settings", api_settings_save, methods=["POST"]),
             Route("/api/journal", api_journal),

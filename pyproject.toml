@@ -22,7 +22,7 @@ dependencies = [
 # needs a third-party lib degrades to an honest "install …[<os>]" error
 # until the extra is present (vibebridge/platforms/*). rumps is macOS-only
 # (menu bar); pystray backs the Win/Linux tray.
-macos = ["rumps>=0.4"]
+macos = ["rumps>=0.4", "pyobjc-framework-WebKit>=12"]
 windows = ["mss>=9", "PyGetWindow>=0.0.9", "windows-toasts>=1.1", "pystray>=0.19"]
 linux = ["mss>=9", "pystray>=0.19"]
 
@@ -44,7 +44,7 @@ dev = [
 [tool.briefcase]
 project_name = "vibe-bridge"
 bundle = "me.sshlg"
-version = "0.4.0"
+version = "0.5.0"
 url = "https://github.com/ssheleg/vibe-bridge"
 author = "Sergei Sheleg"
 author_email = "sergey@appvillis.com"
