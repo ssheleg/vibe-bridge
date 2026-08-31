@@ -96,17 +96,25 @@ class RobotClient:
 
     # ── chat ────────────────────────────────────────────────────────────────
 
-    async def chat(self, text: str, *, session: str = "panel") -> dict[str, Any]:
+    async def chat(self, text: str, *, session: str = "panel",
+                   history: list[dict[str, str]] | None = None
+                   ) -> dict[str, Any]:
         """One turn to the brain. Retries ONCE on a slow first answer
         (R1.50 contract), then answers honestly. Returns
         {ok, reply} | {ok: False, undelivered: True, error}."""
         if self.chat_url is None:
             return {"ok": False, "undelivered": True,
                     "error": "чат недоступен: робот не подключён"}
+        # The turns so far, then the new one. Sending only the last message
+        # left the brain to reconstruct context from its own long-term memory,
+        # and it answered with something the owner had said an hour earlier
+        # instead of a minute ago — reported as "он не видит того, что только
+        # что писал". The protocol carries the thread; we should use it.
+        messages = [*(history or []), {"role": "user", "content": text}]
         payload = {
             "model": "robot",           # cosmetic: the real model is server-side
             "user": session,
-            "messages": [{"role": "user", "content": text}],
+            "messages": messages,
         }
         headers = self._headers()
         for attempt in (1, 2):
@@ -155,6 +163,24 @@ class RobotClient:
         if data.get("error"):
             return {"ok": False, "error": str(data["error"])}
         return {"ok": True, **data}
+
+    async def media(self, name: str) -> tuple[bytes, str] | None:
+        """Забрать файл, на который ссылается событие.
+
+        Мост ходит к роботу своим bearer'ом и отдаёт байты странице: иначе
+        страница держала бы токен робота, а публиковать фото наружу ради
+        показа хозяину — плата, которой он не просил.
+        """
+        if self.base_url is None or not name or "/" in name or ".." in name:
+            return None
+        try:
+            r = await self._http.get(f"{self.base_url}/bridge/media/{name}",
+                                     headers=self._headers(), timeout=20.0)
+            r.raise_for_status()
+        except httpx.HTTPError:
+            return None
+        return r.content, r.headers.get("content-type",
+                                        "application/octet-stream")
 
     async def trigger_update(self) -> dict[str, Any]:
         if self.base_url is None:

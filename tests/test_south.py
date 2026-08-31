@@ -262,3 +262,97 @@ def test_system_needs_a_configured_robot():
     got = asyncio.run(RobotClient(base_url=None, chat_url=None, chat_key=None,
                                   name="робот").system())
     assert not got["ok"] and "не подключ" in got["error"]
+
+
+def test_media_is_fetched_with_the_bridges_own_bearer():
+    """The page must never hold the robot's token, and the photo must not be
+    published outside the tailnet just to be shown to its owner."""
+    import asyncio
+
+    import httpx
+
+    from vibebridge.robot import RobotClient
+
+    def handler(request):
+        assert request.url.path == "/bridge/media/1-snap.jpg"
+        assert request.headers["authorization"] == "Bearer tok"
+        return httpx.Response(200, content=b"\xff\xd8\xff",
+                              headers={"content-type": "image/jpeg"})
+
+    client = RobotClient(base_url="https://r", chat_url="https://r",
+                         chat_key="tok", name="Вася",
+                         http=httpx.AsyncClient(
+                             transport=httpx.MockTransport(handler)))
+    body, kind = asyncio.run(client.media("1-snap.jpg"))
+    assert body.startswith(b"\xff\xd8\xff") and kind == "image/jpeg"
+
+
+def test_media_refuses_a_name_that_walks_out():
+    """Checked on both sides: directory traversal must not depend on how much
+    the two ends trust each other."""
+    import asyncio
+
+    import httpx
+
+    from vibebridge.robot import RobotClient
+
+    client = RobotClient(base_url="https://r", chat_url="https://r",
+                         chat_key="tok", name="Вася",
+                         http=httpx.AsyncClient(
+                             transport=httpx.MockTransport(
+                                 lambda r: httpx.Response(200, content=b"x"))))
+    for bad in ("../secret", "a/b", "..", ""):
+        assert asyncio.run(client.media(bad)) is None
+
+
+def test_the_thread_so_far_travels_with_the_question():
+    """Sending only the last message left the brain to reconstruct context
+    from its own long-term memory, and it answered with something said an
+    hour earlier — «он не видит того, что только что писал»."""
+    import asyncio
+
+    import httpx
+
+    from vibebridge.robot import RobotClient
+
+    seen = {}
+
+    def handler(request):
+        import json as _j
+        seen["messages"] = _j.loads(request.content)["messages"]
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": "ок"}}]})
+
+    client = RobotClient(base_url="https://r", chat_url="https://r",
+                         chat_key="k", name="Вася",
+                         http=httpx.AsyncClient(
+                             transport=httpx.MockTransport(handler)))
+    asyncio.run(client.chat("а сейчас?", history=[
+        {"role": "user", "content": "запомни якорь"},
+        {"role": "assistant", "content": "запомнил"}]))
+
+    assert [m["content"] for m in seen["messages"]] == [
+        "запомни якорь", "запомнил", "а сейчас?"]
+
+
+def test_a_first_turn_carries_only_itself():
+    import asyncio
+
+    import httpx
+
+    from vibebridge.robot import RobotClient
+
+    seen = {}
+
+    def handler(request):
+        import json as _j
+        seen["n"] = len(_j.loads(request.content)["messages"])
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": "ок"}}]})
+
+    client = RobotClient(base_url="https://r", chat_url="https://r",
+                         chat_key="k", name="Вася",
+                         http=httpx.AsyncClient(
+                             transport=httpx.MockTransport(handler)))
+    asyncio.run(client.chat("привет"))
+    assert seen["n"] == 1

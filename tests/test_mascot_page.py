@@ -197,9 +197,12 @@ def test_the_dialogue_keeps_no_history_beyond_the_session():
 
 
 def test_a_new_dialogue_mints_a_new_session_for_the_brain():
+    """The id now comes from the bridge — a page-local one did not survive a
+    reload while the feed did."""
     html = (WEBUI / "mascot.html").read_text()
     assert "newDlg" in html
-    assert 'session = "pet-"' in html
+    assert '"/api/mascot/session",\n        {method:"POST"}' in html.replace(
+        "\r", "")
     assert "JSON.stringify({text, session})" in html
 
 
@@ -282,3 +285,102 @@ def test_a_notification_reaches_the_stream_as_well_as_the_screen(tmp_path):
     items = c.get("/api/mascot/stream").json()["items"]
     assert any("чайник вскипел" in i["text"] for i in items)
     assert shown == [("Вася", "чайник вскипел")]      # still on screen too
+
+
+def test_the_conversation_id_outlives_the_page(tmp_path):
+    """The feed is server-side and survives a reload; a page-local id did
+    not. The owner saw their own history while the robot answered «это новая
+    сессия» — reported with a screenshot 2026-08-31."""
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings())
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "pt")
+
+    first = c.get("/api/mascot/session").json()["session"]
+    assert first
+    assert c.get("/api/mascot/session").json()["session"] == first  # a reload
+
+    # …and it is remembered across a restart of the bridge itself.
+    reloaded = BridgeState.load(tmp_path / "state.json")
+    assert reloaded.pet_session == first
+
+
+def test_a_new_conversation_mints_a_new_id(tmp_path):
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings())
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "pt")
+
+    before = c.get("/api/mascot/session").json()["session"]
+    after = c.post("/api/mascot/session").json()["session"]
+    assert after != before
+    # The feed starts clean; the old turns are in the journal, not lost.
+    assert c.get("/api/mascot/stream").json()["items"] == []
+
+
+def test_the_session_endpoint_is_guarded(tmp_path):
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings())
+    assert TestClient(app).get("/api/mascot/session").status_code == 401
+
+
+def test_quick_phrases_only_greet_an_empty_conversation():
+    """Three buttons above the input on every turn stop being an offer and
+    become furniture."""
+    html = (WEBUI / "mascot.html").read_text()
+    assert "(quick.length && !stream.length)" in html
+
+
+def test_the_page_asks_the_bridge_for_the_conversation_id():
+    html = (WEBUI / "mascot.html").read_text()
+    assert "/api/mascot/session" in html
+    assert 'session = "pet-" + Math.random' not in html
+    assert "await ensureSession();" in html
+
+
+def test_the_thread_is_bounded_and_dropped_with_the_session(tmp_path):
+    """Enough for the brain to follow what was just said, not an archive."""
+    from pathlib import Path
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    web = (Path(__import__("vibebridge").__file__).parent / "web.py").read_text()
+    assert "deque(maxlen=20)" in web            # bounded
+    assert "chat_history.clear()" in web        # forgotten on a new session
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings())
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "pt")
+    c.get("/api/mascot/session")
+    assert c.post("/api/mascot/session").status_code == 200

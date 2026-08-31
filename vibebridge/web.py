@@ -249,6 +249,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                          "reason": "робот не подключён к панели"
                          if not robot.configured else "ещё не проверял"}
     robot_events: deque[dict] = deque(maxlen=50)
+    # The live thread, per conversation. Bounded and forgotten on a new
+    # session: enough for the brain to follow what was just said, not an
+    # archive (vision, «Не мессенджер»).
+    chat_history: dict[str, deque] = {}
     missed_while_paused = {"n": 0}
     # The face. It derives pause and pending from the engine rather than
     # keeping its own copy — two sources of truth for "is the bridge paused"
@@ -362,9 +366,11 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         # context, so a new id is how the owner starts a fresh one. The panel
         # and the pet each pass their own.
         session = str(body.get("session") or "panel")[:64]
+        thread = chat_history.setdefault(session, deque(maxlen=20))
         mascot.thinking(True)
         try:
-            answer = await robot.chat(text, session=session)
+            answer = await robot.chat(text, session=session,
+                                      history=list(thread))
         finally:
             mascot.thinking(False)
         # The brain's own reply, spoken by the face. Nothing is composed here.
@@ -373,8 +379,25 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         # chat answer (caught live 2026-08-31: it went to "thinking" and then
         # said nothing, while the chat itself was working).
         if answer.get("ok") and answer.get("reply"):
+            thread.append({"role": "user", "content": text})
+            thread.append({"role": "assistant",
+                           "content": str(answer["reply"])})
             mascot.say(str(answer["reply"]), kind="chat")
         return JSONResponse(answer)
+
+    async def api_robot_media(request: Request) -> Response:
+        """Отдать странице файл робота. Имя берётся из события; проверяется
+        и здесь, и у робота — обход каталога не должен зависеть от того,
+        насколько две стороны доверяют друг другу."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        name = request.path_params["name"]
+        got = await robot.media(name)
+        if got is None:
+            return JSONResponse({"error": "файл недоступен"}, status_code=404)
+        body, kind = got
+        return Response(body, media_type=kind,
+                        headers={"Cache-Control": "private, max-age=3600"})
 
     async def api_robot_system(request: Request) -> Response:
         """Состояние системы робота — то, ради чего панель перестаёт быть
@@ -680,6 +703,26 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse(mascot.snapshot())
+
+    async def api_mascot_session(request: Request) -> Response:
+        """The pet's conversation id — read it, or mint a new one.
+
+        Server-side because the feed is: a page-local id was regenerated on
+        every reload, so the owner kept their visible history while the robot
+        started over. One of them had to move, and the id is the cheap one.
+        """
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        import secrets as _s
+        if request.method == "POST" or not state.pet_session:
+            state.pet_session = "pet-" + _s.token_hex(5)
+            await asyncio.to_thread(state.save)
+            if request.method == "POST":
+                # A new conversation starts with a clean feed; the old turns
+                # stay in the journal.
+                robot_events.clear()
+                chat_history.clear()
+        return JSONResponse({"session": state.pet_session})
 
     async def api_mascot_stream(request: Request) -> Response:
         """Everything the robot has said or shown lately, newest last.
@@ -1006,6 +1049,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/mascot/dismiss", api_mascot_dismiss,
                   methods=["POST"]),
             Route("/api/mascot/stream", api_mascot_stream),
+            Route("/api/mascot/session", api_mascot_session),
+            Route("/api/mascot/session", api_mascot_session,
+                  methods=["POST"]),
             Route("/mascot", mascot_page),
             Route("/mascot.js", _static("mascot.js", "application/javascript")),
             Route("/api/settings", api_settings),
@@ -1015,6 +1061,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/robot/chat", api_robot_chat, methods=["POST"]),
             Route("/api/robot/update", api_robot_update, methods=["POST"]),
             Route("/api/robot/system", api_robot_system),
+            Route("/api/robot/media/{name:str}", api_robot_media),
             Route("/api/push/vapid", api_push_vapid),
             Route("/api/push/subscribe", api_push_subscribe,
                   methods=["POST"]),

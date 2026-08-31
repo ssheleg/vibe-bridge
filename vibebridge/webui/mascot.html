@@ -116,10 +116,19 @@ const dlg = document.getElementById("dialog");
 const native = window.webkit && window.webkit.messageHandlers
   && window.webkit.messageHandlers.vb;
 
-/* Session-scoped, in this page only. "Новый" mints a new id, which is how the
-   owner starts a fresh context — the brain keeps the thread, we just name it. */
-let session = "pet-" + Math.random().toString(36).slice(2, 10);
+/* The id comes from the bridge, not from here. A page-local one was
+   regenerated on every reload while the feed — which is server-side —
+   survived, so the owner kept their visible history and the robot answered
+   "это новая сессия". The brain keeps the thread; the bridge names it. */
+let session = null;
 let busy = false;
+
+async function ensureSession(){
+  if (session) return session;
+  try{ session = (await (await fetch("/api/mascot/session")).json()).session; }
+  catch(e){}
+  return session;
+}
 
 function esc(x){
   const d = document.createElement("div");
@@ -160,6 +169,7 @@ async function toggleDialog(force){
   dlg.classList.toggle("on", open);
   painted = "";                      // the bubble hides behind the dialogue
   if (!open){ dlg.innerHTML = ""; tick(); fitWindow(); return; }
+  await ensureSession();
   await renderDialog();
   const input = dlg.querySelector("#ask");
   if (input) input.focus();
@@ -173,6 +183,12 @@ let seen = new Set();
 let status = {};
 
 function mediaOf(item){
+  // The robot names a file; the bridge serves it. The page never holds the
+  // robot's token and nothing is published outside the tailnet.
+  if (item.media && item.media.name){
+    return {url: "/api/robot/media/" + encodeURIComponent(item.media.name),
+            type: item.media.type || "file"};
+  }
   if (item.media && item.media.url) return item.media;
   // The robot sends text today; a bare media URL inside it is still media.
   const m = String(item.text || "").match(/https?:\/\/\S+/);
@@ -192,6 +208,7 @@ function mediaHtml(media){
   if (media.type === "image") return `<div class="media"><img src="${u}" alt="">${open}</div>`;
   if (media.type === "video") return `<div class="media"><video src="${u}" controls preload="metadata"></video>${open}</div>`;
   if (media.type === "audio") return `<div class="media"><audio src="${u}" controls></audio>${open}</div>`;
+  if (media.type === "file") return `<div class="media"><a href="${u}" target="_blank" rel="noreferrer">скачать файл</a></div>`;
   return `<div class="media">${open}</div>`;
 }
 
@@ -238,17 +255,20 @@ async function renderDialog(){
     `<button id="newDlg">Новый</button><button id="closeDlg">Закрыть</button></div>`+
     (bits.length ? `<div class="stat">${bits.join(" · ")}</div>` : "")+
     `<div class="turns" id="turns">${rows}</div>`+
-    (quick.length ? `<div class="chips">${quick.map((q,i)=>
+    // Only in an empty conversation: three buttons above the input on every
+    // turn is a nudge that stops being an offer and becomes furniture.
+    ((quick.length && !stream.length) ? `<div class="chips">${quick.map((q,i)=>
         `<button data-q="${i}">${esc(q)}</button>`).join("")}</div>` : "")+
     `<div class="ask"><input id="ask" placeholder="${busy ? "Робот думает…" : "Сказать роботу…"}"`+
     `${busy ? " disabled" : ""} autocomplete="off">`+
     `<button class="btn ghost" id="panelBtn">Панель</button></div>`;
 
-  dlg.querySelector("#newDlg").onclick = () => {
-    // A new id is how the owner starts a fresh context; the brain keeps the
-    // thread, we only name it. The stream is cleared with it.
-    session = "pet-" + Math.random().toString(36).slice(2, 10);
-    stream = [];
+  dlg.querySelector("#newDlg").onclick = async () => {
+    try{
+      session = (await (await fetch("/api/mascot/session",
+        {method:"POST"})).json()).session;
+    } catch(e){}
+    stream = []; seen = new Set();
     renderDialog();
   };
   dlg.querySelector("#closeDlg").onclick = () => toggleDialog(false);
@@ -273,6 +293,7 @@ async function renderDialog(){
 async function send(text){
   if (busy) return;
   busy = true;
+  await ensureSession();
   stream.push({who: "Вы", text, kind: "chat"});
   await renderDialog();
   try{
