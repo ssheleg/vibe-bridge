@@ -154,3 +154,26 @@ pyinstaller --onedir --name vibe-bridge -m vibebridge.app
    переустановлена — права по-прежнему выданы.
 
 Не проверено: Win/Linux (нужны машины).
+
+## Иконка бандла — и почему её надо сверять, а не назначать
+
+`briefcase create` ставит ресурсы приложения **после** установки зависимостей,
+а этот шаг здесь всегда падает (sdist-only пакеты) и глушится `|| true` — так
+что до копирования иконки дело не доходит. Поэтому в сборке два обязательных
+элемента:
+
+```bash
+uv run briefcase update macOS --no-input --update-resources
+cmp -s packaging/vibe-bridge.icns "$APP/Contents/Resources/vibe-bridge.icns"
+```
+
+Без первого бандл несёт дефолтную иконку Briefcase (пчела BeeWare) — она была
+там 14 релизов, стояла на приложении в `/Applications` и, поскольку macOS
+показывает значок публикующего бандла, на каждом уведомлении. Второй — гейт:
+`icon = "packaging/vibe-bridge"` в конфиге не доказывает, что файл лёг.
+
+**После замены `.app` на месте** значок в Центре уведомлений может остаться
+прежним: он кэшируется системой по bundle id. `lsregister -f`, чистка
+`$(getconf DARWIN_USER_CACHE_DIR)com.apple.iconservices` и перезапуск
+`usernoted`/`iconservicesagent` на этой машине не помогли (board B-36). На
+чистой установке из DMG такой истории нет.

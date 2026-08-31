@@ -21,20 +21,20 @@ from .consent import ConsentEngine, ToolClass
 def _bundled_icon():
     """The app's own mark, passed to the notifier where that is honoured.
 
-    MEASURED 2026-08-31: on macOS it is NOT. `UNUserNotificationCenter` shows
-    the icon of the bundle that POSTED the notification, and desktop-notifier
-    posts through its own helper — so our toast wears the library's icon
-    whatever we pass. Passing it is still right for Linux and Windows, where
-    the parameter is honoured, and the argument is kept rather than deleted so
-    the next reader does not rediscover the same dead end.
+    **The icon a macOS toast shows is the icon of the BUNDLE THAT POSTED IT**,
+    not anything passed at call time. That much was measured right; the
+    conclusion drawn from it was wrong. The bee on every notification was not
+    the notifier library's icon — it was OURS. `briefcase create` installs the
+    app's resources AFTER its requirement step, and that step always errors on
+    this project (see scripts/build_app.sh), so the run stopped before the icon
+    was ever copied and the bundle carried Briefcase's default bee for
+    fourteen releases: in /Applications, and therefore on every toast.
 
-    Getting our icon on macOS means posting from this bundle's own
-    notification centre via PyObjC — authorization request, delegate,
-    categories. That is board row B-31, not a line here.
-
-    It matters because the owner could not tell OUR notification from another
-    program's, and went looking for a bug in the bridge over a toast it never
-    sent.
+    Fixed where it belonged — `briefcase update --update-resources`, gated by
+    a byte comparison in the build script. The argument here is kept because
+    Linux and Windows honour it, and kept documented because the next reader
+    will otherwise repeat the same wrong turn: looking inside the library for
+    an icon the operating system takes from the bundle.
     """
     import sys as _sys
     if _sys.platform != "darwin":

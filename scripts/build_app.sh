@@ -70,12 +70,30 @@ if [[ ! -d "$APP" ]]; then
   [[ -f "$APP/Contents/Info.plist" ]] || {
     echo "briefcase create не оставил каркаса — смотрите logs/"; exit 1; }
 fi
-uv run briefcase update macOS --no-input >/dev/null   # refresh our sources
+# `--update-resources` is NOT optional here, and the reason is subtle. Inside
+# `briefcase create` the icon is installed AFTER the app requirements — and
+# that step always errors on this project (see above), so the run stops before
+# it. The bundle therefore kept Briefcase's default icon, a bee, for every
+# build up to 0.14.0: it was on the app in /Applications, in the Dock, and on
+# every notification the app posted, because macOS shows the icon of the
+# bundle that POSTED the toast. The owner reported an unrecognisable
+# notification twice and I looked for it in the notifier library, which was
+# the wrong place.
+uv run briefcase update macOS --no-input --update-resources >/dev/null
 # Renames the stub binary to CFBundleExecutable and thins it. Missing from
 # this script until 2026-08-30 and invisible while one long-lived scaffold was
 # reused — the first rebuild from scratch left `Contents/MacOS/Stub` beside the
 # real executable and signing died with "code object is not signed at all".
 uv run briefcase build macOS --no-input >/dev/null
+
+# The icon is the app's face and it was wrong for fourteen releases without
+# anything failing. Compare bytes: "the config names an icon" is not evidence
+# that the bundle carries it.
+if ! cmp -s packaging/vibe-bridge.icns "$APP/Contents/Resources/vibe-bridge.icns"; then
+  echo "иконка в бандле не наша — briefcase не поставил ресурсы" >&2
+  exit 1
+fi
+echo "иконка в бандле: наша ($(wc -c < packaging/vibe-bridge.icns) байт)"
 
 say "Зависимости внутрь бандла"
 # Every Mach-O the process loads must live here and be signed by us — that is

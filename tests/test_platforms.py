@@ -148,12 +148,50 @@ def test_tray_title_states():
     assert tray_title(eng) == "⏸"          # pause wins over grant
 
 
-def test_notifier_never_raises(monkeypatch):
+def test_notifier_reports_instead_of_raising(monkeypatch):
+    """The fallback path must answer, never throw — and must never reach the
+    owner's screen from a test.
+
+    The previous version of this test called the notifier FOR REAL after
+    hiding `desktop_notifier` to force the osascript branch. Every `pytest`
+    run — and every build, which runs the suite first — therefore posted
+    «заголовок / текст» to the owner's Notification Centre, attributed to
+    Script Editor because that is who `osascript` posts as. The owner reported
+    the mystery notification three times and I twice answered that it was not
+    ours. It was ours, and it was this line (found 2026-08-31 in Notification
+    Centre, timestamped inside my own build).
+    """
+    import subprocess
+
     from vibebridge import tray
-    # force the no-op / osascript fallback path by hiding desktop_notifier
     monkeypatch.setitem(sys.modules, "desktop_notifier", None)
+
+    calls = []
+
+    def fake_run(argv, *a, **kw):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
     notify = tray.make_notifier()
-    notify("заголовок", "текст")            # must not raise on any OS
+    assert "osascript" in notify.backend
+    assert notify("заголовок", "текст") == (True, "")
+    assert calls and "display notification" in " ".join(calls[0])
+
+
+def test_the_fallback_notifier_admits_a_refusal(monkeypatch):
+    """A non-zero osascript is a toast nobody saw; saying otherwise is the lie
+    this surface exists to refuse."""
+    import subprocess
+
+    from vibebridge import tray
+    monkeypatch.setitem(sys.modules, "desktop_notifier", None)
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda argv, *a, **kw: subprocess.CompletedProcess(
+            argv, 1, "", "не разрешено"))
+    ok, why = tray.make_notifier()("заголовок", "текст")
+    assert ok is False and "не разрешено" in why
 
 
 # ── the probe must not turn "cannot answer" into "available" ───────────────
