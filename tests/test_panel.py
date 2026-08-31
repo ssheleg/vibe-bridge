@@ -148,3 +148,28 @@ def test_the_system_endpoint_is_guarded(tmp_path):
                     audit=AuditLog(tmp_path / "a.log"), state=state,
                     settings=Settings())
     assert TestClient(app).get("/api/robot/system").status_code == 401
+
+
+def test_the_panel_shows_times_in_the_owners_clock():
+    """The journal stamps UTC (`audit.py` uses `datetime.now(UTC)`) and the
+    panel used to slice that ISO string for display, dropping `+00:00` and
+    presenting the result as the wall clock. On this machine the events card
+    read 20:45:32 while the clock read 22:45:32 — off by a fixed two hours,
+    off by a different amount for every reader, and confident about it.
+
+    Checked mechanically because a wrong-but-plausible timestamp is exactly
+    the kind of defect that survives review.
+    """
+    from pathlib import Path
+
+    import vibebridge
+
+    html = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    assert "function localTs(" in html
+    # No surviving raw slice of a stamp into a time cell.
+    assert 'esc((e.ts||"").slice' not in html.replace(" ", "")
+    assert html.count("localTs(e.ts)") == 2        # the feed and the journal
+    # …and the unparsable case degrades instead of printing "Invalid Date".
+    fn = html.split("function localTs(", 1)[1].split("\n}", 1)[0]
+    assert "isNaN" in fn
+

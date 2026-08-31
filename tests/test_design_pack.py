@@ -76,3 +76,55 @@ def test_the_ban_list_is_recorded_where_it_is_broken():
     assert "бан-лист" in doc.lower()
     # The amendment must name the mascot explicitly, not hide behind silence.
     assert "маскот" in doc.lower()
+
+
+# ── layout: cards are cards, not columns ──────────────────────────────────
+
+
+def _rule(css: str, selector: str) -> str:
+    """The declarations of one rule, comments stripped — never the file text.
+
+    Two earlier tests here matched their own explanatory comments instead of
+    the CSS, so this reads rules only.
+    """
+    body = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for block in re.findall(r"([^{}]+)\{([^}]*)\}", body):
+        if selector in [x.strip() for x in block[0].split(",")]:
+            return block[1].replace(" ", "")
+    return ""
+
+
+def test_the_panel_does_not_split_into_a_fixed_column_and_a_leftover():
+    """`280px 1fr` gave the dashboard one narrow stack of real cards and one
+    wide column holding a single card — which then stretched to the stack's
+    height as an empty box (seen on screen 2026-08-31). Cards flow instead."""
+    css = _css("index.html")
+    grid = _rule(css, ".cards")
+    assert "auto-fill" in grid and "minmax" in grid
+    assert "280px1fr" not in re.sub(r"/\*.*?\*/", "", css, flags=re.S).replace(" ", "")
+
+
+def test_a_card_is_its_own_height():
+    """The whole fix, in one declaration: a grid item stretches to its row's
+    height unless told otherwise, and that stretch WAS the empty column."""
+    assert "align-items:start" in _rule(_css("index.html"), ".cards")
+
+
+def test_the_event_feed_is_bounded():
+    """An unbounded feed grows past everything beside it and takes the row's
+    height with it."""
+    feed = _rule(_css("index.html"), "#feed")
+    assert "max-height" in feed and "overflow-y:auto" in feed
+
+
+def test_no_card_places_its_own_margin():
+    """Spacing between cards belongs to the grid's `gap`. Inline
+    `margin-top:16px` on some cards and not others was the patch a fixed
+    layout needed; with the grid it is a second source of truth for one
+    number. Content INSIDE a card is not this rule's business."""
+    html = (WEBUI / "index.html").read_text()
+    cards = re.findall(r"<div class=\"card[^\"]*\"[^>]*>", html)
+    assert cards, "карточек не найдено — тест смотрит не туда"
+    offenders = [c for c in cards if "margin" in c]
+    assert not offenders, f"карточка ставит себе отступ вручную: {offenders}"
+

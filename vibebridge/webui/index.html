@@ -10,7 +10,8 @@
 <title>vibe-bridge</title>
 <style>
 *{box-sizing:border-box;margin:0}
-body{font:var(--t-body)/1.45 var(--font-ui);background:var(--bg);color:var(--ink);max-width:880px;margin:0 auto;padding:16px 24px 48px}
+body{font:var(--t-body)/1.45 var(--font-ui);background:var(--bg);color:var(--ink);
+max-width:1180px;margin:0 auto;padding:16px 24px 48px}
 button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .appbar{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:5}
 .appbar .name{font-size:var(--t-page);font-weight:600;display:flex;gap:8px;align-items:center}
@@ -48,8 +49,21 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .row .t{margin-left:auto;color:var(--muted);font-family:var(--font-data);font-size:var(--t-note);white-space:nowrap}
 .empty{color:var(--muted);padding:12px 4px}
 .filters{display:flex;gap:2px;margin-bottom:8px}
-.grid2{display:grid;grid-template-columns:280px 1fr;gap:16px}
-@media (max-width:760px){.grid2{grid-template-columns:1fr}}
+/* Cards flow into as many columns as the window affords, and — the part
+   that matters — `align-items:start` lets each card be its own height. A
+   grid item stretches to its ROW's height by default, which is exactly how
+   the events card became a full-height empty box beside a short stack of
+   real ones (seen on screen 2026-08-31). The fixed `280px 1fr` split that
+   was here could not do anything else. */
+.cards{display:grid;gap:16px;margin-top:16px;align-items:start;
+grid-template-columns:repeat(auto-fill,minmax(288px,1fr))}
+.cards>.card{margin-top:0}
+/* A card that is a stream, not a fact: it earns the extra column. */
+.cards>.wide{grid-column:span 2}
+@media (max-width:640px){.cards>.wide{grid-column:span 1}}
+/* Bounded, with its own scroll. An unbounded feed is what made the column
+   grow past everything beside it. */
+#feed{max-height:420px;overflow-y:auto}
 table{width:100%;border-collapse:collapse;font-size:var(--t-body)}
 td,th{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
 th{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--panel-2);position:sticky;top:0}
@@ -92,9 +106,8 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
     <div class="cap">С чего начать</div>
     <div id="welcomeBody"></div>
   </div>
-  <div class="grid2">
-    <div>
-      <div class="card" style="margin-top:16px">
+  <div class="cards">
+      <div class="card">
         <div class="cap">Мост</div>
         <div class="kv"><span class="k">Состояние</span><span class="v" id="bridgeState">—</span></div>
         <div class="kv"><span class="k">Грант ACT</span><span class="v" id="grantLeft">нет</span></div>
@@ -112,11 +125,10 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
         <div class="cap">Система робота</div>
         <div id="systemCard"><p class="empty">Загружаю…</p></div>
       </div>
-    </div>
-    <div class="card" style="margin-top:16px;padding:8px 16px">
-      <div class="cap" style="padding-top:8px">Последние события</div>
-      <div id="feed"><div class="empty">— робот ещё ничего не просил —</div></div>
-    </div>
+      <div class="card wide">
+        <div class="cap">Последние события</div>
+        <div id="feed"><div class="empty">— робот ещё ничего не просил —</div></div>
+      </div>
   </div>
 </section>
 
@@ -150,18 +162,14 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 
 <!-- Настройки -->
 <section class="view" id="view-settings">
-  <div class="card">
+  <div class="cards">
+  <div class="card wide">
     <div class="cap">Способности этого компьютера</div>
     <table aria-label="Карта способностей"><thead><tr><th>Способность</th><th>Класс</th><th>Статус</th></tr></thead>
     <tbody id="capTable"></tbody></table>
     <p class="note" style="margin-top:8px">Недоступная способность отвечает роботу честной причиной мгновенно — она не ждёт таймаута и не спрашивает вас.</p>
   </div>
-  <div class="card">
-    <div class="cap">Разрешения</div>
-    <p style="margin-bottom:8px">Грант «Разрешить на 15 мин» действует на класс действий. Отзыв вернёт вопрос на следующем действии.</p>
-    <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'}).then(refresh)">Отозвать разрешения</button>
-  </div>
-  <div class="card">
+  <div class="card wide">
     <div class="cap">Подключить робота</div>
     <div class="filters" style="margin-bottom:12px">
       <button class="tab" id="tabAttach" aria-selected="true" onclick="robotPath('attach')">У меня уже есть робот</button>
@@ -178,6 +186,11 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
     <div id="wizardCard" style="display:none"><p class="empty">Загружаю…</p></div>
   </div>
   <div class="card">
+    <div class="cap">Разрешения</div>
+    <p style="margin-bottom:8px">Грант «Разрешить на 15 мин» действует на класс действий. Отзыв вернёт вопрос на следующем действии.</p>
+    <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'}).then(refresh)">Отозвать разрешения</button>
+  </div>
+  <div class="card">
     <div class="cap">Телефон</div>
     <div id="phoneCard"><p class="empty">Загружаю…</p></div>
   </div>
@@ -189,10 +202,26 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
     <div class="cap">Доступ и настройки</div>
     <div id="accessCard"><p class="empty">Загружаю…</p></div>
   </div>
+  </div>
 </section>
 
 <script src="/mascot.js"></script>
 <script>
+/* The journal stores UTC — `audit.py` stamps `datetime.now(UTC)` — and the
+   panel used to slice that ISO string for display, dropping the `+00:00` and
+   presenting the result as the owner's wall clock. Two hours off on this
+   machine, a different amount for every reader, and it reads as precise:
+   the events card said 20:45:32 while the clock said 22:45:32 (seen on
+   screen 2026-08-31). Falls back to the raw string when the stamp cannot be
+   parsed — a visibly odd timestamp beats a confidently wrong one. */
+function localTs(ts){
+  const d = new Date(ts);
+  if (!ts || isNaN(d.getTime())) return String(ts || "").slice(0, 19).replace("T", " ");
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} `
+       + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 const DW = {auto:"исполнено", allow:"разрешено", allow_grant:"по гранту",
   deny:"отказ владельца", timeout:"таймаут — отказ", paused:"пауза — отказ",
   unavailable:"недоступно"};
@@ -205,7 +234,7 @@ function rowHtml(e){
   const cls = e.ok ? "ok" : (e.decision==="paused"||e.decision==="timeout" ? "mut" : "danger");
   return `<div class="row"><span class="dot ${cls}"></span>`+
     `<span>${esc(e.line||e.tool)} — ${DW[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>`+
-    `<span class="t">${esc((e.ts||"").slice(0,19).replace("T"," "))}</span></div>`;
+    `<span class="t">${esc(localTs(e.ts))}</span></div>`;
 }
 function render(s){
   cur.paused = s.paused; cur.pendingId = s.pending ? s.pending.id : null;
@@ -225,7 +254,7 @@ function render(s){
   const feed = document.getElementById("feed");
   const evRows = (s.robot_events||[]).map(e =>
     `<div class="row"><span class="dot info"></span><span>${esc(e.text||e.kind)}</span>`+
-    `<span class="t">${esc((e.ts||"").slice(0,19).replace("T"," "))}</span></div>`);
+    `<span class="t">${esc(localTs(e.ts))}</span></div>`);
   const auditRows = (s.recent||[]).slice().reverse().map(rowHtml);
   const rows = evRows.concat(auditRows);
   if (rows.length) feed.innerHTML = rows.join("");
