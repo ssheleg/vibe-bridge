@@ -183,53 +183,6 @@ def test_the_window_is_told_to_fit_what_is_drawn():
     assert "scrollHeight" in page
 
 
-def test_a_resize_keeps_the_bottom_edge_so_the_pet_does_not_jump():
-    class _Rect:
-        def __init__(self):
-            self.origin = type("P", (), {"x": 1000.0, "y": 100.0})()
-            self.size = type("S", (), {"width": 360.0, "height": 240.0})()
-
-    class _P:
-        def __init__(self):
-            self.frame_set = None
-
-        def frame(self):
-            return _Rect()
-
-        def setFrame_display_(self, rect, _flag):
-            self.frame_set = rect
-
-    panel = _P()
-    mw._Bridge(panel).handle({"type": "resize", "w": 300, "h": 500})
-    assert panel.frame_set is not None
-    # Cocoa's origin is bottom-left: same y means the pet stays put and the
-    # window grows upward, away from the Dock.
-    assert panel.frame_set.origin.y == 100.0
-    assert panel.frame_set.size.height == 500.0
-    # Right edge stays anchored too, so it does not drift off-screen.
-    assert panel.frame_set.origin.x + 300 == 1000.0 + 360.0
-
-
-def test_an_absurd_resize_is_clamped_not_obeyed():
-    class _P:
-        def __init__(self):
-            self.frame_set = None
-
-        def frame(self):
-            r = type("R", (), {})()
-            r.origin = type("P", (), {"x": 0.0, "y": 0.0})()
-            r.size = type("S", (), {"width": 360.0, "height": 240.0})()
-            return r
-
-        def setFrame_display_(self, rect, _flag):
-            self.frame_set = rect
-
-    panel = _P()
-    mw._Bridge(panel).handle({"type": "resize", "w": 0, "h": 0})
-    assert panel.frame_set.size.height >= 90
-    assert panel.frame_set.size.width >= 120
-
-
 def test_the_page_does_not_stretch_to_the_window_it_is_measuring():
     """`height:100%` made the two size to each other: the window fitted the
     body, the body filled the window, and it never shrank back."""
@@ -252,7 +205,7 @@ def test_the_web_view_follows_the_window_it_lives_in():
     from pathlib import Path
 
     source = Path(mw.__file__).read_text()
-    assert source.count("setAutoresizingMask_") == 2      # both windows
+    assert source.count("setAutoresizingMask_") == 2      # main + widget views
     assert "NSViewWidthSizable" in source and "NSViewHeightSizable" in source
 
 
@@ -280,61 +233,183 @@ def test_appkit_does_not_compete_with_the_page_for_the_mouse():
     assert "setMovableByWindowBackground_(False)" in source
 
 
-def test_the_window_grows_around_the_character_not_its_own_edge():
-    """Anchoring on the frame let the head shift whenever a resize was
-    measured mid-render — reported three times as «скачет в бок». The anchor
-    is the character's corner and only the owner moves it."""
-    class _P:
+# ── two windows, and the character's one never moves ───────────────────────
+#
+# Every earlier version resized ONE window around the character and anchored
+# the arithmetic so the head "could not" move. The owner reported it jumping
+# four times regardless — on open, on close, on a bubble appearing, on a
+# bubble expiring. These tests hold the fix that replaced the arithmetic: the
+# character's window is never resized by anything.
+
+
+class _Rect:
+    def __init__(self, x, y, w, h):
+        self.origin = type("O", (), {"x": x, "y": y})()
+        self.size = type("S", (), {"width": w, "height": h})()
+
+
+class _Win:
+    """Enough of an NSPanel to record what was done to it."""
+
+    def __init__(self, x=1000.0, y=100.0, w=104.0, h=104.0):
+        self._rect = _Rect(x, y, w, h)
+        self.frames: list = []
+        self.origins: list = []
+        self.alpha = None
+        self.ignores = None
+        self.ordered_out = 0
+
+    def frame(self):
+        return self._rect
+
+    def setFrame_display_(self, rect, _flag):
+        self.frames.append(rect)
+        self._rect = _Rect(rect.origin.x, rect.origin.y,
+                           rect.size.width, rect.size.height)
+
+    def setFrameOrigin_(self, point):
+        self.origins.append((point[0], point[1]))
+        self._rect = _Rect(point[0], point[1],
+                           self._rect.size.width, self._rect.size.height)
+
+    def setAlphaValue_(self, value):
+        self.alpha = value
+
+    def setIgnoresMouseEvents_(self, value):
+        self.ignores = value
+
+    def orderOut_(self, _sender):
+        self.ordered_out += 1
+
+
+def test_the_companion_hangs_off_the_characters_top_right_corner():
+    x, y, w, _h = mw.side_frame((1000.0, 100.0, 104.0, 104.0), (340.0, 200.0))
+    assert x + w == 1000.0 + 104.0             # right edges flush
+    assert y == 100.0 + 104.0 - mw.GAP         # just above, with the overlap
+
+
+def test_the_companion_stays_on_the_screen_it_was_given():
+    """Above the character normally; below when there is no room above. A
+    bubble half off the top of the display is a bubble nobody reads."""
+    screen = (0.0, 0.0, 1440.0, 900.0)
+    x, y, w, h = mw.side_frame((1300.0, 700.0, 104.0, 104.0),
+                               (340.0, 400.0), screen)
+    assert y >= 0.0 and y + h <= 900.0
+    assert x >= 0.0 and x + w <= 1440.0
+
+
+def test_a_resize_never_touches_the_characters_window(monkeypatch):
+    """The whole point of the split. If this test can fail, the head can
+    jump."""
+    monkeypatch.setattr(mw, "visible_frame", lambda: None)
+    pet, side = _Win(), _Win(w=340.0, h=140.0)
+    mw._Bridge(pet, side).handle({"type": "resize", "w": 340, "h": 520})
+    assert pet.frames == [] and pet.origins == []
+    assert side.frames and side.frames[-1].size.height == 520.0
+
+
+def test_the_companion_follows_the_character_when_it_is_dragged(monkeypatch):
+    monkeypatch.setattr(mw, "visible_frame", lambda: None)
+    pet, side = _Win(), _Win(w=340.0, h=140.0)
+    mw._Bridge(pet, side).handle({"type": "drag", "dx": -50, "dy": -30})
+    # Cocoa's Y grows upward, the page's downward — hence the sign flip.
+    assert pet.origins == [(950.0, 130.0)]
+    rect = side.frames[-1]
+    assert rect.origin.x + rect.size.width == 950.0 + 104.0
+    assert rect.origin.y == 130.0 + 104.0 - mw.GAP
+
+
+def test_an_absurd_resize_is_clamped_not_obeyed(monkeypatch):
+    monkeypatch.setattr(mw, "visible_frame", lambda: None)
+    side = _Win(w=340.0, h=140.0)
+    mw._Bridge(_Win(), side).handle({"type": "resize", "w": 0, "h": 0})
+    assert side.frames[-1].size.width >= mw.SIDE_MIN[0]
+    assert side.frames[-1].size.height >= mw.SIDE_MIN[1]
+
+
+def test_the_companion_is_hidden_by_alpha_not_by_being_ordered_out(monkeypatch):
+    """An off-screen WKWebView gets its timers throttled, and the companion is
+    the surface that must notice a notification arriving while nobody looks at
+    it. Alpha 0 plus mouse transparency is invisible AND still running."""
+    monkeypatch.setattr(mw, "visible_frame", lambda: None)
+    side = _Win(w=340.0, h=140.0)
+    bridge = mw._Bridge(_Win(), side)
+    bridge.handle({"type": "side", "show": False})
+    assert side.alpha == 0.0 and side.ignores is True
+    assert side.ordered_out == 0
+    bridge.handle({"type": "side", "show": True})
+    assert side.alpha == 1.0 and side.ignores is False
+
+
+def test_a_click_on_the_character_reaches_the_other_window():
+    """Two documents cannot see each other's DOM, so the click travels through
+    the native side."""
+    class _View:
         def __init__(self):
-            self.frames = []
+            self.js: list = []
 
-        def frame(self):
-            r = type("R", (), {})()
-            r.origin = type("O", (), {"x": 1000.0, "y": 100.0})()
-            r.size = type("S", (), {"width": 120.0, "height": 96.0})()
-            return r
+        def evaluateJavaScript_completionHandler_(self, js, _handler):
+            self.js.append(js)
 
-        def setFrame_display_(self, rect, _):
-            self.frames.append(rect)
-
-        def setFrameOrigin_(self, p):
-            pass
-
-    panel = _P()
-    bridge = mw._Bridge(panel)
-    bridge.handle({"type": "resize", "w": 340, "h": 400})
-    bridge.handle({"type": "resize", "w": 120, "h": 96})
-
-    # Bottom-right corner identical in both: 1000+120 = 1120, y = 100.
-    for rect in panel.frames:
-        assert rect.origin.x + rect.size.width == 1120.0
-        assert rect.origin.y == 100.0
+    view = _View()
+    mw._Bridge(_Win(), _Win(), view).handle({"type": "toggle"})
+    assert view.js and "vbToggle" in view.js[0]
 
 
-def test_dragging_moves_the_anchor_with_the_pet():
-    class _P:
-        def __init__(self):
-            self.origin = (1000.0, 100.0)
-            self.frames = []
+def test_a_bridge_without_a_companion_still_never_raises():
+    """The single-window path is gone, but a message arriving before the
+    companion exists must not take the widget down."""
+    pet = _Win()
+    bridge = mw._Bridge(pet)
+    bridge.handle({"type": "resize", "w": 300, "h": 300})
+    bridge.handle({"type": "side", "show": True})
+    bridge.handle({"type": "toggle"})
+    bridge.handle({"type": "drag", "dx": 4, "dy": 0})
+    assert pet.frames == []                    # still never resized
+    assert pet.origins == [(1004.0, 100.0)]
 
-        def frame(self):
-            r = type("R", (), {})()
-            r.origin = type("O", (), {"x": self.origin[0],
-                                      "y": self.origin[1]})()
-            r.size = type("S", (), {"width": 120.0, "height": 96.0})()
-            return r
 
-        def setFrameOrigin_(self, p):
-            self.origin = (p[0], p[1])
+def test_the_pet_page_never_asks_to_be_resized():
+    """A page that can ask for a resize is a page that can move the head."""
+    from pathlib import Path
 
-        def setFrame_display_(self, rect, _):
-            self.frames.append(rect)
+    import vibebridge
 
-    panel = _P()
-    bridge = mw._Bridge(panel)
-    bridge.handle({"type": "drag", "dx": -50, "dy": -30})
-    bridge.handle({"type": "resize", "w": 340, "h": 400})
-    rect = panel.frames[-1]
-    # Anchor followed the drag: right edge 950+120, bottom 130.
-    assert rect.origin.x + rect.size.width == 1070.0
-    assert rect.origin.y == 130.0
+    page = (Path(vibebridge.__file__).parent / "webui"
+            / "mascot.html").read_text()
+    fit = page.split("function fitWindow(){", 1)[1].split("\n}", 1)[0]
+    assert "IS_PET" in fit                      # guarded on the first line
+    # …and the pet's branch of `paint` returns before anything is measured.
+    head = page.split("function paint(snap, force){", 1)[1] \
+               .split("const showBubble", 1)[0]
+    assert "IS_PET" in head and "return;" in head
+    assert "fitWindow" not in head and "syncSide" not in head
+
+
+def test_the_widget_is_two_documents_and_the_native_side_names_them():
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui"
+            / "mascot.html").read_text()
+    source = Path(mw.__file__).read_text()
+    assert "dataset.surface" in page
+    assert '"pet"' in source and '"side"' in source
+    assert "surface=" in source
+
+
+def test_the_widget_acts_on_the_first_click():
+    """AppKit gives a non-key window's first mouse-down to the window, not to
+    the view, unless the view opts in — and `WKWebView` answers NO. Measured
+    2026-08-31: click one did nothing, click two opened the companion. A pet
+    that never takes focus gets nothing but first clicks."""
+    from pathlib import Path
+
+    source = Path(mw.__file__).read_text()
+    assert "acceptsFirstMouse_" in source
+    # …and it is the class the WIDGET uses. The main window is an ordinary key
+    # window and keeps the plain one.
+    widget = source.split("def _make_view", 1)[1].split("def _build", 1)[0]
+    assert "_webview_class().alloc()" in widget
+    assert "WebKit.WKWebView.alloc()" not in widget

@@ -130,8 +130,13 @@ def run() -> None:  # pragma: no cover - requires a GUI session
 
     pet = None
     if settings.mascot_window:
-        pet = MascotWindow(f"{base}/mascot?token={state.panel_token}",
-                           on_panel=window.show)
+        pet = MascotWindow(
+            f"{base}/mascot?token={state.panel_token}",
+            on_panel=window.show,
+            report=lambda line, ok=False: audit.record(
+                tool="mascot", tool_class="SYS",
+                decision="auto" if ok else "error", ok=ok,
+                line=line, detail=line))
         ok, why = pet.show()
         audit.record(tool="mascot", tool_class="SYS",
                      decision="auto" if ok else "unavailable", ok=ok,

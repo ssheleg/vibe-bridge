@@ -82,6 +82,10 @@ rm -rf "$PKGS/PyObjCTest"
 find "$PKGS" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 echo "app_packages: $(du -sh "$PKGS" | cut -f1) после чистки"
 
+say "Иконка для уведомлений в бандл"
+# desktop-notifier needs a plain image; .icns is not one everywhere.
+cp packaging/vibe-bridge-128.png "$APP/Contents/Resources/vibe-bridge-128.png"
+
 say "Публичный ключ релизов в бандл"
 # The trust anchor for every future payload. Signed along with the bundle, so
 # replacing it means re-signing the app with our Developer ID.

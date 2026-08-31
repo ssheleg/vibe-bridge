@@ -4,37 +4,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Вася</title>
+<!-- Which of the widget's two windows this document is. Set before the body
+     renders, because the two surfaces lay out differently and a flash of the
+     wrong one is visible on a transparent window. -->
+<script>document.documentElement.dataset.surface =
+  new URLSearchParams(location.search).get("surface") || "pet";</script>
+<link rel="stylesheet" href="/tokens.css">
 <style>
-/* The floating pet's page. Transparent on purpose: the native panel behind it
-   is borderless and clear, so anything opaque here would draw a grey box on
-   the owner's desktop.
-
-   No height:100% — the window sizes to the body and the body would size to
-   the window, so it could never shrink back after the dialogue closed. */
-:root{--panel:#fff;--panel-2:#f7f8fa;--ink:#1a1f2b;--muted:#5b6472;
---border:#e6e9ef;--border-strong:#d7dce4;--accent:#2f6feb;--accent-ink:#fff;
---accent-weak:#eaf0fe;--ok:#1a7f37;--warn:#9a6700;--danger:#d1242f;
---r-control:6px;--r-card:10px;
---font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
---font-data:ui-monospace,"SF Mono",Menlo,monospace;color-scheme:light}
-@media (prefers-color-scheme: dark){:root{color-scheme:dark;--panel:#161b24;
---panel-2:#1b212c;--ink:#e8ecf3;--muted:#8a93a6;--border:#232a36;
---border-strong:#2c3441;--accent:#4b8bff;--accent-ink:#0f1218;
---accent-weak:#1b2740;--ok:#3fb960;--warn:#d9a93f;--danger:#e5534b}}
 *{box-sizing:border-box;margin:0}
 html{background:transparent}
-body{background:transparent;font:13px/1.45 var(--font-ui);color:var(--ink);
+body{background:transparent;font:var(--t-body)/1.45 var(--font-ui);color:var(--ink);
 display:inline-flex;flex-direction:column;align-items:flex-end;
 justify-content:flex-end;padding:8px;-webkit-user-select:none;user-select:none}
+
+/* The pet surface: nothing but the character, centred in a window whose size
+   is a constant. Everything the robot SAYS lives in the other window, so this
+   document has no measurable content and never asks to be resized — which is
+   the whole reason the head cannot move any more. */
+html[data-surface="pet"] body{display:flex;align-items:center;
+justify-content:center;width:100vw;height:100vh;padding:0}
+html[data-surface="pet"] #dialog{display:none}
 
 /* The character is the drag handle; everything else must stay clickable.
    NOT `-webkit-app-region: drag` — that is an Electron extension and
    WKWebView ignores it, which is why the pet could not be moved at all. The
    real drag is in the script below. */
-/* The character must hug the right edge whatever sits above it. `#mascot` is
-   a plain block: with a 300px bubble inside it became 300 wide and the
-   character — a block child — sat at its LEFT, so it jumped sideways every
-   time a bubble appeared or expired. That is the "робот двигается" report. */
+/* The bubble and the consent answers hug the right edge whatever their width:
+   as a plain block a 300px bubble made the column 300 wide and its children
+   sat at the LEFT. */
 #mascot{display:flex;flex-direction:column;align-items:flex-end}
 .mascot-body{cursor:grab;filter:drop-shadow(0 3px 8px rgba(0,0,0,.28));touch-action:none}
 .mascot-body:active{cursor:grabbing}
@@ -54,11 +51,11 @@ border-radius:var(--r-card);padding:9px 12px;margin-bottom:8px;
 width:300px;max-height:230px;overflow-y:auto;text-align:left;
 box-shadow:0 6px 20px rgba(0,0,0,.18);word-break:break-word;cursor:pointer}
 .bubble b{font-weight:600}
-.bubble code{font-family:var(--font-data);font-size:12px;
+.bubble code{font-family:var(--font-data);font-size:var(--t-cap);
 background:var(--panel-2);padding:.1em .35em;border-radius:4px}
-.bubble .dismiss{display:block;margin-top:6px;font-size:11px;color:var(--muted)}
+.bubble .dismiss{display:block;margin-top:6px;font-size:var(--t-note);color:var(--muted)}
 .actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:flex-end}
-.btn{font:600 12px var(--font-ui);border-radius:var(--r-control);padding:6px 10px;
+.btn{font:600 var(--t-cap) var(--font-ui);border-radius:var(--r-control);padding:6px 10px;
 border:1px solid transparent;cursor:pointer;white-space:nowrap}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
 .btn.ghost{background:var(--panel);border-color:var(--border-strong);color:var(--ink)}
@@ -73,34 +70,41 @@ border-radius:var(--r-card);box-shadow:0 8px 26px rgba(0,0,0,.22);
 width:320px;margin-bottom:8px;display:none;overflow:hidden}
 .dialog.on{display:block}
 .dialog .head{display:flex;align-items:center;gap:8px;padding:8px 10px;
-border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+border-bottom:1px solid var(--border);font-size:var(--t-cap);color:var(--muted)}
 .dialog .head .grow{margin-left:auto}
 .dialog .head .who{color:var(--ink);font-weight:600}
 .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
 .dot.on{background:var(--ok)} .dot.off{background:var(--muted)}
-.stat{display:flex;gap:10px;flex-wrap:wrap;padding:7px 10px;font-size:11px;
+.stat{display:flex;gap:10px;flex-wrap:wrap;padding:7px 10px;font-size:var(--t-note);
 color:var(--muted);border-bottom:1px solid var(--border);background:var(--panel-2)}
-.turn.sys .what{background:transparent;border:1px dashed var(--border-strong);
-color:var(--muted);font-size:12px}
+
 .media{margin-top:6px}
 .media img,.media video{max-width:100%;border-radius:8px;display:block}
 .media audio{width:100%}
-.media a{display:inline-block;margin-top:4px;font-size:12px;color:var(--accent)}
+.media a{display:inline-block;margin-top:4px;font-size:var(--t-cap);color:var(--accent)}
 .dialog .head button{background:none;border:0;color:var(--accent);
-font:600 12px var(--font-ui);cursor:pointer;padding:2px 4px}
+font:600 var(--t-cap) var(--font-ui);cursor:pointer;padding:2px 4px}
 .turns{max-height:240px;overflow-y:auto;padding:8px 10px;
 -webkit-user-select:text;user-select:text}
-.turn{margin-bottom:8px;line-height:1.4;word-break:break-word}
-.turn .who{font-size:11px;color:var(--muted);display:block}
-.turn.me .what{background:var(--accent-weak);border-radius:8px;padding:6px 9px;display:inline-block}
-.turn.bot .what{background:var(--panel-2);border-radius:8px;padding:6px 9px;display:inline-block}
-.turns .empty{color:var(--muted);font-size:12px}
+/* Feed lines, not bubbles. The pack is explicit: «Чат: пузырей нет — это
+   консоль, не мессенджер (анти-vision §6): реплики как строки ленты с
+   ролью-лейблом». Bubbles were the messenger the product refuses to be, and
+   they arrived here by habit rather than by decision. */
+.turn{display:flex;gap:8px;padding:5px 0;line-height:1.45;
+border-bottom:1px solid var(--border);word-break:break-word}
+.turn:last-child{border-bottom:0}
+.turn .who{color:var(--muted);flex:none;min-width:44px;
+font-size:var(--t-note);padding-top:2px}
+.turn .what{flex:1;min-width:0}
+.turn.me .who{color:var(--accent)}
+.turn.sys .what{color:var(--muted);font-size:var(--t-cap)}
+.turns .empty{color:var(--muted);font-size:var(--t-cap)}
 .ask{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--border)}
-.ask input{flex:1;font:13px var(--font-ui);padding:7px 9px;color:var(--ink);
+.ask input{flex:1;font:var(--t-body) var(--font-ui);padding:7px 9px;color:var(--ink);
 background:var(--panel);border:1px solid var(--border-strong);
 border-radius:var(--r-control);-webkit-user-select:text;user-select:text}
 .chips{display:flex;gap:5px;flex-wrap:wrap;padding:0 10px 8px}
-.chips button{font:12px var(--font-ui);color:var(--ink);background:var(--panel-2);
+.chips button{font:var(--t-cap) var(--font-ui);color:var(--ink);background:var(--panel-2);
 border:1px solid var(--border);border-radius:999px;padding:4px 9px;cursor:pointer}
 .chips button:hover{background:var(--accent-weak)}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}}
@@ -115,6 +119,12 @@ const el = document.getElementById("mascot");
 const dlg = document.getElementById("dialog");
 const native = window.webkit && window.webkit.messageHandlers
   && window.webkit.messageHandlers.vb;
+
+/* Which window this is. `pet` draws the character and nothing else; `side`
+   draws everything the robot says. They are separate windows because a single
+   resizable one moved the character every time it grew, four reports running —
+   see the note at the top of desktop.py. */
+const IS_PET = document.documentElement.dataset.surface === "pet";
 
 /* The id comes from the bridge, not from here. A page-local one was
    regenerated on every reload while the feed — which is server-side —
@@ -146,12 +156,16 @@ function fmt(text){
     .replace(/\n/g, "<br>");
 }
 
-/* The window hugs what is drawn: a fixed frame clipped the dialogue, and every
-   empty pixel of an oversized transparent window swallows a click meant for
-   the desktop behind it. */
+/* The COMPANION window hugs what is drawn: a fixed frame clipped the dialogue,
+   and every empty pixel of an oversized transparent window swallows a click
+   meant for the desktop behind it.
+
+   The pet window is never measured and never resized. That is not an
+   optimisation — it is the fix for «он не должен менять место вообще при
+   кликах». */
 let lastSize = "";
 function fitWindow(){
-  if (!native) return;
+  if (IS_PET || !native) return;
   const w = Math.ceil(document.body.scrollWidth) + 4;
   const h = Math.ceil(document.body.scrollHeight) + 4;
   const key = w + "x" + h;
@@ -159,6 +173,27 @@ function fitWindow(){
   lastSize = key;
   native.postMessage({type:"resize", w, h});
 }
+
+/* Tell the window whether it has anything to show. Hidden means alpha 0 and
+   click-through, not ordered out — see `_Bridge._reveal`. Size first, then
+   reveal, so it is never briefly visible in the old place. */
+function syncSide(){
+  if (IS_PET || !native) return;
+  const show = dialogOpen() || el.innerHTML.trim() !== "";
+  if (show) fitWindow();
+  native.postMessage({type:"side", show});
+}
+
+/* A click on the character reaches the other window through the native side:
+   two documents cannot see each other's DOM. */
+function requestToggle(){
+  if (IS_PET){
+    if (native) native.postMessage({type:"toggle"});
+    return;
+  }
+  toggleDialog();
+}
+window.vbToggle = () => { if (!IS_PET) toggleDialog(); };
 
 // ─── the dialogue ──────────────────────────────────────────────────────────
 
@@ -168,7 +203,7 @@ async function toggleDialog(force){
   const open = force === undefined ? !dialogOpen() : force;
   dlg.classList.toggle("on", open);
   painted = "";                      // the bubble hides behind the dialogue
-  if (!open){ dlg.innerHTML = ""; tick(); fitWindow(); return; }
+  if (!open){ dlg.innerHTML = ""; await tick(); syncSide(); return; }
   await ensureSession();
   await renderDialog();
   const input = dlg.querySelector("#ask");
@@ -287,7 +322,7 @@ async function renderDialog(){
 
   const feed = dlg.querySelector("#turns");
   feed.scrollTop = feed.scrollHeight;
-  fitWindow();
+  syncSide();
 }
 
 async function send(text){
@@ -351,7 +386,7 @@ function armDrag(){
     dragging = null;
     body.releasePointerCapture(e.pointerId);
     // A click is a press that did not travel: dragging must not open anything.
-    if (!wasDrag) toggleDialog();
+    if (!wasDrag) requestToggle();
   });
 }
 
@@ -363,18 +398,29 @@ function armDrag(){
    is deliberately excluded from the key — it changes every tick by design. */
 let painted = "";
 function paint(snap, force){
-  const key = JSON.stringify([snap.state, snap.says, snap.actionable,
-                              snap.request_id, dialogOpen()]);
+  // The pet's key holds only what the FACE shows. Anything the robot says
+  // belongs to the other window, so a notification arriving no longer
+  // redraws the character at all.
+  const key = JSON.stringify(IS_PET
+    ? [snap.state, snap.skin]
+    : [snap.state, snap.says, snap.actionable, snap.request_id, dialogOpen()]);
   // Never repaint mid-drag: replacing the element under the pointer cancels
   // the gesture.
   if (!force && (dragging || key === painted)) return;
   painted = key;
+
+  if (IS_PET){
+    el.innerHTML =
+      `<div class="mascot-body">${mascotSvg(snap.state, 72, snap.skin)}</div>`;
+    armDrag();
+    return;                       // no measuring, no resize, no movement
+  }
+
   const showBubble = snap.says && !dialogOpen();
   el.innerHTML =
     (showBubble ? `<div class="bubble" id="bubble">${fmt(snap.says)}`+
       (snap.actionable ? "" : `<span class="dismiss">нажмите, чтобы убрать</span>`)+
       `</div>` : "") +
-    `<div class="mascot-body">${mascotSvg(snap.state, 72, snap.skin)}</div>` +
     ((snap.actionable && !dialogOpen()) ? `<div class="actions">`+
       `<button class="btn primary" data-d="allow">Разрешить</button>`+
       `<button class="btn ghost" data-d="allow_grant">На 15 мин</button>`+
@@ -386,8 +432,7 @@ function paint(snap, force){
   const bubble = el.querySelector("#bubble");
   // A consent summary must not be dismissable — it is a question, not news.
   if (bubble && !snap.actionable) bubble.onclick = dismiss;
-  armDrag();
-  fitWindow();
+  syncSide();
 }
 
 async function tick(){
@@ -410,18 +455,24 @@ async function pullStatus(){
   } catch(e){}
 }
 
+if (native) native.postMessage({type:"hello",
+  surface: document.documentElement.dataset.surface});
 tick();
-pullStatus();
 setInterval(tick, 1000);
-setInterval(pullStatus, 30000);
-// While the widget is open the feed stays live, but only redraws when a new
-// item actually arrived — a redraw would take the focus out of the input.
-setInterval(async () => {
-  if (!dialogOpen() || busy) return;
-  const before = stream.length;
-  await pullStream();
-  if (stream.length !== before) await renderDialog();
-}, 3000);
+// Only the companion needs the robot's status line and the feed; the pet page
+// draws a face and nothing else.
+if (!IS_PET){
+  pullStatus();
+  setInterval(pullStatus, 30000);
+  // While the widget is open the feed stays live, but only redraws when a new
+  // item actually arrived — a redraw would take the focus out of the input.
+  setInterval(async () => {
+    if (!dialogOpen() || busy) return;
+    const before = stream.length;
+    await pullStream();
+    if (stream.length !== before) await renderDialog();
+  }, 3000);
+}
 </script>
 </body>
 </html>

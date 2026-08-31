@@ -33,6 +33,9 @@ dev = [
     "ruff>=0.6",
     "rumps>=0.4",   # dev host is macOS — keep the tray runnable via `uv run`
     "briefcase>=0.4",   # builds the signed shell (ADR-0006); build-time only
+    # Mirrors the bundle: testing the notification path without the library
+    # that carries it is testing the fallback and calling it the feature.
+    "desktop-notifier>=6",
 ]
 
 # ---------------------------------------------------------------- packaging
@@ -44,7 +47,7 @@ dev = [
 [tool.briefcase]
 project_name = "vibe-bridge"
 bundle = "me.sshlg"
-version = "0.12.0"
+version = "0.14.0"
 url = "https://github.com/ssheleg/vibe-bridge"
 author = "Sergei Sheleg"
 author_email = "sergey@appvillis.com"

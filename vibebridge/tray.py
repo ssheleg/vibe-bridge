@@ -18,6 +18,45 @@ import sys
 from .consent import ConsentEngine, ToolClass
 
 
+def _bundled_icon():
+    """The app's own mark, passed to the notifier where that is honoured.
+
+    MEASURED 2026-08-31: on macOS it is NOT. `UNUserNotificationCenter` shows
+    the icon of the bundle that POSTED the notification, and desktop-notifier
+    posts through its own helper — so our toast wears the library's icon
+    whatever we pass. Passing it is still right for Linux and Windows, where
+    the parameter is honoured, and the argument is kept rather than deleted so
+    the next reader does not rediscover the same dead end.
+
+    Getting our icon on macOS means posting from this bundle's own
+    notification centre via PyObjC — authorization request, delegate,
+    categories. That is board row B-31, not a line here.
+
+    It matters because the owner could not tell OUR notification from another
+    program's, and went looking for a bug in the bridge over a toast it never
+    sent.
+    """
+    import sys as _sys
+    if _sys.platform != "darwin":
+        return None
+    try:
+        from pathlib import Path as _P
+
+        from desktop_notifier import Icon
+
+        import vbboot
+        for parent in _P(vbboot.__file__).resolve().parents:
+            if parent.name == "Resources" and parent.parent.name == "Contents":
+                png = parent / "vibe-bridge-128.png"
+                if png.is_file():
+                    return Icon(path=png)
+                icns = parent / "vibe-bridge.icns"
+                return Icon(path=icns) if icns.is_file() else None
+    except Exception:                          # noqa: BLE001 - decoration
+        return None
+    return None
+
+
 def make_notifier():
     """One notifier for all three OSes, and it says which one it is.
 
@@ -38,10 +77,12 @@ def make_notifier():
     try:  # desktop-notifier is async-native; we drive it synchronously
         from desktop_notifier import DesktopNotifierSync
         notifier = DesktopNotifierSync(app_name="vibe-bridge")
+        icon = _bundled_icon()
 
         def _native(title: str, text: str) -> tuple[bool, str]:
             try:
-                notifier.send(title=str(title)[:60], message=str(text)[:180])
+                notifier.send(title=str(title)[:60], message=str(text)[:180],
+                              **({"icon": icon} if icon else {}))
                 return True, ""
             except Exception as exc:          # noqa: BLE001 - reported
                 return False, f"уведомление не показано: {exc}"

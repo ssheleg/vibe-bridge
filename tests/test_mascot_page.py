@@ -115,9 +115,12 @@ def test_states_never_rely_on_colour_alone():
 
 def test_the_window_is_wide_enough_for_all_three_answers():
     """At 300px «Отклонить» was clipped off the right edge (seen on screen
-    2026-08-31). A refusal button you cannot reach is the worst one to lose."""
+    2026-08-31). A refusal button you cannot reach is the worst one to lose.
+
+    The answers moved to the companion window when the widget was split in
+    two, so the width that has to hold them is that window's."""
     from vibebridge import desktop as mw
-    assert mw.DEFAULT_SIZE[0] >= 340
+    assert mw.SIDE_START[0] >= 340
 
 
 def test_the_bubble_cannot_outgrow_the_window():
@@ -483,3 +486,44 @@ def test_the_state_carries_its_skin(tmp_path):
     c = TestClient(app)
     c.cookies.set("vb_panel", "pt")
     assert c.get("/api/mascot").json()["skin"] == "dot"
+
+
+def test_the_token_redirect_keeps_the_surface_marker(tmp_path):
+    """The widget is two windows and the URL is what tells each which it is.
+
+    The redirect that trades the token for a cookie used to rebuild the target
+    as a bare "/mascot", dropping every other parameter — so BOTH windows
+    loaded as the pet, the companion page never existed, and clicking the head
+    silently did nothing. Measured 2026-08-31 from the journal: two `hello`
+    messages, both saying `surface = pet`.
+    """
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings())
+    c = TestClient(app, follow_redirects=False)
+    r = c.get("/mascot?token=pt&surface=side")
+    assert r.status_code == 303
+    assert r.headers["location"] == "/mascot?surface=side"
+    # …and the token itself never survives into the next URL.
+    assert "token" not in r.headers["location"]
+
+
+def test_the_redirect_target_is_clean_when_there_is_nothing_to_keep(tmp_path):
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings())
+    c = TestClient(app, follow_redirects=False)
+    r = c.get("/mascot?token=pt")
+    assert r.status_code == 303 and r.headers["location"] == "/mascot"
+
+
+def test_each_window_announces_itself_once(tmp_path):
+    """The line that would have ended a four-round hunt in one round."""
+    from vibebridge import desktop as mw
+
+    said = []
+    mw._Bridge(None, report=lambda line, ok=False: said.append((line, ok))) \
+        .handle({"type": "hello", "surface": "side"})
+    assert said == [("виджет: окно «side» открылось", True)]

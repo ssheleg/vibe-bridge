@@ -271,3 +271,32 @@ def test_a_notifier_that_reports_success_is_believed():
             "notification shown"
     finally:
         caps.set_notifier(None)
+
+
+def test_notifications_carry_the_apps_own_mark_when_it_is_there(monkeypatch,
+                                                                tmp_path):
+    """Without it the toast wears the notifier library's icon and the owner
+    cannot tell OUR notification from any other program's — the confusion
+    that sent them hunting a bug in the bridge over a toast it never sent."""
+    from vibebridge import tray
+
+    resources = tmp_path / "vibe-bridge.app" / "Contents" / "Resources"
+    (resources / "app" / "vbboot").mkdir(parents=True)
+    (resources / "app" / "vbboot" / "__init__.py").write_text("")
+    (resources / "vibe-bridge-128.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    import vbboot
+    monkeypatch.setattr(vbboot, "__file__",
+                        str(resources / "app" / "vbboot" / "__init__.py"))
+    monkeypatch.setattr(tray.sys, "platform", "darwin")
+    icon = tray._bundled_icon()
+    assert icon is not None
+
+
+def test_a_missing_icon_never_stops_a_notification(monkeypatch):
+    """Decoration must not become a failure path."""
+    import vbboot
+    from vibebridge import tray
+    monkeypatch.setattr(vbboot, "__file__", "/nowhere/vbboot/__init__.py")
+    monkeypatch.setattr(tray.sys, "platform", "darwin")
+    assert tray._bundled_icon() is None

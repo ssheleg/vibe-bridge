@@ -4,51 +4,39 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#2f6feb">
+<link rel="stylesheet" href="/tokens.css">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <title>vibe-bridge</title>
 <style>
-/* workbench tokens (verbatim subset; canonical: docs/design/ui.md) */
-:root{--bg:#f7f8fa;--panel:#fff;--panel-2:#f7f8fa;--ink:#1a1f2b;--muted:#5b6472;
---border:#e6e9ef;--border-strong:#d7dce4;--accent:#2f6feb;--accent-weak:#eaf0fe;
---accent-ink:#fff;--ok:#1a7f37;--ok-weak:#e6f4ea;--warn:#9a6700;--warn-weak:#fff3d6;
---danger:#d1242f;--danger-weak:#fde8e9;--r-control:6px;--r-card:10px;--r-pill:999px;
---dur:.18s;--dur-h:.12s;--ease:cubic-bezier(.2,0,0,1);
---font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
---font-data:ui-monospace,"SF Mono",Menlo,monospace;color-scheme:light}
-@media (prefers-color-scheme: dark){:root{color-scheme:dark;--bg:#0f1218;--panel:#161b24;
---panel-2:#1b212c;--ink:#e8ecf3;--muted:#8a93a6;--border:#232a36;--border-strong:#2c3441;
---accent:#4b8bff;--accent-weak:#1b2740;--accent-ink:#0f1218;--ok:#3fb960;--ok-weak:#12281a;
---warn:#d9a93f;--warn-weak:#2b2210;--danger:#e5534b;--danger-weak:#2d1517}}
-@media (prefers-reduced-motion: reduce){:root{--dur:0s;--dur-h:0s}}
 *{box-sizing:border-box;margin:0}
-body{font:13px/1.45 var(--font-ui);background:var(--bg);color:var(--ink);max-width:880px;margin:0 auto;padding:16px 24px 48px}
+body{font:var(--t-body)/1.45 var(--font-ui);background:var(--bg);color:var(--ink);max-width:880px;margin:0 auto;padding:16px 24px 48px}
 button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .appbar{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:5}
-.appbar .name{font-size:15px;font-weight:600;display:flex;gap:8px;align-items:center}
+.appbar .name{font-size:var(--t-page);font-weight:600;display:flex;gap:8px;align-items:center}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
 .tabs{display:flex;gap:2px;margin-left:8px}
-.tab{padding:5px 10px;border-radius:var(--r-control);color:var(--muted);font-weight:600;background:none;border:none;font-size:13px;cursor:pointer;transition:background var(--dur-h) var(--ease)}
+.tab{padding:5px 10px;border-radius:var(--r-control);color:var(--muted);font-weight:600;background:none;border:none;font-size:var(--t-body);cursor:pointer;transition:background var(--dur-h) var(--ease)}
 .tab:hover{background:var(--panel-2)}
 .tab[aria-selected="true"]{background:var(--accent-weak);color:var(--ink);box-shadow:inset 2px 0 0 var(--accent)}
 .tab[disabled]{opacity:.45;cursor:not-allowed}
-.pausewrap{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.pausewrap{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:var(--t-cap);color:var(--muted)}
 .switch{width:38px;height:22px;border-radius:var(--r-pill);background:var(--panel-2);border:1px solid var(--border-strong);position:relative;cursor:pointer;transition:background var(--dur) var(--ease)}
 .switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:left var(--dur) var(--ease)}
 .switch[aria-checked="true"]{background:var(--warn-weak);border-color:var(--warn)}
 .switch[aria-checked="true"]::after{left:18px;background:var(--warn)}
 .banner{background:var(--panel-2);color:var(--muted);border:1px solid var(--border);border-radius:var(--r-card);padding:8px 16px;margin-top:12px;font-weight:600;display:none}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;margin-top:16px}
-.cap{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
+.cap{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
 .consent{border-color:var(--warn)}
-.consent .line{font-size:15px;font-weight:600;margin-bottom:12px}
-.btn{font:600 13px var(--font-ui);border-radius:var(--r-control);padding:7px 14px;border:1px solid transparent;cursor:pointer;transition:background var(--dur-h) var(--ease),border-color var(--dur-h) var(--ease)}
+.consent .line{font-size:var(--t-page);font-weight:600;margin-bottom:12px}
+.btn{font:600 var(--t-body) var(--font-ui);border-radius:var(--r-control);padding:7px 14px;border:1px solid transparent;cursor:pointer;transition:background var(--dur-h) var(--ease),border-color var(--dur-h) var(--ease)}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
 .btn.ghost{background:transparent;border-color:var(--border-strong);color:var(--ink)}
 .btn.ghost:hover{background:var(--panel-2)}
 .btn.dangerous{background:transparent;border-color:var(--danger);color:var(--danger)}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
-.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-data);font-size:11px;border:1px solid var(--border);border-radius:var(--r-pill);padding:2px 8px;color:var(--ink)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-data);font-size:var(--t-note);border:1px solid var(--border);border-radius:var(--r-pill);padding:2px 8px;color:var(--ink)}
 .chip.okc{background:var(--ok-weak)} .chip.warnc{background:var(--warn-weak)} .chip.dangerc{background:var(--danger-weak)}
 .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.danger{background:var(--danger)} .dot.mut{background:var(--muted)} .dot.info{background:var(--accent)}
 .kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border)}
@@ -57,18 +45,18 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .row{display:flex;gap:12px;align-items:center;min-height:34px;padding:0 4px;border-bottom:1px solid var(--border);transition:background var(--dur-h) var(--ease)}
 .row:hover{background:var(--panel-2)}
 .row:last-child{border-bottom:0}
-.row .t{margin-left:auto;color:var(--muted);font-family:var(--font-data);font-size:11px;white-space:nowrap}
+.row .t{margin-left:auto;color:var(--muted);font-family:var(--font-data);font-size:var(--t-note);white-space:nowrap}
 .empty{color:var(--muted);padding:12px 4px}
 .filters{display:flex;gap:2px;margin-bottom:8px}
 .grid2{display:grid;grid-template-columns:280px 1fr;gap:16px}
 @media (max-width:760px){.grid2{grid-template-columns:1fr}}
-table{width:100%;border-collapse:collapse;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:var(--t-body)}
 td,th{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border)}
-th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--panel-2);position:sticky;top:0}
-td.mono{font-family:var(--font-data);font-size:12px}
+th{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--panel-2);position:sticky;top:0}
+td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 .view{display:none}.view.on{display:block}
-.note{font-size:11px;color:var(--muted)}
-.mascot-bubble{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-card);padding:7px 11px;margin-bottom:8px;max-width:100%;word-break:break-word;font-size:12px}
+.note{font-size:var(--t-note);color:var(--muted)}
+.mascot-bubble{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-card);padding:7px 11px;margin-bottom:8px;max-width:100%;word-break:break-word;font-size:var(--t-cap)}
 .mascot-body{line-height:0}
 </style>
 </head>
@@ -138,7 +126,7 @@ td.mono{font-family:var(--font-data);font-size:12px}
     <div class="cap">Чат с роботом</div>
     <div id="chatFeed"><div class="empty">Скажите роботу привет — контекст разговора живёт у мозга робота, не на панели.</div></div>
     <div style="display:flex;gap:8px;margin-top:12px">
-      <input id="chatInput" style="flex:1;font:13px var(--font-ui);color:var(--ink);background:var(--panel);border:1px solid var(--border-strong);border-radius:var(--r-control);padding:8px 10px" placeholder="Сообщение роботу…">
+      <input id="chatInput" style="flex:1;font:var(--t-body) var(--font-ui);color:var(--ink);background:var(--panel);border:1px solid var(--border-strong);border-radius:var(--r-control);padding:8px 10px" placeholder="Сообщение роботу…">
       <button class="btn primary" id="chatSend" onclick="sendChat()">Отправить</button>
     </div>
     <p class="note" id="chatNote" style="margin-top:6px"></p>
@@ -443,7 +431,7 @@ async function loadWizard(){
       <li>Мост запишет Wi-Fi, имя и одноразовый ключ связки — карта поедет в робота.</li></ol>`;
     if (d.boot_volumes && d.boot_volumes.length){
       html += `<div class="field"><label>Boot-раздел карты</label>
-        <select id="wzMount" style="width:100%;font:13px var(--font-ui);padding:8px;border:1px solid var(--border-strong);border-radius:var(--r-control);background:var(--panel);color:var(--ink)">`+
+        <select id="wzMount" style="width:100%;font:var(--t-body) var(--font-ui);padding:8px;border:1px solid var(--border-strong);border-radius:var(--r-control);background:var(--panel);color:var(--ink)">`+
         d.boot_volumes.map(v=>`<option>${esc(v)}</option>`).join("")+`</select></div>`+
         `<div class="field"><label>Wi-Fi сеть робота</label><input id="wzSsid"></div>`+
         `<div class="field"><label>Пароль Wi-Fi</label><input id="wzPsk" type="password"></div>`+

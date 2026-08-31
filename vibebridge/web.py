@@ -20,6 +20,7 @@ import json
 from collections import deque
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -757,7 +758,15 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         consent requests, so it is the panel by another name."""
         token = request.query_params.get("token")
         if token is not None and token == state.panel_token:
-            resp = RedirectResponse("/mascot", status_code=303)
+            # Carry every OTHER parameter across the redirect. Dropping them
+            # cost the widget its `surface` marker: both of its windows loaded
+            # as the pet, so the companion page never existed, and a click on
+            # the head reached a document with nothing to open. Nothing failed
+            # loudly — the click simply did nothing (measured 2026-08-31).
+            rest = [(k, v) for k, v in request.query_params.multi_items()
+                    if k != "token"]
+            target = "/mascot" + (f"?{urlencode(rest)}" if rest else "")
+            resp = RedirectResponse(target, status_code=303)
             resp.set_cookie(PANEL_COOKIE, state.panel_token, httponly=True,
                             samesite="lax")
             return resp
@@ -1064,6 +1073,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                   methods=["POST"]),
             Route("/mascot", mascot_page),
             Route("/mascot.js", _static("mascot.js", "application/javascript")),
+            Route("/tokens.css", _static("tokens.css", "text/css")),
             Route("/api/settings", api_settings),
             Route("/api/settings", api_settings_save, methods=["POST"]),
             Route("/api/journal", api_journal),

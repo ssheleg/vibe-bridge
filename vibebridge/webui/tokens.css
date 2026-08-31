@@ -1,0 +1,68 @@
+/* The style pack's tokens, in ONE place for both surfaces.
+ *
+ * The panel and the floating widget each carried their own copy of the
+ * palette, and the type scale existed in neither: twenty-five ad-hoc
+ * `font-size` declarations across the two files, which the pack's craft bar
+ * forbids by name ("ни одного ad-hoc font-size в диффе"). Two copies of a
+ * palette is the same defect one step later — this project has already been
+ * bitten by two copies of one truth more than once.
+ *
+ * Pack: workbench (docs/design/ui.md).
+ */
+:root{
+  /* Surfaces and ink */
+  --bg:#f7f8fa; --panel:#fff; --panel-2:#f7f8fa;
+  --ink:#1a1f2b; --muted:#5b6472;
+  --border:#e6e9ef; --border-strong:#d7dce4;
+  --accent:#2f6feb; --accent-weak:#eaf0fe; --accent-ink:#fff;
+  --ok:#1a7f37; --ok-weak:#e6f4ea;
+  --warn:#9a6700; --warn-weak:#fff3d6;
+  --danger:#d1242f; --danger-weak:#fde8e9;
+
+  /* Radii */
+  --r-control:6px; --r-card:10px; --r-pill:999px;
+
+  /* Motion. Curves come from the motion doctrine; `ease-in` is banned. */
+  --dur:.18s; --dur-h:.12s;
+  --ease:cubic-bezier(.23,1,.32,1);
+  --ease-move:cubic-bezier(.77,0,.175,1);
+
+  /* Type. The whole scale, and nothing outside it. */
+  --font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
+  --font-data:ui-monospace,"SF Mono",Menlo,monospace;
+  --t-page:15px;      /* view title */
+  --t-card:15px;      /* the one line a card is about (consent action line) */
+  --t-body:13px;      /* everything a person reads in prose */
+  --t-data:12px;      /* versions, uptime, times, tool names — always mono */
+  --t-cap:12px;       /* card captions, uppercase */
+  --t-note:11px;      /* the quiet second line */
+
+  color-scheme:light;
+}
+
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme:dark;
+    --bg:#0f1218; --panel:#161b24; --panel-2:#1b212c;
+    --ink:#e8ecf3; --muted:#8a93a6;
+    --border:#232a36; --border-strong:#2c3441;
+    --accent:#4b8bff; --accent-weak:#1b2740; --accent-ink:#0f1218;
+    --ok:#3fb960; --ok-weak:#12281a;
+    --warn:#d9a93f; --warn-weak:#2b2210;
+    --danger:#e5534b; --danger-weak:#2d1517;
+  }
+}
+
+/* The pack ends every motion at rest under this query, so it lives with the
+   tokens rather than being remembered per surface. */
+@media (prefers-reduced-motion: reduce){
+  :root{--dur:0s; --dur-h:0s}
+}
+
+/* Data is monospaced with tabular figures wherever it appears: a version, an
+   uptime and a timestamp that shift width as they tick are unreadable in a
+   column. */
+.mono, .kv .v, .t, td.mono{
+  font-family:var(--font-data);
+  font-variant-numeric:tabular-nums;
+}
