@@ -5,28 +5,37 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Вася</title>
 <style>
-/* The floating window's page. Transparent on purpose: the native panel behind
-   it is borderless and clear, so anything opaque here would draw a grey box on
-   the owner's desktop. */
-:root{--panel:#fff;--ink:#1a1f2b;--muted:#5b6472;--border:#e6e9ef;
---border-strong:#d7dce4;--accent:#2f6feb;--accent-ink:#fff;--ok:#1a7f37;
---warn:#9a6700;--danger:#d1242f;--r-control:6px;--r-card:10px;
---font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;color-scheme:light}
+/* The floating pet's page. Transparent on purpose: the native panel behind it
+   is borderless and clear, so anything opaque here would draw a grey box on
+   the owner's desktop.
+
+   No height:100% — the window sizes to the body and the body would size to
+   the window, so it could never shrink back after the dialogue closed. */
+:root{--panel:#fff;--panel-2:#f7f8fa;--ink:#1a1f2b;--muted:#5b6472;
+--border:#e6e9ef;--border-strong:#d7dce4;--accent:#2f6feb;--accent-ink:#fff;
+--accent-weak:#eaf0fe;--ok:#1a7f37;--warn:#9a6700;--danger:#d1242f;
+--r-control:6px;--r-card:10px;
+--font-ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
+--font-data:ui-monospace,"SF Mono",Menlo,monospace;color-scheme:light}
 @media (prefers-color-scheme: dark){:root{color-scheme:dark;--panel:#161b24;
---ink:#e8ecf3;--muted:#8a93a6;--border:#232a36;--border-strong:#2c3441;
---accent:#4b8bff;--accent-ink:#0f1218;--ok:#3fb960;--warn:#d9a93f;--danger:#e5534b}}
+--panel-2:#1b212c;--ink:#e8ecf3;--muted:#8a93a6;--border:#232a36;
+--border-strong:#2c3441;--accent:#4b8bff;--accent-ink:#0f1218;
+--accent-weak:#1b2740;--ok:#3fb960;--warn:#d9a93f;--danger:#e5534b}}
 *{box-sizing:border-box;margin:0}
-/* No height:100% — the window sizes to the body and the body would size to
-   the window, so it could never shrink back after the menu closed. */
 html{background:transparent}
-body{background:transparent}
-body{font:13px/1.45 var(--font-ui);color:var(--ink);
+body{background:transparent;font:13px/1.45 var(--font-ui);color:var(--ink);
 display:inline-flex;flex-direction:column;align-items:flex-end;
 justify-content:flex-end;padding:8px;-webkit-user-select:none;user-select:none}
+
 /* The character is the drag handle; everything else must stay clickable.
-   NOT `-webkit-app-region: drag` — that is an Electron extension and WKWebView
-   ignores it, which is why the pet could not be moved at all. The real drag is
-   in the script below. */
+   NOT `-webkit-app-region: drag` — that is an Electron extension and
+   WKWebView ignores it, which is why the pet could not be moved at all. The
+   real drag is in the script below. */
+/* The character must hug the right edge whatever sits above it. `#mascot` is
+   a plain block: with a 300px bubble inside it became 300 wide and the
+   character — a block child — sat at its LEFT, so it jumped sideways every
+   time a bubble appeared or expired. That is the "робот двигается" report. */
+#mascot{display:flex;flex-direction:column;align-items:flex-end}
 .mascot-body{cursor:grab;filter:drop-shadow(0 3px 8px rgba(0,0,0,.28));touch-action:none}
 .mascot-body:active{cursor:grabbing}
 /* Idle motion: a slow breath so the character reads as alive rather than
@@ -35,40 +44,195 @@ justify-content:flex-end;padding:8px;-webkit-user-select:none;user-select:none}
    because a mascot that fidgets is a mascot that gets closed. */
 @keyframes vb-breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .mascot-body svg{animation:vb-breathe 4.5s ease-in-out infinite}
-.mascot-bubble{background:var(--panel);border:1px solid var(--border-strong);
-border-radius:var(--r-card);padding:8px 12px;margin-bottom:8px;max-width:100%;
-box-shadow:0 6px 20px rgba(0,0,0,.18);text-align:center;word-break:break-word}
-.mascot-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:center}
-/* The quick menu: opened by clicking the character. Small on purpose — the
-   panel is where everything lives; this is for the two or three things worth
-   doing without switching windows. */
-.menu{background:var(--panel);border:1px solid var(--border-strong);
-border-radius:var(--r-card);box-shadow:0 8px 26px rgba(0,0,0,.22);
-padding:6px;margin-bottom:8px;min-width:210px;display:none}
-.menu.on{display:block}
-.menu button{display:block;width:100%;text-align:left;background:none;border:0;
-color:var(--ink);font:13px var(--font-ui);padding:7px 10px;border-radius:6px;cursor:pointer}
-.menu button:hover{background:var(--border)}
-.menu .sep{height:1px;background:var(--border);margin:5px 2px}
-.menu input{width:100%;font:13px var(--font-ui);padding:7px 9px;color:var(--ink);
-background:var(--panel);border:1px solid var(--border-strong);border-radius:6px}
+
+/* The bubble. Fixed width and a capped, scrollable height: a long answer grew
+   it into a half-screen column of two-word lines, and the whole window jumped
+   as it appeared and expired. Text is left-aligned because centred prose is
+   hard to read past one line. */
+.bubble{background:var(--panel);border:1px solid var(--border-strong);
+border-radius:var(--r-card);padding:9px 12px;margin-bottom:8px;
+width:300px;max-height:230px;overflow-y:auto;text-align:left;
+box-shadow:0 6px 20px rgba(0,0,0,.18);word-break:break-word;cursor:pointer}
+.bubble b{font-weight:600}
+.bubble code{font-family:var(--font-data);font-size:12px;
+background:var(--panel-2);padding:.1em .35em;border-radius:4px}
+.bubble .dismiss{display:block;margin-top:6px;font-size:11px;color:var(--muted)}
+.actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:flex-end}
 .btn{font:600 12px var(--font-ui);border-radius:var(--r-control);padding:6px 10px;
 border:1px solid transparent;cursor:pointer;white-space:nowrap}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
 .btn.ghost{background:var(--panel);border-color:var(--border-strong);color:var(--ink)}
 .btn.dangerous{background:var(--panel);border-color:var(--danger);color:var(--danger)}
+
+/* The dialogue. Session-scoped and nothing more: the turns live in this page,
+   the context lives in the robot's brain, and closing the pet forgets the
+   view — which is what keeps it a window onto the brain rather than the
+   messenger the product refuses to become (vision, «Не мессенджер»). */
+.dialog{background:var(--panel);border:1px solid var(--border-strong);
+border-radius:var(--r-card);box-shadow:0 8px 26px rgba(0,0,0,.22);
+width:320px;margin-bottom:8px;display:none;overflow:hidden}
+.dialog.on{display:block}
+.dialog .head{display:flex;align-items:center;gap:8px;padding:8px 10px;
+border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.dialog .head .grow{margin-left:auto}
+.dialog .head button{background:none;border:0;color:var(--accent);
+font:600 12px var(--font-ui);cursor:pointer;padding:2px 4px}
+.turns{max-height:240px;overflow-y:auto;padding:8px 10px;
+-webkit-user-select:text;user-select:text}
+.turn{margin-bottom:8px;line-height:1.4;word-break:break-word}
+.turn .who{font-size:11px;color:var(--muted);display:block}
+.turn.me .what{background:var(--accent-weak);border-radius:8px;padding:6px 9px;display:inline-block}
+.turn.bot .what{background:var(--panel-2);border-radius:8px;padding:6px 9px;display:inline-block}
+.turns .empty{color:var(--muted);font-size:12px}
+.ask{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--border)}
+.ask input{flex:1;font:13px var(--font-ui);padding:7px 9px;color:var(--ink);
+background:var(--panel);border:1px solid var(--border-strong);
+border-radius:var(--r-control);-webkit-user-select:text;user-select:text}
+.chips{display:flex;gap:5px;flex-wrap:wrap;padding:0 10px 8px}
+.chips button{font:12px var(--font-ui);color:var(--ink);background:var(--panel-2);
+border:1px solid var(--border);border-radius:999px;padding:4px 9px;cursor:pointer}
+.chips button:hover{background:var(--accent-weak)}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}}
 </style>
 </head>
 <body>
-<div class="menu" id="menu"></div>
+<div class="dialog" id="dialog"></div>
 <div id="mascot"></div>
 <script src="/mascot.js"></script>
 <script>
 const el = document.getElementById("mascot");
-const menuEl = document.getElementById("menu");
+const dlg = document.getElementById("dialog");
 const native = window.webkit && window.webkit.messageHandlers
   && window.webkit.messageHandlers.vb;
+
+/* Session-scoped, in this page only. "Новый" mints a new id, which is how the
+   owner starts a fresh context — the brain keeps the thread, we just name it. */
+let session = "pet-" + Math.random().toString(36).slice(2, 10);
+let turns = [];
+let busy = false;
+
+function esc(x){
+  const d = document.createElement("div");
+  d.textContent = String(x == null ? "" : x);
+  return d.innerHTML;
+}
+
+/* The robot answers in Markdown and the bubble showed `**Система:**` raw.
+   Escape FIRST, then format the escaped text — so a reply containing markup
+   stays a reply and can never become script. */
+function fmt(text){
+  return esc(text)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\n/g, "<br>");
+}
+
+/* The window hugs what is drawn: a fixed frame clipped the dialogue, and every
+   empty pixel of an oversized transparent window swallows a click meant for
+   the desktop behind it. */
+let lastSize = "";
+function fitWindow(){
+  if (!native) return;
+  const w = Math.ceil(document.body.scrollWidth) + 4;
+  const h = Math.ceil(document.body.scrollHeight) + 4;
+  const key = w + "x" + h;
+  if (key === lastSize) return;
+  lastSize = key;
+  native.postMessage({type:"resize", w, h});
+}
+
+// ─── the dialogue ──────────────────────────────────────────────────────────
+
+function dialogOpen(){ return dlg.classList.contains("on"); }
+
+async function toggleDialog(force){
+  const open = force === undefined ? !dialogOpen() : force;
+  dlg.classList.toggle("on", open);
+  painted = "";                      // the bubble hides behind the dialogue
+  if (!open){ dlg.innerHTML = ""; tick(); fitWindow(); return; }
+  await renderDialog();
+  const input = dlg.querySelector("#ask");
+  if (input) input.focus();
+}
+
+async function renderDialog(){
+  let quick = [];
+  try{ quick = (await (await fetch("/api/mascot/actions")).json()).actions || []; }
+  catch(e){}
+
+  const body = turns.length
+    ? turns.map(t => `<div class="turn ${t.who === "Вы" ? "me" : "bot"}">`+
+        `<span class="who">${esc(t.who)}</span>`+
+        `<span class="what">${t.who === "Вы" ? esc(t.text) : fmt(t.text)}</span></div>`).join("")
+    : `<div class="empty">Спросите робота о чём-нибудь. Контекст разговора живёт у его мозга — здесь только этот сеанс.</div>`;
+
+  dlg.innerHTML =
+    `<div class="head"><span>Разговор</span><span class="grow"></span>`+
+    `<button id="newDlg">Новый</button><button id="closeDlg">Закрыть</button></div>`+
+    `<div class="turns" id="turns">${body}</div>`+
+    (quick.length ? `<div class="chips">${quick.map((q,i)=>
+        `<button data-q="${i}">${esc(q)}</button>`).join("")}</div>` : "")+
+    `<div class="ask"><input id="ask" placeholder="${busy ? "Робот думает…" : "Сказать роботу…"}"`+
+    `${busy ? " disabled" : ""} autocomplete="off">`+
+    `<button class="btn ghost" id="panelBtn">Панель</button></div>`;
+
+  dlg.querySelector("#newDlg").onclick = () => {
+    session = "pet-" + Math.random().toString(36).slice(2, 10);
+    turns = [];
+    renderDialog();
+  };
+  dlg.querySelector("#closeDlg").onclick = () => toggleDialog(false);
+  dlg.querySelector("#panelBtn").onclick = () => {
+    if (native) native.postMessage({type:"panel"});
+    toggleDialog(false);
+  };
+  dlg.querySelectorAll("[data-q]").forEach(b => {
+    b.onclick = () => send(quick[+b.dataset.q]);
+  });
+  const input = dlg.querySelector("#ask");
+  input.onkeydown = (e) => {
+    if (e.key === "Enter" && e.target.value.trim()) send(e.target.value.trim());
+    if (e.key === "Escape") toggleDialog(false);
+  };
+
+  const feed = dlg.querySelector("#turns");
+  feed.scrollTop = feed.scrollHeight;
+  fitWindow();
+}
+
+async function send(text){
+  if (busy) return;
+  busy = true;
+  turns.push({who: "Вы", text});
+  await renderDialog();
+  try{
+    const r = await (await fetch("/api/robot/chat", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({text, session})})).json();
+    turns.push({who: "Вася", text: r.ok ? r.reply : (r.error || "не ответил")});
+  } catch(e){
+    turns.push({who: "Вася", text: "мост не ответил"});
+  }
+  busy = false;
+  if (dialogOpen()) await renderDialog();
+  tick();
+}
+
+// ─── the character ─────────────────────────────────────────────────────────
+
+async function decide(id, decision){
+  try{
+    await fetch("/api/consent/decide", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({id, decision})});
+  } catch(e){}
+  tick();
+}
+
+async function dismiss(){
+  try{ await fetch("/api/mascot/dismiss", {method:"POST"}); } catch(e){}
+  tick();
+}
 
 /* Dragging. The page owns it because WKWebView swallows the mouse events the
    window would otherwise use, and Electron's `-webkit-app-region` does not
@@ -93,96 +257,54 @@ function armDrag(){
     const wasDrag = dragging && dragging.moved > 4;
     dragging = null;
     body.releasePointerCapture(e.pointerId);
-    // A click is a press that did not travel: dragging must not open the menu.
-    if (!wasDrag) toggleMenu();
+    // A click is a press that did not travel: dragging must not open anything.
+    if (!wasDrag) toggleDialog();
   });
 }
 
-async function toggleMenu(force){
-  const open = force === undefined ? !menuEl.classList.contains("on") : force;
-  menuEl.classList.toggle("on", open);
-  if (!open) { menuEl.innerHTML = ""; fitWindow(); return; }
-  let quick = [];
-  try{ quick = (await (await fetch("/api/mascot/actions")).json()).actions || []; }
-  catch(e){}
-  menuEl.innerHTML =
-    quick.map((q,i)=>`<button data-say="${i}">${escText(q)}</button>`).join("") +
-    (quick.length ? `<div class="sep"></div>` : "") +
-    `<input id="ask" placeholder="Сказать роботу…" autocomplete="off">` +
-    `<div class="sep"></div>` +
-    `<button data-act="panel">Открыть панель</button>` +
-    `<button data-act="pause">Пауза / снять паузу</button>`;
-  menuEl.querySelectorAll("[data-say]").forEach(b=>{
-    b.onclick = () => sendToRobot(quick[+b.dataset.say]);
+/* Repaint only when something actually changed.
+   Rewriting `innerHTML` on every tick destroyed and rebuilt the character a
+   second at a time: a click never completed, because `pointerdown` landed on
+   one element and `pointerup` arrived after the next repaint had replaced it.
+   It is also what made the widget look like it was flickering. `says_left_s`
+   is deliberately excluded from the key — it changes every tick by design. */
+let painted = "";
+function paint(snap, force){
+  const key = JSON.stringify([snap.state, snap.says, snap.actionable,
+                              snap.request_id, dialogOpen()]);
+  // Never repaint mid-drag: replacing the element under the pointer cancels
+  // the gesture.
+  if (!force && (dragging || key === painted)) return;
+  painted = key;
+  const showBubble = snap.says && !dialogOpen();
+  el.innerHTML =
+    (showBubble ? `<div class="bubble" id="bubble">${fmt(snap.says)}`+
+      (snap.actionable ? "" : `<span class="dismiss">нажмите, чтобы убрать</span>`)+
+      `</div>` : "") +
+    `<div class="mascot-body">${mascotSvg(snap.state, 72)}</div>` +
+    ((snap.actionable && !dialogOpen()) ? `<div class="actions">`+
+      `<button class="btn primary" data-d="allow">Разрешить</button>`+
+      `<button class="btn ghost" data-d="allow_grant">На 15 мин</button>`+
+      `<button class="btn dangerous" data-d="deny">Отклонить</button></div>` : "");
+
+  el.querySelectorAll("[data-d]").forEach(b => {
+    b.onclick = () => decide(snap.request_id, b.dataset.d);
   });
-  menuEl.querySelector("#ask").onkeydown = (e) => {
-    if (e.key === "Enter" && e.target.value.trim()) sendToRobot(e.target.value.trim());
-    if (e.key === "Escape") toggleMenu(false);
-  };
-  menuEl.querySelector('[data-act="panel"]').onclick = () => {
-    if (native) native.postMessage({type:"panel"});
-    toggleMenu(false);
-  };
-  menuEl.querySelector('[data-act="pause"]').onclick = async () => {
-    try{ await fetch("/api/pause", {method:"POST",
-      headers:{"Content-Type":"application/json"}, body:"{}"}); } catch(e){}
-    toggleMenu(false); tick();
-  };
+  const bubble = el.querySelector("#bubble");
+  // A consent summary must not be dismissable — it is a question, not news.
+  if (bubble && !snap.actionable) bubble.onclick = dismiss;
+  armDrag();
   fitWindow();
-  menuEl.querySelector("#ask").focus();
-}
-
-/* The window hugs what is drawn: a fixed frame clipped the menu, and every
-   empty pixel of an oversized transparent window swallows a click meant for
-   the desktop behind it. */
-let lastSize = "";
-function fitWindow(){
-  if (!native) return;
-  const w = Math.ceil(document.body.scrollWidth) + 4;
-  const h = Math.ceil(document.body.scrollHeight) + 4;
-  const key = w + "x" + h;
-  if (key === lastSize) return;
-  lastSize = key;
-  native.postMessage({type:"resize", w, h});
-}
-
-function escText(x){
-  const d = document.createElement("div");
-  d.textContent = String(x == null ? "" : x);
-  return d.innerHTML;
-}
-
-async function sendToRobot(text){
-  toggleMenu(false);
-  try{
-    await fetch("/api/robot/chat", {method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({text})});
-  } catch(e){}
-  tick();                       // the reply arrives through the mascot itself
-}
-
-async function decide(id, decision){
-  try{
-    await fetch("/api/consent/decide", {method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({id, decision})});
-  } catch(e){}
-  tick();
 }
 
 async function tick(){
   try{
-    const snap = await (await fetch("/api/mascot")).json();
-    renderMascot(el, snap, {size: 72, answerable: true, onDecide: decide});
-    armDrag();
-    fitWindow();
+    paint(await (await fetch("/api/mascot")).json());
   } catch(e){
-    // The bridge went away. Say so rather than freezing on the last mood —
-    // a cheerful mascot over a dead bridge is the exact lie this project
-    // spends its whole design refusing.
-    renderMascot(el, {state:"offline", says:"мост не отвечает"}, {size:72});
-    fitWindow();
+    // The bridge went away. Say so rather than freezing on the last mood — a
+    // cheerful mascot over a dead bridge is the exact lie this project spends
+    // its whole design refusing.
+    paint({state:"offline", says:"мост не отвечает"});
   }
 }
 

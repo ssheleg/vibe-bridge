@@ -159,6 +159,8 @@ class MainWindow:
         window.center()
         webview = WebKit.WKWebView.alloc().initWithFrame_configuration_(
             rect, WebKit.WKWebViewConfiguration.alloc().init())
+        webview.setAutoresizingMask_(AppKit.NSViewWidthSizable
+                                     | AppKit.NSViewHeightSizable)
         webview.loadRequest_(Foundation.NSURLRequest.requestWithURL_(
             Foundation.NSURL.URLWithString_(self._url)))
         window.setContentView_(webview)
@@ -247,6 +249,11 @@ class MascotWindow:
 
         webview = WebKit.WKWebView.alloc().initWithFrame_configuration_(
             Foundation.NSMakeRect(0, 0, width, height), config)
+        # Follow the window. Without this the view kept its creation size while
+        # the window resized around it: the dialogue opened onto blank white
+        # margins and the character appeared to jump (reported 2026-08-31).
+        webview.setAutoresizingMask_(AppKit.NSViewWidthSizable
+                                     | AppKit.NSViewHeightSizable)
         webview.setValue_forKey_(False, "drawsBackground")   # see the desktop
         webview.loadRequest_(Foundation.NSURLRequest.requestWithURL_(
             Foundation.NSURL.URLWithString_(self._url)))

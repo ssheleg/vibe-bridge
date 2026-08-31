@@ -205,3 +205,59 @@ def test_speech_is_data_not_markup(clock):
     m.say("<script>alert(1)</script>", kind="chat")
     assert "<script>" in m.snapshot()["says"]   # stored verbatim…
     # …and the surface is responsible for escaping; see test_mascot_page.
+
+
+# ---------------------------------------------------- how long a line stays
+
+def test_a_long_answer_gets_time_to_be_read(clock):
+    """A fixed 25 s made a paragraph vanish mid-sentence, which is what the
+    widget "appearing and disappearing" actually was."""
+    m = _mascot(clock)
+    long = "слово " * 100                       # ~600 characters
+    m.say(long.strip(), kind="chat")
+    clock.advance(30)
+    assert m.snapshot()["says"] is not None      # still readable
+    clock.advance(60)
+    assert m.snapshot()["says"] is None
+
+
+def test_a_short_line_still_goes_away_promptly(clock):
+    m = _mascot(clock)
+    m.say("готово", kind="event")
+    clock.advance(Mascot.SAY_TTL_S + 1)
+    assert m.snapshot()["says"] is None
+
+
+def test_no_line_outlives_the_ceiling(clock):
+    m = _mascot(clock)
+    m.say("щ" * Mascot.SAY_MAX_CHARS, kind="chat")
+    clock.advance(Mascot.SAY_TTL_MAX_S + 1)
+    assert m.snapshot()["says"] is None
+
+
+def test_the_surface_is_told_how_much_time_is_left(clock):
+    m = _mascot(clock)
+    m.say("привет", kind="event")
+    first = m.snapshot()["says_left_s"]
+    clock.advance(5)
+    assert 0 < m.snapshot()["says_left_s"] < first
+
+
+def test_a_pending_request_has_no_countdown(clock):
+    """It waits for the owner, not for a timer of ours."""
+    m = _mascot(clock)
+    assert m.snapshot()["says_left_s"] is None
+
+
+def test_the_owner_can_dismiss_a_line(clock):
+    m = _mascot(clock)
+    m.say("длинный ответ робота", kind="chat")
+    m.dismiss()
+    assert m.snapshot()["says"] is None
+
+
+def test_a_real_answer_is_not_cut_at_two_hundred_characters(clock):
+    m = _mascot(clock)
+    answer = "Сейчас — тишина и порядок. " * 20      # ~540 chars
+    m.say(answer.strip(), kind="chat")
+    assert len(m.snapshot()["says"]) > 500

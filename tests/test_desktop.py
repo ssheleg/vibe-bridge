@@ -244,3 +244,13 @@ def test_the_page_does_not_stretch_to_the_window_it_is_measuring():
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S).replace(" ", "")
     for rule in re.findall(r"(?:^|\})\s*(html|body)\s*\{([^}]*)", css):
         assert "height:100%" not in rule[1]
+
+
+def test_the_web_view_follows_the_window_it_lives_in():
+    """It kept its creation size while the window resized around it: the
+    dialogue opened onto blank white margins and the character jumped."""
+    from pathlib import Path
+
+    source = Path(mw.__file__).read_text()
+    assert source.count("setAutoresizingMask_") == 2      # both windows
+    assert "NSViewWidthSizable" in source and "NSViewHeightSizable" in source

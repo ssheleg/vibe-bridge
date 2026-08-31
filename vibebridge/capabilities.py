@@ -64,7 +64,8 @@ class Capability:
             return self.summary_template
 
 
-_SUMMARY_DEFAULTS = {"app": "?", "url": "?", "name": "?", "text": "?"}
+_SUMMARY_DEFAULTS = {"app": "?", "url": "?", "name": "?", "text": "?",
+                     "title": "без заголовка"}
 
 
 class Runner:
@@ -129,11 +130,29 @@ def _frontmost(r: Runner, args: dict) -> str:
     return out.strip()
 
 
+#: Set at startup to the app's own notifier (`tray.make_notifier`). Without
+#: it the capability shelled out to osascript, and the toast arrived with no
+#: name and a generic icon because osascript posts as Script Editor — the
+#: robot's message looked like it came from nowhere (reported 2026-08-31).
+_notifier = None
+
+
+def set_notifier(fn) -> None:
+    global _notifier
+    _notifier = fn
+
+
 def _notify(r: Runner, args: dict) -> str:
-    text = str(args.get("text", "")).replace('"', "'")
-    title = str(args.get("title", "Робот")).replace('"', "'")
+    text = str(args.get("text", ""))
+    title = str(args.get("title", "Робот"))
+    if _notifier is not None:
+        _notifier(title, text)
+        return "notification shown"
+    # No app notifier (a bare checkout): osascript still works, it just shows
+    # up unattributed.
     r.run(["osascript", "-e",
-           f'display notification "{text}" with title "{title}"'])
+           f'display notification "{text.replace(chr(34), chr(39))}" '
+           f'with title "{title.replace(chr(34), chr(39))}"'])
     return "notification shown"
 
 
@@ -208,8 +227,11 @@ def _build_darwin() -> dict[str, Capability]:
         Capability("frontmost", ToolClass.READ,
                    "смотрю активное приложение", _frontmost, {},
                    binaries=("osascript",)),
+        # The summary carries what was actually shown: "показываю уведомление
+        # на Маке" told the owner nothing about what the robot put on their
+        # screen, and the journal exists precisely to answer that.
         Capability("notify", ToolClass.READ,
-                   "показываю уведомление на Маке", _notify,
+                   "показываю уведомление «{title}»: {text}", _notify,
                    {"text": _STR, "title": _STR}, binaries=("osascript",)),
         Capability("open_app", ToolClass.ACT,
                    "открыть приложение «{app}»", _open_app, {"app": _STR},

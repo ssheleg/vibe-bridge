@@ -239,6 +239,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     # is how a mascot ends up smiling at a stopped bridge.
     mascot = Mascot(consent=consent, robot_state=robot_state)
 
+    # The robot's notifications go through the app's own notifier, so they
+    # carry its name and icon instead of arriving unattributed.
+    from .capabilities import set_notifier
+    set_notifier(notify)
     caps = capabilities or build_capabilities()
     availability = probe_availability(caps)
     if mcp_allowed_hosts is None:
@@ -338,9 +342,13 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         text = str(body.get("text", "")).strip()
         if not text:
             return JSONResponse({"error": "empty"}, status_code=400)
+        # A session id lets "новый диалог" mean something: the brain keeps the
+        # context, so a new id is how the owner starts a fresh one. The panel
+        # and the pet each pass their own.
+        session = str(body.get("session") or "panel")[:64]
         mascot.thinking(True)
         try:
-            answer = await robot.chat(text)
+            answer = await robot.chat(text, session=session)
         finally:
             mascot.thinking(False)
         # The brain's own reply, spoken by the face. Nothing is composed here.
@@ -649,6 +657,14 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse(mascot.snapshot())
 
+    async def api_mascot_dismiss(request: Request) -> Response:
+        """The owner clicked the bubble away. Better than waiting out a timer
+        they did not set."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        mascot.dismiss()
+        return JSONResponse(mascot.snapshot())
+
     async def mascot_page(request: Request) -> Response:
         """The floating window's page. Same auth as the panel: it answers
         consent requests, so it is the panel by another name."""
@@ -948,6 +964,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/onboarding", api_onboarding),
             Route("/api/mascot", api_mascot),
             Route("/api/mascot/actions", api_mascot_actions),
+            Route("/api/mascot/dismiss", api_mascot_dismiss,
+                  methods=["POST"]),
             Route("/mascot", mascot_page),
             Route("/mascot.js", _static("mascot.js", "application/javascript")),
             Route("/api/settings", api_settings),

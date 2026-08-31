@@ -70,7 +70,7 @@ uv pip install --quiet --target "$APP/Contents/Resources/app_packages" \
   --python-platform macos --python-version 3.12 \
   "mcp==1.26.0" "pywebpush>=2.4.0" "rumps>=0.4" \
   "pyobjc-framework-ServiceManagement>=12" "pyobjc-framework-Quartz>=12" \
-  "pyobjc-framework-WebKit>=12" \
+  "pyobjc-framework-WebKit>=12" "desktop-notifier>=6" \
   "std-nslog>=1.0"
 
 # Debug symbols and test suites: dead weight the owner downloads, and a

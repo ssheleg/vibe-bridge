@@ -181,3 +181,57 @@ def test_granted_screen_permission_still_reads_available(monkeypatch):
     caps = caps_mod.build_capabilities()
     got = caps_mod.probe_availability(caps, which=lambda b: f"/usr/bin/{b}")
     assert got["screenshot"]["status"] == "available"
+
+
+# ── notifications carry the app's identity and land in the journal ─────────
+
+def test_the_journal_says_what_the_robot_put_on_the_screen():
+    """It read "показываю уведомление на Маке" — true and useless. The
+    journal's whole job is answering what the robot actually did."""
+    from vibebridge.capabilities import build_capabilities
+
+    cap = build_capabilities()["notify"]
+    line = cap.summary({"title": "заголовок", "text": "текст"})
+    assert "заголовок" in line and "текст" in line
+
+
+def test_a_notification_without_a_title_still_reads(monkeypatch):
+    from vibebridge.capabilities import build_capabilities
+
+    cap = build_capabilities()["notify"]
+    assert "без заголовка" in cap.summary({"text": "только текст"})
+
+
+def test_notifications_go_through_the_app_notifier_when_there_is_one():
+    """osascript posts as Script Editor, so the toast arrived with no name
+    and a generic icon — as if it came from nowhere."""
+    from vibebridge import capabilities as caps
+
+    seen = []
+    caps.set_notifier(lambda t, x: seen.append((t, x)))
+    try:
+        class _R:
+            def run(self, *a, **kw):
+                raise AssertionError("не должен звать osascript")
+
+        caps._notify(_R(), {"title": "Вася", "text": "привет"})
+        assert seen == [("Вася", "привет")]
+    finally:
+        caps.set_notifier(None)
+
+
+def test_without_an_app_notifier_it_still_notifies():
+    from vibebridge import capabilities as caps
+
+    caps.set_notifier(None)
+    calls = []
+
+    class _R:
+        def run(self, argv, **kw):
+            calls.append(argv)
+            return ""
+
+    caps._notify(_R(), {"title": 'он сказал "да"', "text": "текст"})
+    assert calls and calls[0][0] == "osascript"
+    # Quotes are neutralised so the AppleScript literal cannot be broken open.
+    assert '"да"' not in calls[0][2]

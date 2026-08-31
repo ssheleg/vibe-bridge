@@ -74,7 +74,10 @@ def test_the_character_is_one_implementation_for_both_surfaces(client):
     window = (WEBUI / "mascot.html").read_text()
     assert 'src="/mascot.js"' in page
     assert 'src="/mascot.js"' in window
-    assert "renderMascot" in page and "renderMascot" in window
+    # The panel uses the shared renderer; the pet window draws the same
+    # character through `mascotSvg` and adds its own dialogue around it.
+    assert "renderMascot" in page
+    assert "mascotSvg" in window
 
 
 def test_the_bubble_escapes_what_the_robot_said():
@@ -116,8 +119,13 @@ def test_the_window_is_wide_enough_for_all_three_answers():
 
 
 def test_the_bubble_cannot_outgrow_the_window():
+    """It grew into a half-screen column of two-word lines and the whole
+    window jumped as it appeared and expired (seen 2026-08-31)."""
     html = (WEBUI / "mascot.html").read_text()
-    assert "max-width:100%" in html
+    rule = html.split(".bubble{", 1)[1].split("}", 1)[0].replace(" ", "")
+    assert "width:300px" in rule
+    assert "max-height:230px" in rule
+    assert "overflow-y:auto" in rule
 
 
 def test_the_panel_wires_the_mascot_exactly_once():
@@ -168,3 +176,54 @@ def test_the_mascot_speaks_the_reply_under_the_key_the_client_returns(tmp_path):
     web = (Path(vibebridge.__file__).parent / "web.py").read_text()
     assert 'answer.get("reply")' in web
     assert 'answer.get("text")' not in web
+
+
+def test_the_robots_markdown_is_rendered_not_shown_raw():
+    """A reply arrived as `**Система:** работает 63+ часа` and the asterisks
+    were on screen."""
+    html = (WEBUI / "mascot.html").read_text()
+    assert "<b>$1</b>" in html
+    # …and escaping happens FIRST, so markup in a reply stays a reply.
+    fmt = html.split("function fmt(", 1)[1].split("}", 1)[0]
+    assert fmt.index("esc(text)") < fmt.index("replace")
+
+
+def test_the_dialogue_keeps_no_history_beyond_the_session():
+    """Vision, «Не мессенджер»: the turns live in this page and die with it;
+    the context lives in the robot's brain."""
+    html = (WEBUI / "mascot.html").read_text()
+    assert "let turns = []" in html
+    assert "localStorage" not in html and "sessionStorage" not in html
+
+
+def test_a_new_dialogue_mints_a_new_session_for_the_brain():
+    html = (WEBUI / "mascot.html").read_text()
+    assert "newDlg" in html
+    assert 'session = "pet-"' in html
+    assert "JSON.stringify({text, session})" in html
+
+
+def test_a_consent_question_cannot_be_dismissed_like_news():
+    html = (WEBUI / "mascot.html").read_text()
+    assert "if (bubble && !snap.actionable) bubble.onclick = dismiss" in html
+
+
+def test_the_widget_repaints_only_when_something_changed():
+    """Rewriting the DOM every second destroyed the character between
+    `pointerdown` and `pointerup`, so a click never completed — and it is
+    what made the widget look like it was flickering."""
+    html = (WEBUI / "mascot.html").read_text()
+    assert "if (!force && (dragging || key === painted)) return;" in html
+    # The countdown changes every tick by design and must not force a repaint.
+    key = html.split("const key = JSON.stringify(", 1)[1].split(")", 1)[0]
+    assert "says_left_s" not in key
+
+
+def test_the_character_keeps_its_place_when_a_bubble_appears():
+    """`#mascot` was a plain block: a 300px bubble made it 300 wide and the
+    character sat at its left edge, jumping sideways whenever the bubble came
+    or went."""
+    html = (WEBUI / "mascot.html").read_text()
+    rule = html.split("#mascot{", 1)[1].split("}", 1)[0].replace(" ", "")
+    assert "align-items:flex-end" in rule
+    assert "flex-direction:column" in rule

@@ -38,13 +38,20 @@ class _Line:
 class Mascot:
     """What the character shows right now. Cheap to build, safe to poll."""
 
-    #: How long a line stays in the bubble. Long enough to read a sentence,
-    #: short enough that the mascot is usually silent — which is the honest
-    #: resting state for something with nothing to say.
+    #: Floor for how long a line stays up: long enough to notice and read a
+    #: short sentence.
     SAY_TTL_S = 25.0
-    #: The bubble is a bubble, not a chat window. A robot reply of two
-    #: thousand words belongs in the chat tab.
-    SAY_MAX_CHARS = 220
+    #: Ceiling. Past this the bubble has stopped being a bubble.
+    SAY_TTL_MAX_S = 120.0
+    #: Reading speed, characters per second, used to scale the two above. A
+    #: fixed 25 s made a long answer vanish mid-sentence — reported as the
+    #: widget "appearing and disappearing" (2026-08-31).
+    READ_CPS = 14.0
+    #: The bubble scrolls now, so a real answer fits instead of being cut at
+    #: 220 characters with an ellipsis and nowhere to read the rest: the chat
+    #: tab keeps its history only in the open page, so a reply sent from the
+    #: pet had no second home.
+    SAY_MAX_CHARS = 1200
 
     def __init__(self, *, consent, robot_state: dict, clock=time.time) -> None:
         self._consent = consent
@@ -71,7 +78,7 @@ class Mascot:
             text = text[: self.SAY_MAX_CHARS - 1].rstrip() + "…"
         now = self._clock()
         if (self._line is not None and self._line.text == text
-                and now - self._line.at >= self.SAY_TTL_S):
+                and now - self._line.at >= self._ttl(self._line.text)):
             # A status that repeats must not make its own bubble immortal.
             return
         self._line = _Line(text=text, kind=kind, at=now)
@@ -97,15 +104,34 @@ class Mascot:
         else:
             state = "idle"
 
+        says = self._says(state, pending, online)
         return {
             "state": state,
-            "says": self._says(state, pending, online),
+            "says": says,
+            # How long this line has left, so the surface can show that it is
+            # going rather than have it vanish under the reader.
+            "says_left_s": self._left(says, pending),
             "actionable": pending is not None,
             "request_id": pending.id if pending is not None else None,
             "tool": pending.tool if pending is not None else None,
         }
 
     # --------------------------------------------------------------- private
+
+    def _ttl(self, text: str) -> float:
+        """Reading time for this line, floored and capped."""
+        return min(self.SAY_TTL_MAX_S,
+                   max(self.SAY_TTL_S, len(text) / self.READ_CPS))
+
+    def _left(self, says: str | None, pending) -> float | None:
+        if says is None or pending is not None or self._line is None:
+            return None
+        return max(0.0, self._ttl(self._line.text)
+                   - (self._clock() - self._line.at))
+
+    def dismiss(self) -> None:
+        """Drop the current line now — the owner clicked it away."""
+        self._line = None
 
     def _says(self, state: str, pending, online: bool) -> str | None:
         if state == "paused":
@@ -117,6 +143,6 @@ class Mascot:
             reason = str(self._robot.get("reason") or "").strip()
             return reason or None
         line = self._line
-        if line is None or self._clock() - line.at >= self.SAY_TTL_S:
+        if line is None or self._clock() - line.at >= self._ttl(line.text):
             return None
         return line.text
