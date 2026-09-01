@@ -527,3 +527,55 @@ def test_each_window_announces_itself_once(tmp_path):
     mw._Bridge(None, report=lambda line, ok=False: said.append((line, ok))) \
         .handle({"type": "hello", "surface": "side"})
     assert said == [("виджет: окно «side» открылось", True)]
+
+
+def test_the_state_remembers_where_the_pet_was_left(tmp_path):
+    """It came back to the bottom-right corner after every restart, however
+    far the owner had dragged it (reported 2026-08-31 — they moved it to the
+    top of the screen and a relaunch undid that)."""
+    from vibebridge.state import BridgeState
+
+    st = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    assert st.pet_pos is None                 # nothing remembered yet
+    st.pet_pos = [1420.0, 880.0]
+    st.save()
+    again = BridgeState.load(tmp_path / "state.json")
+    assert again.pet_pos == [1420.0, 880.0]
+
+
+def test_an_older_state_file_without_the_field_still_loads(tmp_path):
+    """A state file written by 0.15.0 has no `pet_pos`; the field is optional
+    and its absence must not be an upgrade that fails to start."""
+    import json
+
+    from vibebridge.state import BridgeState
+
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps({"panel_token": "pt", "mode": "gateway"}))
+    assert BridgeState.load(path).pet_pos is None
+
+
+def test_our_code_is_never_stored_by_the_browser(client):
+    """WKWebView kept the widget's page across an app restart, so the pet ran
+    yesterday's JavaScript inside today's app: a message the new page was
+    supposed to post never arrived, and the bug read as a broken native
+    handler for three rounds. Diagnosed 2026-09-01 by deleting
+    `~/Library/WebKit/<bundle-id>` and watching the same drag work.
+
+    A payload update replaces exactly these files, so a cache that outlives
+    the update makes the update mechanism a lie.
+    """
+    for path in ("/", "/mascot", "/mascot.js", "/tokens.css", "/sw.js",
+                 "/offline.html"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert "no-store" in r.headers.get("cache-control", ""), path
+
+
+def test_images_are_still_cacheable_because_the_pwa_needs_them(client):
+    """The service worker caches icons on purpose, for offline. `no-store`
+    there would fight the feature it is meant to protect."""
+    r = client.get("/icon-192.png")
+    assert r.status_code == 200
+    assert "no-store" not in r.headers.get("cache-control", "")
+

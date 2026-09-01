@@ -125,3 +125,81 @@ def test_audit_persists_to_disk(tmp_path):
     import stat
     mode = stat.S_IMODE((tmp_path / "audit.log").stat().st_mode)
     assert mode == 0o600
+
+
+# ── the windows must not load before the port answers ──────────────────────
+
+
+def test_wait_for_server_returns_when_the_port_answers():
+    """The widget loads its URL exactly once — `WKWebView` shows its own
+    "cannot connect" page on failure and never retries. Measured 2026-09-01:
+    the pet was a white box reading «Нет связи с…» because the windows were
+    built before uvicorn had bound the port, and the journal said nothing,
+    since from the bridge's side everything had started."""
+    import socket
+
+    from vibebridge.app import wait_for_server
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+    try:
+        assert wait_for_server(port, timeout=3.0) is True
+    finally:
+        srv.close()
+
+
+def test_wait_for_server_gives_up_and_says_so():
+    """False, not an exception: a slow port is not a reason to take the bridge
+    down, and the caller records the fact."""
+    import socket
+
+    from vibebridge.app import wait_for_server
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()                       # nothing is listening there now
+    assert wait_for_server(port, timeout=0.4, step=0.05) is False
+
+
+def test_the_wait_is_actually_called_before_the_windows():
+    """Written-and-never-called has happened three times in this project. The
+    order matters as much as the call: after the server starts, before the
+    windows are built."""
+    from pathlib import Path
+
+    import vibebridge
+
+    src = (Path(vibebridge.__file__).parent / "app.py").read_text()
+    body = src.split("def run(", 1)[1]
+    assert "wait_for_server(settings.port)" in body
+    assert body.index("start_server(") < body.index("wait_for_server(")
+    assert body.index("wait_for_server(") < body.index("MascotWindow(")
+
+
+def test_the_bind_always_includes_the_address_the_ui_uses():
+    """The invariant that was violated, stated as a test.
+
+    Every local surface — the panel, the app window, both widget windows, the
+    tray's "open panel" — addresses the bridge as `BRIDGE_HOST`. If the bind
+    does not include that address, the application is broken while the server
+    is up: measured 2026-09-01, standalone bound the tailnet IPv4 alone and
+    `127.0.0.1:48620` was refused.
+    """
+    from vibebridge.net import standalone_bind_host
+    from vibebridge.server import BRIDGE_HOST
+
+    host = standalone_bind_host()
+    assert host in ("0.0.0.0", BRIDGE_HOST), (
+        f"standalone биндит {host}, а интерфейс идёт на {BRIDGE_HOST}")
+
+
+def test_a_tailnet_no_longer_narrows_the_bind(monkeypatch):
+    """The old behaviour, pinned so it cannot come back by looking clever."""
+    from vibebridge import net
+
+    monkeypatch.setattr(net, "tailscale_ips", lambda: ["100.72.246.104"])
+    assert net.standalone_bind_host() == "0.0.0.0"
+

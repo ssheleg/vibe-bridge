@@ -113,12 +113,31 @@ def serve_active(port: int) -> bool:
 
 
 def standalone_bind_host() -> str:
-    """standalone mode binds the tailnet interface when one is up; without
-    it we fall back to all interfaces — the bearer token and the host
-    allowlist stay as the guard (spec §2, recorded deviation)."""
-    for ip in tailscale_ips():
-        if ":" not in ip:          # first IPv4
-            return ip
+    """standalone binds ALL interfaces, and the guard is the host allowlist.
+
+    It used to bind the tailnet interface ALONE when one was up. That looked
+    like hardening and was in fact a broken application: the panel, the app's
+    own window and both widget windows all address the bridge as
+    `BRIDGE_HOST` — `127.0.0.1` — and loopback was not bound at all.
+
+    Measured on this machine 2026-09-01: `lsof -iTCP:48620` showed LISTEN on
+    the tailnet IPv4 only, a connect to `127.0.0.1:48620` was refused, and the
+    pet was rendering WKWebView's "cannot connect" page where its head should
+    be. The default mode for a new install is standalone, so this was every
+    new owner with Tailscale running.
+
+    The boundary was never the bind. standalone requires a bearer on `/mcp`,
+    and the host allowlist answers 421 to any Host outside loopback and the
+    tailnet — a request arriving on a LAN interface is refused BY NAME, not by
+    the absence of a socket. What binding one interface bought was that a LAN
+    scanner saw a closed port; what it cost was the application.
+
+    The two alternatives, recorded because they are real: stay in `gateway`
+    mode (loopback only) when the robot never needs to reach the bridge
+    directly, or move remote reach to `tailscale serve` — already the
+    documented path for the phone — and bind loopback alone. Both change how
+    pairing works, so neither is taken here without the owner.
+    """
     return "0.0.0.0"  # noqa: S104 - guarded by bearer + host allowlist
 
 

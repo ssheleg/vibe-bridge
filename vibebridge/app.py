@@ -89,6 +89,58 @@ def prepare_settings(state: BridgeState):
     return settings
 
 
+def wait_for_server(port: int, *, host: str = "127.0.0.1",
+                    timeout: float = 10.0, step: float = 0.1) -> bool:
+    """Block until the port accepts a connection, or say it never did.
+
+    The widget's windows load their URL exactly ONCE: `WKWebView` shows its own
+    "cannot connect" page on failure and never retries. Building them before
+    uvicorn had bound the port left the owner looking at that page instead of
+    the character — a small white box reading «Нет связи с…» where the head
+    should be (measured 2026-09-01). Nothing in the journal said why, because
+    from the bridge's side everything HAD started: the thread was running, the
+    windows were up, and only the page inside them was dead.
+
+    Returns False rather than raising: a bridge whose port is slow is still a
+    bridge, and the caller records the fact instead of dying on it.
+    """
+    import socket
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        with socket.socket() as probe:
+            probe.settimeout(step)
+            try:
+                probe.connect((host, port))
+                return True
+            except OSError:
+                _time.sleep(step)
+    return False
+
+
+def _remember_pet(state, pos, report=None) -> None:
+    """Persist where the owner dragged the pet.
+
+    Called once per gesture, on release. The value is only ever WRITTEN here
+    and only ever read at launch, so a state file from another machine — or
+    from a session with a second display — cannot move the pet mid-run; it can
+    only offer a starting point, which `clamp_origin` then checks against the
+    screen that actually exists.
+
+    A failure is REPORTED, not swallowed. Two bugs today hid behind
+    `except Exception: pass` written for exactly this reason — "the pet must
+    never take the bridge down" is about continuing to run, not about staying
+    quiet.
+    """
+    try:
+        state.pet_pos = [float(pos[0]), float(pos[1])]
+        state.save()
+    except Exception as exc:                # noqa: BLE001 - reported
+        if report is not None:
+            report(f"питомец: позицию не удалось сохранить: {exc}")
+
+
 def run() -> None:  # pragma: no cover - requires a GUI session
     audit = AuditLog()
     state = BridgeState.load()
@@ -114,6 +166,15 @@ def run() -> None:  # pragma: no cover - requires a GUI session
                          decision="auto" if ok else "unavailable", ok=ok,
                          line=f"автозапуск при входе: {why}", detail=why)
 
+    # The windows below load their page once and keep whatever they get, so
+    # the port must be answering BEFORE they are built.
+    if not wait_for_server(settings.port):
+        audit.record(
+            tool="server", tool_class="SYS", decision="error", ok=False,
+            line=f"порт {settings.port} не ответил за 10 с — окна откроются "
+                 f"на странице ошибки",
+            detail="wait_for_server timeout")
+
     start_autoupdate(state, audit)
 
     from .desktop import MainWindow, MascotWindow
@@ -128,15 +189,20 @@ def run() -> None:  # pragma: no cover - requires a GUI session
         audit.record(tool="window", tool_class="SYS", decision="unavailable",
                      ok=False, line=f"окно приложения: {why}", detail=why)
 
+    def _pet_report(line: str, ok: bool = False) -> None:
+        audit.record(tool="mascot", tool_class="SYS",
+                     decision="auto" if ok else "error", ok=ok,
+                     line=line, detail=line)
+
     pet = None
     if settings.mascot_window:
         pet = MascotWindow(
             f"{base}/mascot?token={state.panel_token}",
             on_panel=window.show,
-            report=lambda line, ok=False: audit.record(
-                tool="mascot", tool_class="SYS",
-                decision="auto" if ok else "error", ok=ok,
-                line=line, detail=line))
+            report=_pet_report,
+            position=state.pet_pos,
+            on_move=lambda pos: _remember_pet(state, pos,
+                                              report=_pet_report))
         ok, why = pet.show()
         audit.record(tool="mascot", tool_class="SYS",
                      decision="auto" if ok else "unavailable", ok=ok,

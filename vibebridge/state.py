@@ -71,6 +71,11 @@ class BridgeState:
     # server-side and survives a reload, so a page-local id meant the owner
     # saw their own history while the robot answered "это новая сессия".
     pet_session: str | None = None
+    #: Where the owner dragged the pet, in Cocoa screen coordinates (x, y of
+    #: its bottom-left corner). Restored with clamping to the CURRENT screen:
+    #: an origin saved on a second display is off-canvas once that display is
+    #: unplugged, and a pet nobody can see is a pet nobody can drag back.
+    pet_pos: list | None = None
 
     @classmethod
     def load(cls, path: Path | None = None) -> BridgeState:
@@ -92,7 +97,8 @@ class BridgeState:
                        autostart_registered=data.get(
                            "autostart_registered", False),
                        auto_update=data.get("auto_update", True),
-                       pet_session=data.get("pet_session"))
+                       pet_session=data.get("pet_session"),
+                       pet_pos=data.get("pet_pos"))
         state = cls(path=path, panel_token=secrets.token_urlsafe(32))
         state.save()
         return state

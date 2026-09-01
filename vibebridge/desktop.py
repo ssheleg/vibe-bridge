@@ -98,6 +98,23 @@ def side_frame(pet, size, screen=None, *, gap: float = GAP):
     return (x, y, sw, sh)
 
 
+def clamp_origin(origin, size, screen=None):
+    """Keep a remembered position on a screen that may have changed.
+
+    Pure, for the same reason `side_frame` is: the case that matters — a
+    display unplugged between sessions — is the one you cannot reproduce by
+    looking at the screen you have. `screen` of None means "cannot ask", and
+    the origin is then trusted as-is rather than clamped to a fabricated
+    display.
+    """
+    x, y = float(origin[0]), float(origin[1])
+    if screen is None:
+        return (x, y)
+    w, h = float(size[0]), float(size[1])
+    sx, sy, sw, sh = screen
+    return (min(max(x, sx), sx + sw - w), min(max(y, sy), sy + sh - h))
+
+
 def visible_frame():
     """The main screen's usable rect, or None when there is no screen to ask.
 
@@ -156,7 +173,7 @@ class _Bridge:
     """
 
     def __init__(self, pet, side=None, side_web=None, on_panel=None,
-                 report=None) -> None:
+                 report=None, on_move=None) -> None:
         self._pet = pet
         self._side = side
         self._side_web = side_web
@@ -166,6 +183,9 @@ class _Bridge:
         #: anywhere said so — the failure looked exactly like a click that
         #: never happened (2026-08-31).
         self._report = report or (lambda _line, ok=False: None)
+        #: Called once per drag GESTURE, on release — not once per delta. The
+        #: position is worth persisting; sixty writes a second are not.
+        self._on_move = on_move
 
     def handle(self, body) -> None:
         kind = None
@@ -189,6 +209,8 @@ class _Bridge:
                 # click vanished without a trace.
                 self._eval("if(!window.vbToggle){throw new Error("
                            "'страница компаньона не готова')}window.vbToggle()")
+            elif kind == "drop":
+                self._remember()
             elif kind == "resize":
                 self._place(body.get("w", 0), body.get("h", 0))
             elif kind == "side":
@@ -206,6 +228,12 @@ class _Bridge:
         if self._side is not None:          # the companion follows the head
             side = self._side.frame()
             self._place(side.size.width, side.size.height)
+
+    def _remember(self) -> None:
+        if self._on_move is None:
+            return
+        frame = self._pet.frame()
+        self._on_move((float(frame.origin.x), float(frame.origin.y)))
 
     # ── the companion ──────────────────────────────────────────────────────
 
@@ -327,10 +355,13 @@ class MascotWindow:
     mascot failing to appear must never take the bridge down with it.
     """
 
-    def __init__(self, url: str, on_panel=None, report=None) -> None:
+    def __init__(self, url: str, on_panel=None, report=None, position=None,
+                 on_move=None) -> None:
         self._url = url
         self._on_panel = on_panel
         self._report = report
+        self._position = position
+        self._on_move = on_move
         self._pet = None
         self._side = None
         self._views: list = []
@@ -439,6 +470,11 @@ class MascotWindow:
         screen = AppKit.NSScreen.mainScreen().visibleFrame()
         px = screen.origin.x + screen.size.width - pw - MARGIN[0]
         py = screen.origin.y + MARGIN[1]
+        if self._position:                  # where the owner left it
+            px, py = clamp_origin(
+                self._position, PET_SIZE,
+                (screen.origin.x, screen.origin.y,
+                 screen.size.width, screen.size.height))
 
         pet = self._make_panel(Foundation.NSMakeRect(px, py, pw, ph))
         sx, sy, sw, sh = side_frame((px, py, pw, ph), SIDE_START,
@@ -457,7 +493,8 @@ class MascotWindow:
         # The handler is registered BEFORE either view exists: `WKWebView`
         # copies its configuration at init, so a handler added afterwards
         # reaches neither page and every message is silently dropped.
-        bridge = _Bridge(pet, side, None, self._on_panel, self._report)
+        bridge = _Bridge(pet, side, None, self._on_panel, self._report,
+                         self._on_move)
 
         class _Handler(Foundation.NSObject):
             def userContentController_didReceiveScriptMessage_(

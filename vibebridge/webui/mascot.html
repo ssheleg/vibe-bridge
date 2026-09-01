@@ -385,8 +385,13 @@ function armDrag(){
     const wasDrag = dragging && dragging.moved > 4;
     dragging = null;
     body.releasePointerCapture(e.pointerId);
-    // A click is a press that did not travel: dragging must not open anything.
-    if (!wasDrag) requestToggle();
+    // A click is a press that did not travel: dragging must not open anything,
+    // and a drag persists the new position ONCE — on release, not per pixel.
+    if (wasDrag){
+      if (native) native.postMessage({type:"drop"});
+    } else {
+      requestToggle();
+    }
   });
 }
 

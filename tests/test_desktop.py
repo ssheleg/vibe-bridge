@@ -413,3 +413,70 @@ def test_the_widget_acts_on_the_first_click():
     widget = source.split("def _make_view", 1)[1].split("def _build", 1)[0]
     assert "_webview_class().alloc()" in widget
     assert "WebKit.WKWebView.alloc()" not in widget
+
+
+# ── the pet stays where the owner put it ───────────────────────────────────
+
+
+def test_a_remembered_origin_is_used_as_is_when_it_fits():
+    assert mw.clamp_origin((1200.0, 300.0), (104, 104),
+                           (0.0, 0.0, 1728.0, 1080.0)) == (1200.0, 300.0)
+
+
+def test_a_remembered_origin_from_a_display_that_is_gone_is_pulled_back():
+    """The case that matters and cannot be reproduced by looking at the screen
+    you have: a position saved on a second monitor. A pet nobody can see is a
+    pet nobody can drag back."""
+    x, y = mw.clamp_origin((3400.0, -200.0), (104, 104),
+                           (0.0, 0.0, 1728.0, 1080.0))
+    assert 0.0 <= x <= 1728.0 - 104 and 0.0 <= y <= 1080.0 - 104
+
+
+def test_without_a_screen_the_origin_is_trusted_rather_than_invented():
+    assert mw.clamp_origin((3400.0, -200.0), (104, 104)) == (3400.0, -200.0)
+
+
+def test_the_release_of_a_drag_reports_the_new_position_once():
+    """One write per gesture. The page posts `drop` on `pointerup`, not a
+    message per delta — sixty writes a second is not persistence, it is
+    thrash."""
+    seen = []
+    pet = _Win(x=950.0, y=130.0)
+    mw._Bridge(pet, on_move=seen.append).handle({"type": "drop"})
+    assert seen == [(950.0, 130.0)]
+
+
+def test_a_drop_without_a_listener_never_raises():
+    pet = _Win()
+    mw._Bridge(pet).handle({"type": "drop"})
+    assert pet.frames == []
+
+
+def test_the_position_saver_is_actually_wired_to_both_seams():
+    """Three functions in this project have been written, unit-tested and never
+    called (`prune`, `migrate_from_state`, `top_up`). The unit test above
+    proves the handler works; these two lines prove somebody calls it."""
+    from pathlib import Path
+
+    import vibebridge
+
+    desktop = Path(mw.__file__).read_text()
+    app = (Path(vibebridge.__file__).parent / "app.py").read_text()
+    assert "self._on_move)" in desktop           # window -> bridge
+    assert "on_move=lambda pos: _remember_pet" in app   # app -> window
+    assert "position=state.pet_pos" in app             # …and it is restored
+
+
+def test_the_page_separates_a_drag_from_a_click():
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui"
+            / "mascot.html").read_text()
+    # Up to the END of the listener, not the first "});" — that one closes
+    # `postMessage({...})` and cut the branch in half.
+    branch = page.split("const wasDrag", 1)[1].split("\n  });", 1)[0]
+    assert 'type:"drop"' in branch.replace(" ", "")
+    assert "requestToggle()" in branch
+

@@ -208,6 +208,29 @@ def _payload_source(root: Path, running: str) -> str:
     return "payload" if (root / running).is_dir() else "seed"
 
 
+#: Our own code carries NO-STORE, and the reason is measured rather than
+#: theoretical. `FileResponse` sends only `etag` and `last-modified`; with no
+#: explicit freshness a client may fall back to a heuristic, and WKWebView
+#: served the widget's page from its disk cache ACROSS an app restart. The pet
+#: therefore ran yesterday's JavaScript inside today's app: a message the new
+#: page was supposed to post never arrived, and the bug looked like a broken
+#: native handler for three rounds — until `rm -rf ~/Library/WebKit/<bundle>`
+#: made the identical drag work (2026-09-01).
+#:
+#: A payload update replaces exactly these files. A cache that outlives the
+#: update makes the update mechanism a lie, which is a worse defect than any
+#: single bug it hides. Images are deliberately NOT included: the PWA's
+#: service worker caches them on purpose, for offline.
+_NO_STORE = {"Cache-Control": "no-store, must-revalidate"}
+
+
+def _code_file(path, media: str | None = None) -> Response:
+    """A page or script of ours, served so the browser cannot keep it."""
+    if media is None:
+        return FileResponse(path, headers=_NO_STORE)
+    return FileResponse(path, media_type=media, headers=_NO_STORE)
+
+
 def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               runner: Runner | None = None,
               capabilities: dict[str, Capability] | None = None,
@@ -309,7 +332,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             # A person, not a program, is reading this. The token is never in
             # the page: whoever can see it here has not proved anything yet.
             return HTMLResponse(_DOOR_HTML, status_code=401)
-        return FileResponse(_WEBUI / "index.html")
+        return _code_file(_WEBUI / "index.html")
 
     async def api_state(request: Request) -> Response:
         if not _authed(request):
@@ -772,7 +795,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return resp
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return FileResponse(_WEBUI / "mascot.html")
+        return _code_file(_WEBUI / "mascot.html")
 
     async def api_mascot_actions(request: Request) -> Response:
         """The quick phrases for the pet's menu."""
@@ -1028,7 +1051,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     # SW must load before any cookie exists on the phone.
     def _static(name: str, media: str):
         async def handler(request: Request) -> Response:
-            return FileResponse(_WEBUI / name, media_type=media)
+            return _code_file(_WEBUI / name, media)
         return handler
 
     async def icon(request: Request) -> Response:
