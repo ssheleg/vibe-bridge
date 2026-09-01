@@ -299,3 +299,47 @@ def test_the_magicdns_name_is_cached_too(monkeypatch):
     for _ in range(10):
         net.tailnet_dns_name()
     assert len(calls) == 1
+
+
+def test_a_refused_request_leaves_a_line_in_the_journal(tmp_path):
+    """Визия §3: «журналирует каждое обращение — исполненное И отклонённое».
+    Обе границы, добавленные 2026-09-01, отказывали молча: владелец не мог
+    узнать, что кто-то стучался (найдено аудитом в тот же день)."""
+    log = AuditLog(tmp_path / "a.log")
+    state = BridgeState(path=tmp_path / "s.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(), audit=log, state=state,
+                    runner=FakeRunner())
+    with TestClient(app) as c:
+        assert c.get("/mcp").status_code == 401
+    lines = [e["line"] for e in log.recent(10)]
+    assert any("до связки с роботом" in ln for ln in lines), lines
+
+
+def test_a_flood_of_refusals_does_not_become_an_access_log(tmp_path):
+    """Обратная крайность так же плоха: сканер из локальной сети за минуту
+    вытеснит из журнала всё, ради чего журнал существует. Одна строка на
+    различный отказ, повтор — не чаще раза в минуту."""
+    log = AuditLog(tmp_path / "a.log")
+    state = BridgeState(path=tmp_path / "s.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(), audit=log, state=state,
+                    runner=FakeRunner())
+    with TestClient(app) as c:
+        for _ in range(12):
+            c.get("/mcp")
+    same = [e for e in log.recent(30) if "до связки с роботом" in e["line"]]
+    assert len(same) == 1, f"{len(same)} строк вместо одной"
+
+
+def test_a_different_refusal_is_reported_separately(tmp_path):
+    """Одна строка на РАЗЛИЧНЫЙ отказ: «не тот токен» и «робот не связан» —
+    разные события, и склеивать их нельзя."""
+    from vibebridge.web import _RefusalJournal
+
+    log = AuditLog(tmp_path / "a.log")
+    j = _RefusalJournal(log)
+    j.refuse("mcp:unpaired", "робот не связан")
+    j.refuse("mcp:unpaired", "робот не связан")      # повтор — молчит
+    j.refuse("mcp:badtoken", "токен не совпал")      # другое — говорит
+    j.refuse("peer:192.168.1.5", "не из тейлнета")   # третье — говорит
+    assert len(log.recent(10)) == 3
+

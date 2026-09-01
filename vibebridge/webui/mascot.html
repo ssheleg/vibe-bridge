@@ -128,6 +128,16 @@ const native = window.webkit && window.webkit.messageHandlers
    see the note at the top of desktop.py. */
 const IS_PET = document.documentElement.dataset.surface === "pet";
 
+/* Моушен-слой персонажа приходит из `mascot.js` и до 2026-09-01 на этих
+   страницах НЕ применялся вовсе: `mascotStyles()` вызывается внутри
+   `renderMascot()`, которым пользуется панель, а виджет строит разметку сам.
+   Единственной анимацией головы было локальное правило `.mascot-body svg`,
+   которое ничего не знало о состоянии — поэтому на паузе питомец продолжал
+   дышать, а мигание, пульс запроса и ветка reduced-motion не работали здесь
+   никогда. Стили инжектятся один раз при загрузке; дальше состояние решают
+   классы `vb-*`, включая `.vb-paused{animation:none}`. */
+mascotStyles();
+
 /* The id comes from the bridge, not from here. A page-local one was
    regenerated on every reload while the feed — which is server-side —
    survived, so the owner kept their visible history and the robot answered

@@ -62,10 +62,33 @@ def _complain(message: str) -> None:
         pass
 
 
+def _configured_port() -> int:
+    """Порт, который РЕАЛЬНО займёт payload: env → config.toml → умолчание.
+
+    Оболочка охраняла `VIBE_BRIDGE_PORT` или константу и `config.toml` не
+    читала никогда — то есть при изменённом порте охраняла чужой номер, а
+    совет в её же сообщении («поменяйте port в config.toml») не работал.
+    `tomllib` из stdlib, так что правило «оболочка без зависимостей» цело.
+    """
+    env = os.environ.get("VIBE_BRIDGE_PORT")
+    if env and env.strip().isdigit():
+        return int(env)
+    try:
+        import tomllib
+        conf = layout.support_dir() / "config.toml"
+        with open(conf, "rb") as fh:
+            value = tomllib.load(fh).get("port")
+        if isinstance(value, int) and 1 <= value <= 65535:
+            return value
+    except Exception:                       # noqa: BLE001 - умолчание честнее
+        pass
+    return 48620
+
+
 def main() -> int:
     from .runner import guard_single_instance
 
-    port = int(os.environ.get("VIBE_BRIDGE_PORT", "48620"))
+    port = _configured_port()
     busy = guard_single_instance(port)
     if busy:
         _complain(busy)

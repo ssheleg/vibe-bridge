@@ -1,2 +1,2 @@
 """vibe-bridge — menu-bar MCP bridge between robot-vibecoder and this Mac."""
-__version__ = "0.18.0"
+__version__ = "0.19.0"

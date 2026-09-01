@@ -101,6 +101,63 @@ _DECISIONS = {
 }
 
 
+class _RefusalJournal:
+    """Отказ на границе попадает в журнал — но не превращает его в access-log.
+
+    Визия §3 обещает журналировать «каждое обращение — исполненное и
+    отклонённое», и до 2026-09-01 обе границы (`PeerGuard`, `BearerGuard`)
+    отказывали МОЛЧА: владелец не мог узнать, что кто-то стучался. Обратная
+    крайность так же плоха: сканер из локальной сети за минуту вытеснит из
+    журнала всё, ради чего журнал существует.
+
+    Поэтому политика та же, что у автообновления: одна строка на РАЗЛИЧНЫЙ
+    отказ, повтор того же — не чаще раза в минуту.
+    """
+
+    WINDOW_S = 60.0
+
+    def __init__(self, audit) -> None:
+        self._audit = audit
+        self._seen: dict[str, float] = {}
+
+    def refuse(self, kind: str, line: str, detail: str = "") -> None:
+        import time as _time
+        now = _time.monotonic()
+        last = self._seen.get(kind)
+        if last is not None and now - last < self.WINDOW_S:
+            return
+        self._seen[kind] = now
+        try:
+            self._audit.record(tool="boundary", tool_class="SYS",
+                               decision="deny", ok=False,
+                               line=line, detail=detail or line)
+        except Exception:                   # noqa: BLE001 - журнал не граница
+            pass
+
+
+def pending_version(installed: str | None, running: str) -> str | None:
+    """Версия, которая применится после перезапуска — или None.
+
+    Раньше здесь стояло `installed != running`, то есть сравнение СТРОК. После
+    установки нового DMG каталог payload остаётся на прошлой версии, и панель
+    начинала обещать обновление, которого нет: «обновление скачано и
+    применится после перезапуска» — при том что перезапуск ничего не менял,
+    потому что оболочка на равенстве и на старшинстве выбирает seed. Механизм
+    обновления начинал врать ровно там, где ADR-0006 держит всё доверие.
+
+    Чистая и снаружи — чтобы три случая (новее / равно / старее) проверялись
+    без HTTP-стека.
+    """
+    if not installed:
+        return None
+    from vbboot import layout as _layout
+    try:
+        return installed if _layout.parse(installed) > _layout.parse(running) \
+            else None
+    except Exception:                       # noqa: BLE001 - непарсимое молчит
+        return None
+
+
 class PeerGuard:
     """403 всему, что пришло НЕ из loopback и не из тейлнета.
 
@@ -116,14 +173,19 @@ class PeerGuard:
     пира, и вот она.
     """
 
-    def __init__(self, app, armed: bool) -> None:
-        self.app, self.armed = app, armed
+    def __init__(self, app, armed: bool, journal=None) -> None:
+        self.app, self.armed, self.journal = app, armed, journal
 
     async def __call__(self, scope, receive, send) -> None:
         if self.armed and scope["type"] in ("http", "websocket"):
             from .net import peer_allowed
             client = scope.get("client") or (None, None)
             if not peer_allowed(client[0]):
+                if self.journal is not None:
+                    self.journal.refuse(
+                        f"peer:{client[0]}",
+                        f"отказано соединению не из тейлнета: {client[0]}",
+                        f"{scope.get('method', '?')} {scope.get('path', '?')}")
                 await JSONResponse(
                     {"error": "forbidden",
                      "detail": "мост принимает соединения только из loopback "
@@ -142,8 +204,10 @@ class BearerGuard:
     на его же mac_*-инструменты на ~15 часов (замечено post-rename
     проверкой цепи)."""
 
-    def __init__(self, app, state: BridgeState, mode: str = "standalone") -> None:
+    def __init__(self, app, state: BridgeState, mode: str = "standalone",
+                 journal=None) -> None:
         self.app, self.state, self.mode = app, state, mode
+        self.journal = journal
 
     async def __call__(self, scope, receive, send) -> None:
         token = (self.state.robot_token
@@ -156,6 +220,11 @@ class BearerGuard:
         # тут некого.
         if (self.mode == "standalone" and not token
                 and scope["type"] == "http"):
+            if self.journal is not None:
+                self.journal.refuse(
+                    "mcp:unpaired",
+                    "к MCP обратились до связки с роботом — отказано",
+                    "нет robot_token")
             await JSONResponse(
                 {"error": "unpaired",
                  "detail": "робот ещё не связан с этим мостом — /mcp закрыт"},
@@ -170,6 +239,11 @@ class BearerGuard:
                     auth = v.decode("latin-1")
                     break
             if auth != f"Bearer {token}":
+                if self.journal is not None:
+                    self.journal.refuse(
+                        "mcp:badtoken",
+                        "к MCP обратились без верного токена робота — отказано",
+                        "Authorization не совпал")
                 await JSONResponse(
                     {"error": "unauthorized"}, status_code=401,
                     headers={"WWW-Authenticate": "Bearer"},
@@ -344,6 +418,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     set_notifier(notify)
     caps = capabilities or build_capabilities()
     availability = probe_availability(caps)
+    _refusals = _RefusalJournal(audit)
+
     if mcp_allowed_hosts is None:
         mcp_allowed_hosts = _net_allowed_hosts(state)
     mcp = build_server(consent=consent, audit=audit, runner=runner,
@@ -668,12 +744,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         from vbboot import layout as _layout
 
-        from . import __version__, update
+        from . import __version__
         from .autostart import status as autostart_status
 
         root = _layout.payload_root()
         installed = await asyncio.to_thread(_layout.active_version, root)
-        pending = installed if installed and installed != __version__ else None
+        pending = pending_version(installed, __version__)
         auto = await asyncio.to_thread(autostart_status)
         return JSONResponse({
             "running": __version__,
@@ -681,7 +757,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             "pending": pending,
             "pending_note": ("обновление скачано и применится после "
                              "перезапуска моста" if pending else ""),
-            "repo": update.RELEASE_REPO,
+            # Настройка, а не константа: владелец форка меняет
+            # `release.repo`, и две карточки панели показывали
+            # два разных репозитория.
+            "repo": settings.release_repo,
             "auto_update": bool(getattr(state, "auto_update", True)),
             "autostart": {"state": auto.state, "human": auto.human,
                           "supported": auto.supported, "detail": auto.detail},
@@ -1167,9 +1246,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                   methods=["POST"]),
             Route("/events", events),
             Mount("/", app=BearerGuard(mcp.streamable_http_app(), state,
-                                       settings.mode)),
+                                       settings.mode, _refusals)),
         ],
         lifespan=lifespan,
     )
     # Взводится вызывающим — он один знает, какой интерфейс занят.
-    return PeerGuard(app, peer_guard) if peer_guard else app
+    return PeerGuard(app, peer_guard, _refusals) if peer_guard else app

@@ -171,3 +171,44 @@ def test_a_dev_checkout_refuses_to_update_instead_of_pretending(client,
     body = client.post("/api/update/check").json()
     assert body["found"] is True and body["installed"] is False
     assert "не из установленного приложения" in body["message"]
+
+
+# ── «обновление ждёт» — это сравнение версий, а не строк ───────────────────
+
+
+def test_pending_is_a_version_comparison_not_a_string_one():
+    """Найдено аудитом и ИЗМЕРЕНО: `installed != running` объявляло откатом
+    любую несовпадающую строку. После установки нового DMG каталог payload
+    остаётся на прошлой версии — и панель обещала обновление, которого нет,
+    при том что перезапуск ничего не менял."""
+    from vibebridge.web import pending_version
+
+    assert pending_version("0.19.0", "0.18.0") == "0.19.0"   # новее — ждёт
+    assert pending_version("0.18.0", "0.18.0") is None       # равно
+    assert pending_version("0.17.0", "0.18.0") is None       # СТАРЕЕ
+    assert pending_version(None, "0.18.0") is None
+    assert pending_version("мусор", "0.18.0") is None        # молчит, не падает
+
+
+def test_the_panel_names_the_repository_from_the_settings(tmp_path):
+    """Репозиторий релизов жил в двух правдах: константа в `update.py` и
+    настройка `release.repo`. `/api/version` отдавал константу, `/api/settings`
+    — настройку, и владелец форка видел в двух карточках два разных адреса."""
+    from dataclasses import replace
+
+    from starlette.testclient import TestClient
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    state = BridgeState(path=tmp_path / "s.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+                    state=state,
+                    settings=replace(Settings(), release_repo="fork/vibe-bridge"))
+    c = TestClient(app)
+    c.cookies.set("vb_panel", "pt")
+    assert c.get("/api/version").json()["repo"] == "fork/vibe-bridge"
+

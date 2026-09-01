@@ -231,7 +231,9 @@ def run() -> None:  # pragma: no cover - requires a GUI session
                 rumps.MenuItem("Открыть окно", callback=self.open_window),
                 rumps.MenuItem("Панель в браузере", callback=self.open_panel),
                 rumps.MenuItem("🤖 Показать питомца", callback=self.toggle_pet),
-                rumps.MenuItem("⏸ Поставить робота на паузу",
+                # Текст этого пункта — ПРОИЗВОДНОЕ от состояния и пишется
+                # только в `_poll`; см. там, почему.
+                rumps.MenuItem("⏸ Поставить мост на паузу",
                                callback=self.toggle_pause),
                 rumps.MenuItem("Сбросить разрешения",
                                callback=self.revoke),
@@ -244,6 +246,19 @@ def run() -> None:  # pragma: no cover - requires a GUI session
 
         def _poll(self, _timer) -> None:
             self.title = tray_title(consent)   # SCR-01 states, shared helper
+            # Тексты меню — ПРОИЗВОДНОЕ от состояния, и пишутся здесь, а не в
+            # обработчике клика. Раньше их писал только `toggle_pause`, и
+            # получалось хуже, чем «надпись отстала»: пауза, поставленная с
+            # панели или с телефона, до меню-бара не доходила, пункт
+            # по-прежнему предлагал «поставить на паузу» — а клик по нему
+            # исполнял `paused = not True` и СНИМАЛ её. Kill switch
+            # инвертировался на той единственной ОС, которая отгружена
+            # (найдено аудитом 2026-09-01; в pystray-ветке для Win/Linux то же
+            # самое сделано правильно — лямбдой).
+            #
+            # Заодно строка исправлена по существу: пауза выключает ЭТОТ
+            # компьютер, робот продолжает жить (визия §5.3).
+            self._sync_pause_labels()
             req = consent.pending()
             if req is None:
                 return
@@ -309,12 +324,19 @@ def run() -> None:  # pragma: no cover - requires a GUI session
             else:
                 rumps.notification("vibe-bridge", "", why)
 
-        def toggle_pause(self, sender) -> None:
-            consent.paused = not consent.paused
-            sender.title = ("▶️ Снять с паузы" if consent.paused
-                            else "⏸ Поставить робота на паузу")
+        def _sync_pause_labels(self) -> None:
+            """Единственный писатель обоих текстов паузы."""
+            paused = consent.paused
+            self.menu["⏸ Поставить мост на паузу"].title = (
+                "▶️ Снять с паузы" if paused else "⏸ Поставить мост на паузу")
             self.menu["Мост активен"].title = (
-                "Мост на ПАУЗЕ" if consent.paused else "Мост активен")
+                "Мост на ПАУЗЕ" if paused else "Мост активен")
+
+        def toggle_pause(self, _sender) -> None:
+            # Только переключает состояние: тексты синхронизирует `_poll`,
+            # который видит и решения с других поверхностей.
+            consent.paused = not consent.paused
+            self._sync_pause_labels()
 
         def revoke(self, sender) -> None:
             consent.revoke_grants()

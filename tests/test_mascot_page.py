@@ -579,3 +579,38 @@ def test_images_are_still_cacheable_because_the_pwa_needs_them(client):
     assert r.status_code == 200
     assert "no-store" not in r.headers.get("cache-control", "")
 
+
+def test_the_widget_actually_applies_the_character_motion_layer():
+    """Найдено проверкой НА ЭКРАНЕ 2026-09-01, а не тестами.
+
+    `mascotStyles()` — единственное место, где живут дыхание, мигание, пульс
+    запроса, замирание на паузе (`.vb-paused{animation:none}`) и ветка
+    reduced-motion. Оно вызывается внутри `renderMascot()`, которым пользуется
+    ПАНЕЛЬ; виджет строит разметку сам и стилей не получал вовсе. Единственной
+    анимацией головы было локальное правило `.mascot-body svg`, ничего не
+    знавшее о состоянии, — поэтому на паузе питомец продолжал дышать.
+
+    Замерено кадрами: до фикса 1 уникальный кадр из 5 в покое (не дышит) и 1
+    из 5 на паузе; после — 5 из 5 в покое и 1 из 5 на паузе.
+    """
+    html = (WEBUI / "mascot.html").read_text()
+    # Вызов на верхнем уровне страницы, а не внутри функции, которую страница
+    # не использует.
+    assert "\nmascotStyles();" in html, "виджет не подключает моушен-слой"
+    # …и локальной копии, которая перебивала правило паузы, больше нет.
+    import re
+    css = html.split("<style>", 1)[1].split("</style>", 1)[0]
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    assert "@keyframes vb-breathe" not in css, "вернулась вторая копия дыхания"
+    assert ".mascot-body svg{animation" not in css.replace(" ", ""), (
+        "локальное правило снова перебивает состояние")
+
+
+def test_pause_has_no_motion_in_the_shared_stylesheet():
+    """Принцип 3 визии: «пауза выглядит как отсутствие». Правило существует в
+    `mascot.js`, и именно поэтому важно, что виджет его подключает."""
+    js = (WEBUI / "mascot.js").read_text()
+    rules = js.split("mascotStyles", 1)[1].replace(" ", "")
+    assert ".vb-paused,.vb-offline{animation:none}" in rules
+    assert ".vb-paused*,.vb-offline*{animation:none}" in rules
+

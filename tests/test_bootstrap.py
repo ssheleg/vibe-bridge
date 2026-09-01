@@ -218,3 +218,66 @@ def test_the_message_names_who_is_holding_the_port_when_it_can():
         why = runner.guard_single_instance(port)
     # Our own process holds it in this test, so the name must appear.
     assert "python" in why.lower() or "pid" in why.lower()
+
+
+# ── защита от второго экземпляра, измеренная против обоих видов бинда ──────
+
+
+def test_the_guard_sees_a_wildcard_listener_too():
+    """ИЗМЕРЕНО аудитом 2026-09-01 и перепроверено: проба шла на
+    `127.0.0.1` с `SO_REUSEADDR`, и когда standalone (дефолт дистрибуции) стал
+    биндить `0.0.0.0`, гвард перестал работать вовсе — на BSD-стеке точечный
+    бинд поверх wildcard с `SO_REUSEADDR` разрешён. Второй экземпляр стартовал
+    МОЛЧА: два трея, два питомца, консент только в одном процессе.
+    """
+    import socket
+
+    from vbboot.runner import guard_single_instance
+
+    for host in ("0.0.0.0", "127.0.0.1"):    # noqa: S104 - это и есть проверка
+        srv = socket.socket()
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind((host, 0))
+        port = srv.getsockname()[1]
+        srv.listen(1)
+        try:
+            busy = guard_single_instance(port)
+            assert busy, f"слушатель на {host} не замечен гвардом"
+            assert str(port) in busy          # и назван номер
+        finally:
+            srv.close()
+
+
+def test_a_free_port_is_not_reported_as_busy():
+    """Обратная сторона: гвард, который всегда говорит «занято», это гвард,
+    который не даёт мосту запуститься."""
+    import socket
+
+    from vbboot.runner import guard_single_instance
+
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    assert guard_single_instance(port) is None
+
+
+def test_the_shell_guards_the_port_the_payload_will_take(tmp_path, monkeypatch):
+    """Оболочка читала `VIBE_BRIDGE_PORT` или константу и `config.toml` не
+    открывала никогда — то есть при изменённом порте охраняла чужой номер, а
+    совет в её же сообщении («поменяйте port в config.toml») не работал."""
+    from vbboot import __main__ as boot
+    from vbboot import layout
+
+    monkeypatch.delenv("VIBE_BRIDGE_PORT", raising=False)
+    (tmp_path / "config.toml").write_text('port = 51234\n', encoding="utf-8")
+    monkeypatch.setattr(layout, "support_dir", lambda: tmp_path)
+    assert boot._configured_port() == 51234
+
+    monkeypatch.setenv("VIBE_BRIDGE_PORT", "52000")
+    assert boot._configured_port() == 52000        # env всё ещё старше файла
+
+    monkeypatch.delenv("VIBE_BRIDGE_PORT")
+    (tmp_path / "config.toml").write_text("port = 'нет'\n", encoding="utf-8")
+    assert boot._configured_port() == 48620        # мусор → умолчание
+

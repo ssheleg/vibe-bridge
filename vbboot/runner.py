@@ -106,7 +106,7 @@ def shell_version() -> str | None:
     return str(version) if version else None
 
 
-def guard_single_instance(port: int, host: str = "127.0.0.1") -> str | None:
+def guard_single_instance(port: int, host: str = "0.0.0.0") -> str | None:  # noqa: S104
     """None when the port is ours to take; otherwise the reason, in words the
     owner can act on.
 
@@ -117,9 +117,23 @@ def guard_single_instance(port: int, host: str = "127.0.0.1") -> str | None:
     robot that cannot find it — the worst of both. Refusing is right; refusing
     without naming the holder or the way out is not.
     """
+    # Проба идёт на WILDCARD и БЕЗ `SO_REUSEADDR`, и оба решения измерены.
+    # Раньше здесь стояло `bind(("127.0.0.1", port))` с `SO_REUSEADDR` — и с
+    # 2026-09-01, когда standalone (дефолт дистрибуции) стал биндить
+    # `0.0.0.0`, гвард перестал работать вовсе: на BSD-стеке точечный бинд
+    # поверх wildcard с `SO_REUSEADDR` разрешён. Измерено на этой машине:
+    # слушатель на `0.0.0.0:48699` → гвард отвечал «порт свободен».
+    #
+    # Второй экземпляр при этом стартовал МОЛЧА: его uvicorn падает в
+    # daemon-треде без обработчика, а ожидание порта видит порт ПЕРВОГО
+    # экземпляра и рапортует успех. Владелец получал два трея и двух питомцев,
+    # а консент-диалоги приходили только в один процесс.
+    #
+    # Wildcard-проба конфликтует и с точечным, и с wildcard-слушателем;
+    # `SO_REUSEADDR` в тесте на занятость — прямо противоположное тому, что
+    # нужно: он существует, чтобы бинд УДАВАЛСЯ там, где иначе не вышло бы.
     probe = socket.socket()
     try:
-        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         probe.bind((host, port))
     except OSError:
         holder = _port_holder(port)
