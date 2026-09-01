@@ -33,13 +33,18 @@ def start_server(consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     the main thread on every OS). Shared by all backends."""
     if settings is None:
         settings = prepare_settings(state)
-    web_app = build_app(consent=consent, audit=audit, state=state,
-                        notify=notify, settings=settings)
     if settings.mode == "standalone":
         from .net import standalone_bind_host
         bind_host = standalone_bind_host()
     else:
         bind_host = BRIDGE_HOST            # gateway mode: loopback, as M1–M4
+    # Взводим границу по адресу пира ровно тогда, когда слушаем больше, чем
+    # loopback. При loopback-бинде каждый пир и есть loopback, и проверка была
+    # бы декорацией; при более широком бинде она единственная настоящая —
+    # allowlist по `Host` присылает клиент.
+    web_app = build_app(consent=consent, audit=audit, state=state,
+                        notify=notify, settings=settings,
+                        peer_guard=bind_host != BRIDGE_HOST)
     threading.Thread(target=_serve, args=(web_app, bind_host, settings.port),
                      name="vibe-bridge-web", daemon=True).start()
 

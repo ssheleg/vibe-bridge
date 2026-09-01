@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vibe-bridge — аудит 2026-09-01</title>
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#fff; --panel-2:#f2f4f7;
+  --ink:#161b22; --muted:#59616e; --border:#e3e7ec; --border-strong:#d2d8e0;
+  --p0:#c1121f; --p0-bg:#fdecee; --p1:#9a6700; --p1-bg:#fff5db;
+  --p2:#2f6feb; --p2-bg:#eaf0fe; --p3:#59616e; --p3-bg:#f2f4f7;
+  --ok:#1a7f37; --ok-bg:#e8f5ec;
+  --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --ui:-apple-system,"SF Pro","Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0e1116;--panel:#161b22;--panel-2:#1c222b;--ink:#e6eaf0;
+  --muted:#8b93a1;--border:#242b35;--border-strong:#2f3742;
+  --p0:#ff6b6b;--p0-bg:#2c1417;--p1:#d9a93f;--p1-bg:#2a2210;
+  --p2:#5b93ff;--p2-bg:#16233c;--p3:#8b93a1;--p3-bg:#1c222b;
+  --ok:#4cc06a;--ok-bg:#12281a}
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.55 var(--ui);
+  max-width:1080px;margin:0 auto;padding:32px 24px 80px}
+h1{font-size:26px;letter-spacing:-.01em;margin-bottom:6px}
+h2{font-size:18px;margin:36px 0 10px;padding-bottom:6px;
+  border-bottom:1px solid var(--border)}
+h3{font-size:15px;margin:20px 0 6px}
+p{margin:8px 0}
+.lede{color:var(--muted);font-size:15px;max-width:74ch}
+code,.ev{font-family:var(--mono);font-size:12px}
+.ev{color:var(--muted);background:var(--panel-2);border:1px solid var(--border);
+  border-radius:4px;padding:1px 5px;white-space:nowrap}
+.cards{display:grid;gap:12px;align-items:start;margin:20px 0;
+  grid-template-columns:repeat(auto-fill,minmax(180px,1fr))}
+.stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  padding:14px 16px}
+.stat .n{font-family:var(--mono);font-size:26px;font-variant-numeric:tabular-nums;
+  display:block;line-height:1.1}
+.stat .l{color:var(--muted);font-size:12px;margin-top:4px;display:block}
+.warn{background:var(--p0-bg);border:1px solid var(--p0);border-radius:10px;
+  padding:14px 18px;margin:20px 0}
+.warn b{color:var(--p0)}
+.f{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--border-strong);
+  border-radius:8px;padding:13px 16px;margin:10px 0}
+.f.p0{border-left-color:var(--p0)} .f.p1{border-left-color:var(--p1)}
+.f.p2{border-left-color:var(--p2)} .f.p3{border-left-color:var(--p3)}
+.f.done{border-left-color:var(--ok)}
+.tag{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:600;
+  border-radius:999px;padding:1px 8px;margin-right:8px;vertical-align:1px}
+.tag.p0{background:var(--p0-bg);color:var(--p0)}
+.tag.p1{background:var(--p1-bg);color:var(--p1)}
+.tag.p2{background:var(--p2-bg);color:var(--p2)}
+.tag.p3{background:var(--p3-bg);color:var(--p3)}
+.tag.done{background:var(--ok-bg);color:var(--ok)}
+.f .t{font-weight:600}
+.f .d{color:var(--muted);margin-top:5px}
+.f .fix{margin-top:6px;font-size:13px}
+.f .fix b{color:var(--ok)}
+.quote{border-left:2px solid var(--border-strong);padding-left:12px;
+  color:var(--muted);font-style:italic;margin:6px 0}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--border);
+  vertical-align:top}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--muted);background:var(--panel-2)}
+td.mono{font-family:var(--mono);font-size:12px;white-space:nowrap}
+.wave{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+  padding:14px 18px;margin:10px 0}
+.wave .h{font-weight:600;margin-bottom:4px}
+.good{color:var(--ok)}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--border);
+  color:var(--muted);font-size:12px}
+.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+
+<h1>vibe-bridge — аудит проекта</h1>
+<p class="lede">1 сентября 2026. Аудит запускался семью субагентами, каждому
+свой угол обзора. Пять упали на внешнем ограничении аккаунта; три угла имеют
+доказательную базу. Каждая находка ниже подтверждена ссылкой
+<span class="ev">файл:строка</span>, а четыре — прогоном настоящих данных через
+настоящий код.</p>
+
+<div class="cards">
+  <div class="stat"><span class="n">31</span><span class="l">находка записана на доску</span></div>
+  <div class="stat"><span class="n good">4</span><span class="l">закрыто сегодня же</span></div>
+  <div class="stat"><span class="n">7</span><span class="l">приоритет P0</span></div>
+  <div class="stat"><span class="n">3&nbsp;/&nbsp;7</span><span class="l">углов покрыто</span></div>
+  <div class="stat"><span class="n">432</span><span class="l">теста зелёных</span></div>
+</div>
+
+<div class="warn">
+<b>Чего в этом отчёте нет.</b> Субагенты по четырём углам — архитектура кода,
+визуальный слой, соответствие сценариям и JTBD, качество тестов — не отработали:
+все прервались с ошибкой <code>You've hit your individual spend limit</code>.
+Это не «там всё в порядке», это «там не смотрели». Покрыты: юзабилити,
+шов робот↔мост, границы безопасности и логика. Аудит по остальным углам стоит
+повторить, когда лимит позволит.
+</div>
+
+<h2>Четыре находки, закрытые сразу</h2>
+<p>Каждая — либо дыра в безопасности, либо неверное утверждение, которое я сам
+внёс в леджер сегодня. Их нельзя было оставлять в плане.</p>
+
+<div class="f done">
+<span class="tag done">закрыто</span><span class="t">A-1 · Инструмент
+<code>automation</code> выдавал shell, который продукт отрицает</span>
+<div class="d">В блоклисте AppleScript отсутствовал <code>do shell script</code>
+<span class="ev">capabilities.py:26</span>, а последняя запись читалась как
+<code>system events» keystroke</code> — с <code>»</code> вместо <code>to</code>,
+поэтому не совпадала ни с одним настоящим скриптом: синтез нажатий не
+блокировался никогда. Докстрока модуля объявляет «Deliberately absent: shell»,
+skill робота — «Чего у тебя НЕТ: shell на Маке», анти-визия продукта —
+«Никакого shell». Проверено прогоном настоящих строк через список: и
+<code>do shell script "rm -rf ~"</code>, и
+<code>… to keystroke "a"</code> проходили.</div>
+<div class="fix"><b>Сделано:</b> блоклист расширен, в коде сказано вслух, что
+подстрочный блоклист — не песочница, а сужение радиуса; настоящая граница —
+что ACT подтверждает владелец, <em>видя сам скрипт</em>. Текст скрипта теперь
+в строке согласия (обрезанный) и полностью в журнале. Два теста гоняют
+настоящие скрипты, а не проверяют наличие записи в списке.</div>
+</div>
+
+<div class="f done">
+<span class="tag done">закрыто</span><span class="t">A-2 · <code>/mcp</code> без
+аутентификации на свежей установке</span>
+<div class="d"><code>BearerGuard</code> читал «токен есть → проверить»
+<span class="ev">web.py:117</span>, поэтому в режиме standalone до пейринга
+пропускал всё. Единственной «границей» оставался allowlist по заголовку
+<code>Host</code> — а он не граница: <code>Host</code> присылает клиент,
+достаточно назвать <code>127.0.0.1</code>. Измерено на этой машине: запрос на
+tailnet-адрес с подделанным <code>Host: 127.0.0.1</code> проходил проверку
+хоста. Половину этой дыры открыл я сам сегодня, расширив бинд standalone до
+всех интерфейсов ради работающей панели.</div>
+<div class="fix"><b>Сделано:</b> до пейринга <code>/mcp</code> отвечает 401
+<code>unpaired</code> — обслуживать некого. Добавлен <code>PeerGuard</code>:
+граница по <em>адресу пира</em> (loopback + CGNAT-диапазон тейлнета), взводится
+ровно когда бинд шире loopback. Неразбираемый адрес — отказ, а не «наверное
+свои». Пять тестов, включая отказ локальной сети и запрет fail-open.</div>
+</div>
+
+<div class="f done">
+<span class="tag done">закрыто</span><span class="t">A-3 · Снимки экрана
+владельца оставались на диске навсегда</span>
+<div class="d"><code>tempfile.mktemp()</code>, чтение, и никакого удаления
+<span class="ev">capabilities.py:98</span> — при том что linux-пак в соседнем
+файле удаляет корректно. Каждый снимок оставался полноэкранным PNG в
+<code>/var/folders</code> бессрочно.</div>
+<div class="quote">«Я разрешил посмотреть, а не хранить копии моего экрана.»</div>
+<div class="fix"><b>Сделано:</b> <code>finally: os.unlink</code>; тест
+проверяет, что файла после вызова нет.</div>
+</div>
+
+<div class="f done">
+<span class="tag done">закрыто</span><span class="t">A-4 · Три строки карточки
+«Система робота» не рисовались никогда — и B-30 был закрыт неверно</span>
+<div class="d">Робот отдаёт <code>uptime</code> <b>строкой</b>
+<span class="ev">dashboard_data.py:433</span>, панель читала
+<code>d.uptime.pretty</code>, <code>.load1</code>, <code>.cpu_pct</code>
+<span class="ev">index.html:622</span>; <code>cpu_pct</code> и <code>load</code>
+не проецировались вовсе <span class="ev">bridge_api.py:245</span>. Тест был
+зелёным, потому что фикстура робота мокала форму, которой сборщик не
+производит <span class="ev">test_bridge_api.py:330</span>.</div>
+<div class="d">Мой собственный скриншот карточки это подтверждал. Я сверил,
+что <em>показанное</em> — правда, и не сверил со списком <em>ожидаемого</em>:
+отсутствие строки в скриншоте невидимо.</div>
+<div class="fix"><b>Сделано:</b> проекция расширена, панель терпит обе формы
+(робот может быть любой версии), фикстура приведена к настоящей форме — включая
+форму сервиса, которую панель реально читает, — и добавлены утверждения против
+<em>настоящего</em> сборщика.</div>
+</div>
+
+<h2>Волна 1 — критическое, ещё не сделано</h2>
+
+<div class="f p0"><span class="tag p0">P0</span><span class="t">A-5 · SD-визард
+никогда не приводит к «робот подключён»</span>
+<div class="d">Скрипт, который мост сам пишет на карту, POST'ит в
+<code>/pair</code> только <code>{token, name}</code>
+<span class="ev">wizard.py:118</span>, а <code>robot_base_url</code> ставится
+только при наличии <code>base_url</code> <span class="ev">web.py:519</span>.
+Владелец получает уведомление «Робот связан ✓», а панель говорит «не
+подключён», чат остаётся серым, шаг онбординга не закрывается. Докстрока
+самого визарда объявляет протокол с <code>base_url</code> и
+<code>chat_url</code> — код ей не соответствует.</div>
+<div class="quote">«Мост сказал, что робот связан. Панель говорит, что не
+подключён. Кому верить?»</div>
+</div>
+
+<div class="f p0"><span class="tag p0">P0</span><span class="t">A-6 · Повтор
+чата исполняет побочные эффекты дважды</span>
+<div class="d"><code>for attempt in (1, 2)</code> с тем же payload после
+таймаута 150 с <span class="ev">robot.py:120</span>; ключа идемпотентности нет
+ни на ходе, ни в прокси робота <span class="ev">bridge_api.py:521</span>. Ход
+№1 к этому моменту может ещё исполнять tool-call'ы: пост в канал, вспышка и
+снимок, открытая вкладка. Ход №2 повторяет всё, и память мозга получает вопрос
+дважды.</div>
+</div>
+
+<div class="f p0"><span class="tag p0">P0</span><span class="t">A-7 · Мост
+перетирает telegram-контекст робота и может уронить его инструмент</span>
+<div class="d">Мост пишет <code>{channel, ts}</code> в тот же файл, куда бот
+пишет с <code>chat_id</code> <span class="ev">bridge_api.py:285</span>; путь
+инструмента заканчивается <code>int(ctx["chat_id"])</code>
+<span class="ev">io.py:759</span> → <code>KeyError</code>, когда последним
+писал мост. Плюс телеграм-сообщение, пришедшее внутри 150-секундного окна,
+возвращает маршрут в телеграм — ровно та жалоба, из-за которой и появился
+<code>target='computer'</code>.</div>
+</div>
+
+<h2>Волна 2 — честность согласия</h2>
+<p class="lede">Ядро визии — «руки агенту, вето владельцу». Именно оно сейчас
+размыто: владелец не всегда понимает, что разрешает, сколько у него времени и
+почему ничего не произошло.</p>
+
+<div class="f p1"><span class="tag p1">P1</span><span class="t">A-8 · «На 15
+мин» разрешает весь класс, а кнопка об этом не говорит</span>
+<div class="d">Грант ключуется на <code>tool_class</code>
+<span class="ev">consent.py:110</span>. «Да» на «открыть ссылку» на пятнадцать
+минут молча включает <code>automation</code>, чтение буфера обмена и Shortcuts.
+Робот об этом не знает: его skill говорит «ACT требует согласия» и про стоящий
+грант не упоминает.</div>
+<div class="quote">«Я разрешил открыть одну ссылку. Почему он полез в буфер
+обмена?»</div>
+</div>
+
+<div class="f p1"><span class="tag p1">P1</span><span class="t">A-9 · Никто не
+говорит, что запрос истекает</span>
+<div class="d">Отказ по молчанию — политика по умолчанию
+<span class="ev">consent.py:42</span>, но обратного отсчёта нет ни в панели, ни
+у питомца, ни в системном диалоге.</div>
+<div class="quote">«Куда пропал запрос? Я же не отвечал ни да, ни нет.»</div>
+</div>
+
+<div class="f p1"><span class="tag p1">P1</span><span class="t">A-10 · Клик
+«Разрешить» после таймаута ничего не делает и молчит</span>
+<div class="d">По таймауту запрос удаляется из <code>_pending</code>, но событие
+не выставляется <span class="ev">consent.py:103</span>;
+<code>resolve()</code> возвращает True, ветка «уже решено» не срабатывает
+<span class="ev">app.py:255</span>, а модальный диалог сам не закрывается и
+висит часами.</div>
+</div>
+
+<div class="f p1"><span class="tag p1">P1</span><span class="t">A-11 · Карта
+способностей врёт до перезапуска, и кнопки выдачи прав нет</span>
+<div class="d">Проба выполняется один раз при старте
+<span class="ev">web.py:298</span> и служит источником и для панели, и для
+мгновенного отказа роботу. Владелец выдаёт «Запись экрана», возвращается — и
+всё по-прежнему. Сценарий SCN-020 обещает уведомление и кнопку в системный
+диалог; в коде нет ни того, ни другого.</div>
+<div class="quote">«Я выдал права. Ничего не изменилось. Значит, приложение
+сломано.»</div>
+</div>
+
+<h2>Остальные волны</h2>
+<div class="scroll">
+<table>
+<thead><tr><th>ID</th><th>Приоритет</th><th>Находка</th><th>Доказательство</th></tr></thead>
+<tbody>
+<tr><td class="mono">A-12</td><td>P1</td><td>Привязка объявляет успех, ничего не проверив; пустой ключ гарантирует 401; <code>chat_url</code> в форме нет, поэтому чат включается и не работает</td><td class="mono">web.py:695<br>index.html:395</td></tr>
+<tr><td class="mono">A-13</td><td>P1</td><td>Каждое событие робота попадает в ленту дважды и произносится дважды; вторая копия без медиа</td><td class="mono">web.py:1073…1080</td></tr>
+<tr><td class="mono">A-14</td><td>P1</td><td><code>bridge_media/</code> на Pi не чистит никто; имя <code>{ts}-{file}</code> перетирает снимок той же секунды</td><td class="mono">io.py:846</td></tr>
+<tr><td class="mono">A-15</td><td>P1</td><td>Правило парности <code>mcp</code>↔<code>HERMES_VERSION</code> — проза без гейта, в двух копиях; робот уже требует <code>mcp&gt;=1.27</code></td><td class="mono">pyproject.toml:10<br>build_app.sh:104</td></tr>
+<tr><td class="mono">A-16</td><td>P1</td><td>Числа в коде спорят с <code>config.toml</code>: интервал автообновления, «60 секунд» в отказе, порт в карточке телефона и визарде</td><td class="mono">app.py:57<br>consent.py:155</td></tr>
+<tr><td class="mono">A-17</td><td>P2</td><td><code>screenshot</code> отдаёт полноэкранный base64 текстом, без масштаба и потолка — 3–11 МБ в контекст мозга на плате с 4 ГБ</td><td class="mono">capabilities.py:94</td></tr>
+<tr><td class="mono">A-18</td><td>P2</td><td>Поле <code>channel</code>, добавленное роботом ДЛЯ моста, мост выбрасывает</td><td class="mono">io.py:890<br>web.py:1067</td></tr>
+<tr><td class="mono">A-19</td><td>P2</td><td>Историю событий не держит никто, и обе стороны в докстроках ссылаются друг на друга</td><td class="mono">bridge_api.py:197<br>web.py:330</td></tr>
+<tr><td class="mono">A-20</td><td>P2</td><td>Медиа втягивается в ОЗУ без потолка; офлайн, неверный токен, отсутствие файла и обход каталога — один 404</td><td class="mono">robot.py:167<br>web.py:467</td></tr>
+<tr><td class="mono">A-21</td><td>P2</td><td><code>/pair</code> отдаёт <code>mcp_url</code> на порту-константе; не ломается лишь потому, что его никто не читает</td><td class="mono">web.py:586</td></tr>
+<tr><td class="mono">A-22</td><td>P2</td><td>Пейринг-токен без TTL и без ротации; робот гасит его до сохранения результата</td><td class="mono">state.py:57<br>bridge_pair.py:145</td></tr>
+<tr><td class="mono">A-23</td><td>P2</td><td>Текст карточки «Робот» неверен и пугает: «робот уже может действовать на этом компьютере»</td><td class="mono">index.html:268</td></tr>
+<tr><td class="mono">A-24</td><td>P2</td><td>Одним кликом переключается граница безопасности без объяснения; панель не говорит, какие интерфейсы слушает мост</td><td class="mono">index.html:432</td></tr>
+<tr><td class="mono">A-25</td><td>P2</td><td><code>notify</code> — класс READ с наружным эффектом; rate-limit'а нет ни на одной стороне</td><td class="mono">capabilities.py:240</td></tr>
+<tr><td class="mono">A-26</td><td>P2</td><td>Время в меню-баре сдвинуто на смещение зоны — та же ошибка, что уже исправлена в панели; и одна строка вместо обещанных «последних нескольких»</td><td class="mono">app.py:265</td></tr>
+<tr><td class="mono">A-27</td><td>P2</td><td>Телефон: сессионная cookie ведёт на macOS-only дверь; <code>sw.js</code> превращает 401 в «запрос уже решён»</td><td class="mono">web.py:328<br>sw.js:47</td></tr>
+<tr><td class="mono">A-28</td><td>P2</td><td>Настройка телефона требует терминала — против визии §4</td><td class="mono">index.html:508</td></tr>
+<tr><td class="mono">A-29</td><td>P3</td><td>Совет «поменяйте порт в config.toml» не работает: гвард config.toml не читает</td><td class="mono">runner.py:127<br>__main__.py:68</td></tr>
+<tr><td class="mono">A-30</td><td>P3</td><td>Робот не спарится, если Мак спал 5 минут, и повторить нельзя</td><td class="mono">wizard.py:128</td></tr>
+<tr><td class="mono">A-31</td><td>P3</td><td>20 инструментов на 10 возможностей; skill робота называет только устаревшую половину</td><td class="mono">server.py:76<br>mac_bridge.md:16</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Три барьера нового владельца, в порядке встречи</h2>
+<div class="wave"><div class="h">1. Первый запуск молчит про права macOS</div>
+Онбординг знает два шага — «подключить робота» и «телефон». Про запись экрана
+владелец узнаёт из таблицы с техническими именами в третьей вкладке — или не
+узнаёт вовсе, потому что при отказе по правам его никто не уведомляет. Выдав
+права, он не увидит изменений до перезапуска (A-11).</div>
+<div class="wave"><div class="h">2. Подключение робота заканчивается противоречием</div>
+Оба пути ведут к экрану, который утверждает обратное успеху: визард — потому
+что робот не сообщает свой адрес (A-5), ручная привязка — потому что успех
+объявляется без проверки и чат физически не может работать (A-12).</div>
+<div class="wave"><div class="h">3. Первый настоящий запрос согласия</div>
+Не видно, что он истекает (A-9); «на 15 минут» разрешает больше, чем написано
+(A-8); если владелец опоздал — кнопка срабатывает в пустоту и молчит (A-10).</div>
+
+<h2>Что сделано хорошо и трогать не надо</h2>
+<div class="f"><span class="t good">Отказ никогда не имитирует успех.</span>
+<div class="d">Нотифаер возвращает <code>(ok, reason)</code>, и способность
+поднимает ошибку, если тост не показан. <code>Check.up_to_date</code>
+различает «спросили и ничего нет» и «не смогли спросить» — два разных ответа
+владельцу.</div></div>
+<div class="f"><span class="t good">Панель показывает то, что ДЕЙСТВУЕТ.</span>
+<div class="d">Живые настройки сравниваются с файлом, отдельно сказано «ждёт
+перезапуска», а в режиме gateway без шлюза прямо написано, что MCP сейчас без
+аутентификации. Неверное значение не роняет мост, а попадает в
+<code>problems</code>.</div></div>
+<div class="f"><span class="t good">Отсутствующий эндпоинт — состояние, а не ошибка.</span>
+<div class="d">404 на <code>/bridge/system</code> читается как «робот ещё не
+обновился»; робот отвечает 200 с полем <code>error</code> на умерший датчик, и
+мост это уважает. Оба направления скоса версий имеют названный ответ.</div></div>
+<div class="f"><span class="t good">Имя медиа-файла проверяют обе стороны независимо</span>
+<div class="d">…и обе сказали вслух почему: «обход каталога не должен зависеть
+от того, насколько мы себе доверяем».</div></div>
+<div class="f"><span class="t good">Пауза действительно выглядит как отсутствие.</span>
+<div class="d">Питомец молчит и не копит реплики, баннер объясняет это
+человеческими словами.</div></div>
+
+<h2>Порядок работ</h2>
+<div class="wave"><div class="h">Волна 1 — доделать критическое</div>
+A-5, A-6, A-7. Три места, где продукт ведёт себя <em>неверно</em>, а не просто
+неудобно.</div>
+<div class="wave"><div class="h">Волна 2 — честность согласия</div>
+A-8, A-9, A-10, A-11. Ядро визии.</div>
+<div class="wave"><div class="h">Волна 3 — честность привязки и лент</div>
+A-12 … A-16.</div>
+<div class="wave"><div class="h">Волна 4 — пределы и границы</div>
+A-17 … A-25.</div>
+<div class="wave"><div class="h">Волна 5 — телефон, тексты, мелочи</div>
+A-26 … A-31 плюс старые B-5, B-8, B-9, B-12, B-16, B-22.</div>
+<div class="wave"><div class="h">Не работа над кодом</div>
+B-14 (удалить лишний приватный репозиторий) и B-15 (отозвать app-specific
+пароль) требуют владельца; B-37 — решение по биндингу standalone; и
+<b>повторить аудит по четырём непокрытым углам</b>, когда лимит расходов
+позволит запустить субагентов.</div>
+
+<footer>
+Доска с полными формулировками — <code>docs/evidence/backlog.md</code>,
+раздел «Аудит 2026-09-01». Все ссылки <span class="ev">файл:строка</span> в
+отчёте перепроверены на текущем коде; четыре находки подтверждены прогоном
+настоящих данных через настоящий код, а не чтением.
+</footer>
+
+</body>
+</html>

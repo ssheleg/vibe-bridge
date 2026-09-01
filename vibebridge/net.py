@@ -157,3 +157,36 @@ def gateway_reachable(port: int = 4000, host: str = "127.0.0.1",
             return True
     except OSError:
         return False
+
+#: Сети, из которых мост согласен принимать соединения, когда слушает не
+#: только loopback. Tailscale выдаёт узлам адреса из CGNAT-диапазона
+#: 100.64.0.0/10 (IPv4) и fd7a:115c:a1e0::/48 (IPv6) — попасть в источник
+#: такого пакета из локальной сети нельзя, потому что TCP-рукопожатие требует
+#: обратного маршрута.
+_TRUSTED_PEER_NETS = ("127.0.0.0/8", "::1/128",
+                      "100.64.0.0/10", "fd7a:115c:a1e0::/48")
+
+
+def peer_allowed(host: str | None) -> bool:
+    """Можно ли принять соединение ОТ ЭТОГО адреса.
+
+    Настоящая граница сети — адрес пира, а не заголовок `Host`. Allowlist по
+    `Host` существует против DNS-rebinding, где браузер жертвы подставляет
+    чужое имя; он НЕ защищает от того, кто соединяется напрямую, потому что
+    `Host` приходит от клиента: достаточно назвать `127.0.0.1` и проверка
+    пройдена (измерено 2026-09-01 на этой машине).
+
+    Неразбираемый или отсутствующий адрес — ОТКАЗ, а не «наверное свои».
+    Fail-open в границе безопасности — это отсутствие границы.
+    """
+    if not host:
+        return False
+    import ipaddress
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(addr in ipaddress.ip_network(net, strict=False)
+               for net in _TRUSTED_PEER_NETS
+               if addr.version == ipaddress.ip_network(net).version)
+

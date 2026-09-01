@@ -173,3 +173,29 @@ def test_the_panel_shows_times_in_the_owners_clock():
     fn = html.split("function localTs(", 1)[1].split("\n}", 1)[0]
     assert "isNaN" in fn
 
+
+def test_the_system_card_tolerates_both_shapes_of_uptime():
+    """Найдено аудитом 2026-09-01: робот отдаёт `uptime` СТРОКОЙ, панель
+    читала `d.uptime.pretty` — и строки «Аптайм», «Нагрузка», «CPU» не
+    рисовались никогда. Скриншот карточки это подтверждал, и отсутствие
+    строки в скриншоте незаметно: сверять надо со списком ожидаемого, а не с
+    тем, что видно.
+
+    Проверка механическая: голое чтение `.pretty` у `d.uptime` не должно
+    вернуться, а обработка строкового случая должна существовать.
+    """
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    html = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    # КОД, не текст файла: комментарий рядом называет старое чтение дословно,
+    # чтобы объяснить фикс, и наивная проверка ловила бы его. Этот капкан в
+    # проекте срабатывал трижды.
+    code = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    assert 'typeof d.uptime === "string"' in code
+    assert "d.uptime.pretty" not in code, "снова читаем .pretty у возможной строки"
+    assert "d.uptime.load1" not in code and "d.uptime.cpu_pct" not in code
+

@@ -101,6 +101,38 @@ _DECISIONS = {
 }
 
 
+class PeerGuard:
+    """403 всему, что пришло НЕ из loopback и не из тейлнета.
+
+    Взводится только когда мост слушает больше, чем loopback (режим
+    standalone): если бинд и так loopback, каждый пир и есть loopback, и
+    проверка была бы декорацией.
+
+    Зачем вообще: до 2026-09-01 standalone биндил ОДИН tailnet-интерфейс, и
+    это выглядело границей — но ломало приложение целиком, потому что панель и
+    окна виджета обращаются к мосту по `127.0.0.1`. Бинд расширили до всех
+    интерфейсов, и тогда единственной «границей» оставался allowlist по
+    `Host` — заголовку, который присылает клиент. Настоящая граница — адрес
+    пира, и вот она.
+    """
+
+    def __init__(self, app, armed: bool) -> None:
+        self.app, self.armed = app, armed
+
+    async def __call__(self, scope, receive, send) -> None:
+        if self.armed and scope["type"] in ("http", "websocket"):
+            from .net import peer_allowed
+            client = scope.get("client") or (None, None)
+            if not peer_allowed(client[0]):
+                await JSONResponse(
+                    {"error": "forbidden",
+                     "detail": "мост принимает соединения только из loopback "
+                               "и из тейлнета владельца"},
+                    status_code=403)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
 class BearerGuard:
     """401 before the MCP transport unless the robot token rides the
     Authorization header — ТОЛЬКО в standalone-режиме (ADR-0002). В
@@ -116,6 +148,21 @@ class BearerGuard:
     async def __call__(self, scope, receive, send) -> None:
         token = (self.state.robot_token
                  if self.mode == "standalone" else None)
+        # standalone БЕЗ спаренного робота: раньше здесь стоял пропуск —
+        # `if token and ...` — и на свежей установке /mcp отвечал вообще без
+        # аутентификации. Это была единственная дверь, которую сторожил
+        # host-allowlist, а он сторожить не может: `Host` приходит от клиента
+        # (измерено 2026-09-01). До пейринга робота нет, значит и обслуживать
+        # тут некого.
+        if (self.mode == "standalone" and not token
+                and scope["type"] == "http"):
+            await JSONResponse(
+                {"error": "unpaired",
+                 "detail": "робот ещё не связан с этим мостом — /mcp закрыт"},
+                status_code=401,
+                headers={"WWW-Authenticate": "Bearer"},
+            )(scope, receive, send)
+            return
         if token and scope["type"] == "http":
             auth = ""
             for k, v in scope.get("headers", []):
@@ -238,7 +285,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               robot: RobotClient | None = None,
               notify=None,
               push_sender: PushSender | None = None,
-              settings=None) -> Starlette:
+              settings=None,
+              peer_guard: bool = False) -> Starlette:
     from .config import load as _load_settings
     from .net import allowed_hosts as _net_allowed_hosts
 
@@ -1066,7 +1114,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return Response(body, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=86400"})
 
-    return Starlette(
+    app = Starlette(
         routes=[
             Route("/", index),
             Route("/sw.js", _static("sw.js", "application/javascript")),
@@ -1123,3 +1171,5 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         ],
         lifespan=lifespan,
     )
+    # Взводится вызывающим — он один знает, какой интерфейс занят.
+    return PeerGuard(app, peer_guard) if peer_guard else app

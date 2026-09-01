@@ -23,8 +23,32 @@ from .consent import ToolClass
 # AppleScript can reach anything scriptable; these targets are refused at the
 # bridge regardless of consent — a compromised prompt must not read Keychain
 # or spawn a terminal through us.
-APPLESCRIPT_BLOCKED = ("terminal", "keychain access", "keychain", "iterm",
-                       "script editor", "system events» keystroke")
+#
+# **Two holes lived here until 2026-09-01, and both were named in the audit.**
+# `do shell script` was absent, so `automation` handed out exactly the shell
+# that this module's own docstring, the robot's skill file and the product's
+# anti-vision all declare impossible («Никакого shell»). And the last entry
+# read `system events» keystroke` — a `»` where `to` belongs — so it matched no
+# real script ever: keystroke synthesis, the thing that entry exists to stop,
+# was never blocked. Verified by running the real strings through the list.
+#
+# **What this list is, honestly.** A substring blocklist is not a sandbox. It
+# stops the obvious and the accidental; a determined prompt can build
+# `do shell script` from concatenation and this will not see it. The real
+# boundary is that `automation` is ACT — the owner approves it, in the moment,
+# with THE SCRIPT ITSELF in front of them (see the summary below). This list
+# narrows the blast radius; the owner's eye is the gate.
+APPLESCRIPT_BLOCKED = (
+    "do shell script",          # the shell this product says it does not have
+    "keystroke",                # synthesised input: типing into any app
+    "key code",                 # the same by code
+    "terminal",
+    "keychain access",
+    "keychain",
+    "iterm",
+    "script editor",
+    "system events",            # the generic automation surface, by name
+)
 
 
 class CapabilityError(Exception):
@@ -57,15 +81,24 @@ class Capability:
     input_schema: dict
     binaries: tuple[str, ...] = ()   # external commands the handler shells to
 
+    #: Долгий аргумент в строке согласия перестаёт читаться, а нечитаемая
+    #: строка согласия — это кнопка «Разрешить» без вопроса.
+    SUMMARY_ARG_MAX = 160
+
     def summary(self, args: dict) -> str:
+        trimmed = {k: (v if not isinstance(v, str)
+                       or len(v) <= self.SUMMARY_ARG_MAX
+                       else v[:self.SUMMARY_ARG_MAX] + "…")
+                   for k, v in args.items()}
         try:
-            return self.summary_template.format(**{**_SUMMARY_DEFAULTS, **args})
+            return self.summary_template.format(
+                **{**_SUMMARY_DEFAULTS, **trimmed})
         except Exception:
             return self.summary_template
 
 
 _SUMMARY_DEFAULTS = {"app": "?", "url": "?", "name": "?", "text": "?",
-                     "title": "без заголовка"}
+                     "title": "без заголовка", "script": "?"}
 
 
 class Runner:
@@ -104,6 +137,17 @@ def _screenshot(r: Runner, args: dict) -> str:
             b = fh.read()
     except OSError as exc:
         raise CapabilityError(f"screenshot unreadable: {exc}") from exc
+    finally:
+        # A full-screen PNG of the owner's desktop must not outlive the call.
+        # It did: this path used `mktemp` and never unlinked, so every
+        # screenshot the robot ever took stayed in /var/folders forever — while
+        # the Linux pack next door deletes correctly. The owner allowed a look,
+        # not a collection.
+        try:
+            import os
+            os.unlink(path)
+        except OSError:
+            pass
     return f"data:image/png;base64,{base64.b64encode(b).decode('ascii')}"
 
 
@@ -249,8 +293,13 @@ def _build_darwin() -> dict[str, Capability]:
         Capability("shortcut_run", ToolClass.ACT,
                    "запустить Shortcut «{name}»", _shortcut,
                    {"name": _STR, "input": _STR}, binaries=("shortcuts",)),
+        # The most dangerous tool had the least informative consent line:
+        # «выполнить AppleScript на Маке» told the owner nothing about what
+        # they were approving, while `notify` — far less dangerous — already
+        # carried its text. The script goes in the line, truncated, and in
+        # full into the journal's detail.
         Capability("automation", ToolClass.ACT,
-                   "выполнить AppleScript на Маке", _applescript,
+                   "выполнить на Маке AppleScript: {script}", _applescript,
                    {"script": _STR}, binaries=("osascript",)),
         Capability("clipboard_read", ToolClass.ACT,
                    "прочитать буфер обмена Мака", _clipboard_read, {},

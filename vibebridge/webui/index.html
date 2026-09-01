@@ -618,10 +618,21 @@ async function loadSystem(){
     let rows = "";
     const kv = (k,v)=>`<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`;
     if (d.cpu_temp) rows += kv("Температура CPU", d.cpu_temp);
-    if (d.uptime){
-      if (d.uptime.pretty) rows += kv("Аптайм", d.uptime.pretty);
-      if (d.uptime.load1 != null) rows += kv("Нагрузка", Number(d.uptime.load1).toFixed(2));
-      if (d.uptime.cpu_pct != null) rows += kv("CPU", Math.round(d.uptime.cpu_pct)+"%");
+    /* Аптайм приходит СТРОКОЙ («2д 22ч 47м») — так его отдаёт сборщик робота
+       с самого начала. Панель читала `d.uptime.pretty` и получала undefined,
+       поэтому строки «Аптайм», «Нагрузка» и «CPU» не рисовались НИКОГДА
+       (найдено аудитом 2026-09-01; мой собственный скриншот карточки это
+       подтверждал, и я не заметил отсутствия). Терпим обе формы: у робота
+       может быть любая из них в зависимости от того, обновился он или нет. */
+    const up = typeof d.uptime === "string" ? {pretty: d.uptime} : (d.uptime || {});
+    const load1 = up.load1 != null ? up.load1
+                : (d.load && d.load.load1 != null ? d.load.load1
+                   : (Array.isArray(d.load) ? d.load[0] : null));
+    const cpuPct = up.cpu_pct != null ? up.cpu_pct : d.cpu_pct;
+    if (d.uptime || load1 != null || cpuPct != null){
+      if (up.pretty) rows += kv("Аптайм", up.pretty);
+      if (load1 != null) rows += kv("Нагрузка", Number(load1).toFixed(2));
+      if (cpuPct != null) rows += kv("CPU", Math.round(cpuPct)+"%");
     }
     if (d.ram && d.ram.pct != null) rows += kv("Память", Math.round(d.ram.pct)+"%");
     if (d.disk && d.disk.pct != null) rows += kv("Диск", Math.round(d.disk.pct)+"%");
