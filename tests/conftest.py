@@ -21,9 +21,10 @@ def _isolated_config(tmp_path_factory, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_real_notifications(monkeypatch):
-    """No test may put a toast on the owner's screen.
+    """No test may put a toast on the owner's screen — BOTH channels.
 
-    One did, for weeks: `test_notifier_never_raises` hid `desktop_notifier` to
+    One did, for weeks: the notifier test (now
+    `test_notifier_reports_instead_of_raising`) hid `desktop_notifier` to
     reach the osascript fallback and then called it for real, so every suite
     run posted «заголовок / текст» to the owner — attributed to Script Editor,
     which is who `osascript` posts as, which is why it never appeared in the
