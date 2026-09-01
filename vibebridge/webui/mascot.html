@@ -35,12 +35,14 @@ html[data-surface="pet"] #dialog{display:none}
 #mascot{display:flex;flex-direction:column;align-items:flex-end}
 .mascot-body{cursor:grab;filter:drop-shadow(0 3px 8px rgba(0,0,0,.28));touch-action:none}
 .mascot-body:active{cursor:grabbing}
-/* Idle motion: a slow breath so the character reads as alive rather than
-   frozen. The style pack's rule is that motion degrades to calm, so it stops
-   entirely under prefers-reduced-motion — and it is the ONLY idle motion,
-   because a mascot that fidgets is a mascot that gets closed. */
-@keyframes vb-breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
-.mascot-body svg{animation:vb-breathe 4.5s ease-in-out infinite}
+/* Дыхание живёт ОДИН раз — в `mascot.js`, вместе с остальными состояниями
+   персонажа, и оттуда же приходит на обе поверхности. Здесь была вторая
+   копия `@keyframes vb-breathe` с другой амплитудой (−3px против −2.5px) и
+   зашитой кривой вместо токенной; и она не просто дублировала, а ЛОМАЛА
+   правило паузы: селектор `.mascot-body svg` специфичнее, чем
+   `.vb-paused{animation:none}`, поэтому на паузе питомец продолжал дышать —
+   при том что принцип 3 визии требует, чтобы пауза выглядела как отсутствие
+   (найдено аудитом 2026-09-01). */
 
 /* The bubble. Fixed width and a capped, scrollable height: a long answer grew
    it into a half-screen column of two-word lines, and the whole window jumped

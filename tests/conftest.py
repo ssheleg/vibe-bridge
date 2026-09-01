@@ -49,6 +49,24 @@ def _no_real_notifications(monkeypatch):
         return real(argv, *a, **kw)
 
     monkeypatch.setattr(subprocess, "run", guarded)
+
+    # ВТОРОЙ канал, и он основной. `desktop-notifier` на macOS идёт через
+    # UNUserNotificationCenter и никакого subprocess не запускает — то есть
+    # тест, дошедший до основной ветки `make_notifier`, ставил бы владельцу
+    # настоящий тост, а этот предохранитель молчал бы. Ровно тот провал, ради
+    # которого он и написан (найдено аудитом 2026-09-01: «закрывает один канал
+    # из двух»).
+    try:
+        import desktop_notifier
+
+        def guarded_send(self, *a, **kw):
+            caught.append(f"desktop_notifier.send {kw.get('title', '')}")
+
+        monkeypatch.setattr(desktop_notifier.DesktopNotifierSync, "send",
+                            guarded_send, raising=False)
+    except Exception:                          # noqa: BLE001
+        pass                                   # канала нет — нечего сторожить
+
     yield
     if caught:
         pytest.fail("тест дошёл до настоящего уведомления владельцу: "

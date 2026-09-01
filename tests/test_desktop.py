@@ -154,12 +154,33 @@ def test_the_page_does_not_rely_on_an_electron_only_property():
 
 
 def test_the_pet_breathes_but_stops_when_asked():
+    """Дыхание есть, и оно гасится по просьбе системы.
+
+    Прежняя версия проверяла `"prefers-reduced-motion" in page` — и строка
+    есть в файле ДВАЖДЫ: в правиле и в поясняющем комментарии. Доказано
+    подсадкой (аудит 2026-09-01): удаление настоящего `@media`-правила
+    оставляло тест зелёным, то есть регрессия доступности прошла бы насквозь.
+    Смотрим на правила, комментарии вырезаны.
+    """
+    import re
     from pathlib import Path
 
     import vibebridge
-    page = (Path(vibebridge.__file__).parent / "webui" / "mascot.html").read_text()
-    assert "vb-breathe" in page                 # not frozen
-    assert "prefers-reduced-motion" in page     # …and it degrades to calm
+
+    webui = Path(vibebridge.__file__).parent / "webui"
+    js = (webui / "mascot.js").read_text()
+    assert "@keyframes vb-breathe" in js         # not frozen…
+
+    for name in ("mascot.html", "mascot.js"):
+        text = (webui / name).read_text()
+        code = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+        block = re.search(
+            r"@media\s*\(prefers-reduced-motion[^)]*\)\s*\{(.*?)\}\s*\}",
+            code, flags=re.S)
+        assert block, f"{name}: правила reduced-motion нет (не в комментарии)"
+        assert "animation:none" in block.group(1).replace(" ", ""), (
+            f"{name}: reduced-motion не гасит анимацию")
 
 
 def test_a_drag_is_not_read_as_a_click():
