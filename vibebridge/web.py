@@ -1477,26 +1477,37 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                                  headers={"Cache-Control": "no-cache"})
 
     async def _consent_push_watcher() -> None:
-        """Every NEW pending consent goes out as a web push (SCN-004). The
-        blocking pywebpush call runs in a worker thread; a lost push costs
-        nothing — the timeout default stands."""
-        seen: set[str] = set()
-        while True:
-            reqs = consent.pending_all()
-            for req in reqs:
-                if req.id in seen:
-                    continue
-                seen.add(req.id)
+        """Every NEW pending consent goes out as a web push (SCN-004).
+
+        Слушает СОБЫТИЕ движка, а не опрашивает его. Прежняя версия крутила
+        цикл каждые полсекунды и хранила множество из пятисот виденных id —
+        то есть заново вычисляла «что нового», хотя ровно это знает движок в
+        момент, когда запрос создаётся (F-12). Заодно исчезла задержка до
+        полусекунды между вопросом на экране и пушем на телефон.
+
+        Событие приходит из ПОТОКА ИНСТРУМЕНТА MCP, поэтому в петлю оно
+        передаётся через `call_soon_threadsafe`: очередь asyncio потокобезопасна
+        не сама по себе, а только так.
+        """
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def on_event(event: str, req) -> None:
+            if event == "asked":
+                loop.call_soon_threadsafe(queue.put_nowait, req)
+
+        unsubscribe = consent.subscribe(on_event)
+        try:
+            while True:
+                req = await queue.get()
                 if state.push_subscriptions and not consent.paused:
                     await asyncio.to_thread(push_sender.send_to_all, {
                         "kind": "consent", "id": req.id,
                         "title": "Робот просит разрешение",
                         "summary": req.summary,
                     })
-            if len(seen) > 500:
-                live = {r.id for r in reqs}
-                seen.intersection_update(live)
-            await asyncio.sleep(0.5)
+        finally:
+            unsubscribe()
 
     async def _robot_poller() -> None:
         """Refresh the cached robot status; announce the pause-summary on

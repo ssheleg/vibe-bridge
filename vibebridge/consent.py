@@ -18,6 +18,11 @@ thread calls `request()` and blocks; the menu-bar main loop polls
 `pending()` and answers via `resolve()`. UI and policy never share state
 except through this object, and every decision lands in the audit log.
 
+Опрос СОСТОЯНИЯ законен — поверхность рисует то, что есть сейчас. А вот
+«что нового» движок говорит САМ: `subscribe(fn)`, события `asked` и
+`closed`. До 2026-09-02 новизну независимо вычисляли три поллера, и
+обещание докстроки заменить поллинг хуками оставалось обещанием (F-12).
+
 The kill switch (`paused`) beats everything: while set, every tool —
 READ included — is refused. A paused bridge is indistinguishable from a
 closed laptop to the robot, and that is the point.
@@ -103,6 +108,42 @@ class ConsentEngine:
         self._closed: deque[Outcome] = deque(maxlen=32)
         self._grant_until: dict[str, float] = {}   # по ИНСТРУМЕНТУ (A-8)
         self.paused = False
+        # Кому сказать, что появился НОВЫЙ запрос или что запрос закрылся.
+        # До 2026-09-02 наблюдателя не было, и «что нового» независимо
+        # вычисляли три поллера: таймер меню-бара сравнивал снимок, вотчер
+        # пушей держал множество из пятисот id, маскот брал `pending()` при
+        # каждой отрисовке. Три ответа на один вопрос расходятся не «если», а
+        # «когда» (F-12).
+        self._watchers: list = []
+        #: Последняя ошибка наблюдателя. Движок из-за чужого сбоя не падает —
+        #: но и не молчит: подписчик, который тихо не работает, хуже
+        #: отсутствующего.
+        self.last_watcher_error: str | None = None
+
+    def subscribe(self, fn) -> "callable":
+        """Слушать события согласия. Возвращает функцию отписки.
+
+        `fn(event, req)` где event — `"asked"` или `"closed"`. Зовётся ВНЕ
+        замка: подписчик, который тронет движок из колбэка, иначе получил бы
+        взаимную блокировку, а не сообщение об ошибке.
+
+        Поток — тот, в котором событие случилось (для `"asked"` это поток
+        инструмента MCP). Подписчику из asyncio-петли полагается сделать
+        `loop.call_soon_threadsafe` самому: движок не знает про петли.
+        """
+        self._watchers.append(fn)
+        return lambda: self._watchers.remove(fn) if fn in self._watchers else None
+
+    def _announce(self, event: str, req) -> None:
+        """Сказать всем. Сбой одного не мешает остальным и не роняет движок."""
+        for fn in list(self._watchers):
+            try:
+                fn(event, req)
+            except Exception as exc:                    # noqa: BLE001
+                # НЕ молчим: сохраняем причину. Согласие — ядро продукта, и
+                # падать из-за подписчика оно не имеет права; но подписчик,
+                # который тихо не работает, хуже отсутствующего.
+                self.last_watcher_error = f"{type(exc).__name__}: {exc}"
 
     # -- called from the MCP tool thread -------------------------------------
 
@@ -119,6 +160,7 @@ class ConsentEngine:
             req = ConsentRequest(tool=tool, tool_class=tool_class,
                                  summary=summary, created=self._clock())
             self._pending.append(req)
+        self._announce("asked", req)          # вне замка — см. `subscribe`
         req._event.wait(timeout=self._ask_timeout_s)
         # Запрос ЗАКРЫВАЕТСЯ, а не просто убирается из очереди. Раньше по
         # таймауту он исчезал из `_pending` с невыставленным событием — и
@@ -140,6 +182,7 @@ class ConsentEngine:
         if decision is Decision.ALLOW_GRANT:
             with self._lock:
                 self._grant_until[tool] = self._clock() + self._grant_ttl_s
+        self._announce("closed", req)
         return decision
 
     # -- called from the menu-bar main loop -----------------------------------
