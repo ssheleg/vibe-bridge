@@ -16,7 +16,7 @@ from .consent import ConsentEngine, Decision
 from .server import BRIDGE_HOST
 from .state import BridgeState
 from .tray import make_notifier, run_pystray, tray_title
-from .web import build_app
+from .web import build_app, set_chosen
 
 
 def _serve(app, host: str, port: int) -> None:  # pragma: no cover - uvicorn
@@ -155,9 +155,27 @@ def _remember_pet(state, pos, report=None) -> None:
             report(f"питомец: позицию не удалось сохранить: {exc}")
 
 
-def run() -> None:  # pragma: no cover - requires a GUI session
+def run(chosen=None) -> None:  # pragma: no cover - requires a GUI session
+    """Мост. `chosen` — то, что оболочка УЖЕ решила про выбор кода.
+
+    Раньше она решала и выбрасывала: `Chosen(path, version, source,
+    fell_back)` строился и не передавался, а панель переугадывала источник по
+    наличию каталога — и врала при равных версиях. Плюс `fell_back` жил в
+    одном тосте «подробности в журнале», хотя vbboot по построению не пишет
+    в журнал: подробностей там не было никогда (F-5).
+
+    Журнал есть у МОСТА. Значит и записать может только он.
+    """
     audit = AuditLog()
     state = BridgeState.load()
+    if chosen is not None:
+        set_chosen(chosen)
+        audit.record(
+            tool="boot", tool_class="SYS", decision="auto", ok=True,
+            line=(f"код взят из «{chosen.source}», версия {chosen.version}"
+                  + (" — откат: новая версия не запустилась"
+                     if chosen.fell_back else "")),
+            detail=str(chosen.path))
     settings = prepare_settings(state)
     consent = ConsentEngine(ask_timeout_s=settings.ask_timeout_s,
                             grant_ttl_s=settings.grant_ttl_s,

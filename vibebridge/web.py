@@ -607,8 +607,27 @@ def _bundle_resources() -> Path | None:
     return None
 
 
+#: Что оболочка сказала про выбор кода. `None` — её не спрашивали (голый
+#: чекаут) либо она промолчала; тогда и только тогда мы гадаем.
+_chosen = None
+
+
+def set_chosen(chosen) -> None:
+    """Принять ответ оболочки. Зовётся один раз, из `app.run`."""
+    global _chosen
+    _chosen = chosen
+
+
 def _payload_source(root: Path, running: str) -> str:
-    """Where the running code came from, for the settings card."""
+    """Откуда взят работающий код — ОТВЕТ оболочки, а не догадка.
+
+    Догадка была «есть каталог с такой версией → значит payload», и она
+    врала ровно в том случае, ради которого источник и показывают: когда
+    версия seed совпадает с уже установленным payload, каталог существует,
+    а работает при этом seed (F-5).
+    """
+    if _chosen is not None:
+        return _chosen.source
     if _bundle_resources() is None:
         return "dev"
     return "payload" if (root / running).is_dir() else "seed"

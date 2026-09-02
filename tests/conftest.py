@@ -32,6 +32,7 @@ _PROCESS_GLOBALS = (
     ("vibebridge.capabilities", "_notifier"),
     ("vibebridge.capabilities", "_notify_limit"),
     ("vibebridge.desktop", "_WEBVIEW_CLASS"),
+    ("vibebridge.web", "_chosen"),
 )
 
 

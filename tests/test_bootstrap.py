@@ -317,3 +317,69 @@ def test_the_busy_message_names_the_real_config_path(monkeypatch, tmp_path):
         held.close()
     assert why and str(tmp_path / "config.toml") in why
     assert "~/Library" not in why
+
+
+def test_the_shell_hands_its_choice_to_the_bridge(monkeypatch, tmp_path):
+    """F-5: `Chosen(path, version, source, fell_back)` строился и НЕ
+    передавался. Оболочка знала, какой код выбрала, и выбрасывала ответ —
+    после чего панель переугадывала источник по наличию каталога."""
+    from vbboot import __main__ as boot
+    from vbboot.runner import Chosen
+
+    handed = []
+    chosen = Chosen(tmp_path / "0.9.0", "0.9.0", "payload", fell_back=True)
+    monkeypatch.setattr(boot, "_configured_port", lambda: 48620)
+    monkeypatch.setattr("vbboot.runner.guard_single_instance", lambda p: None)
+    monkeypatch.setattr("vbboot.runner.run_payload",
+                        lambda root, seed, loader: (handed.append, chosen))
+    monkeypatch.setattr(boot, "_complain", lambda msg: None)
+
+    assert boot.main() == 0
+    assert handed == [chosen], "мост не получил решение оболочки"
+
+
+def test_the_panel_reports_the_answer_not_a_guess(tmp_path):
+    """Догадка «есть каталог с такой версией → payload» врала ровно в том
+    случае, ради которого источник и показывают: версия seed совпадает с
+    установленным payload, каталог есть, а работает seed."""
+    import vibebridge.web as web
+    from vbboot.runner import Chosen
+
+    root = tmp_path / "payload"
+    (root / "0.9.0").mkdir(parents=True)      # каталог ЕСТЬ
+
+    web.set_chosen(None)
+    try:
+        # догадка: каталог есть → «payload», хотя это может быть seed
+        assert web._payload_source(root, "0.9.0") in ("payload", "dev")
+        web.set_chosen(Chosen(root / "0.9.0", "0.9.0", "seed"))
+        assert web._payload_source(root, "0.9.0") == "seed"
+    finally:
+        web.set_chosen(None)
+
+
+def test_the_fallback_toast_points_at_a_line_that_now_exists():
+    """«Подробности в журнале» было обещанием, которого никто не выполнял:
+    vbboot по построению без зависимостей и без журнала. Записать может
+    только мост — и он это делает, получив `chosen`."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    # 1. Оболочка называет ВЕРСИЮ, а не просто «обновление».
+    boot_src = (Path(vibebridge.__file__).resolve().parents[1]
+                / "vbboot" / "__main__.py").read_text()
+    # Комментарии вырезаны: срез по первой скобке иначе попадает в «(F-5)»
+    # и проверяет объяснение вместо кода — класс A-32.
+    boot_src = re.sub(r"^\s*#.*$", "", boot_src, flags=re.M)
+    toast = boot_src.split("if chosen.fell_back:", 1)[1].split("return", 1)[0]
+    assert "chosen.version" in toast
+
+    # 2. Мост ПИШЕТ строку про откат, получив решение оболочки.
+    app_src = (Path(vibebridge.__file__).parent / "app.py").read_text()
+    app_src = re.sub(r"^\s*#.*$", "", app_src, flags=re.M)
+    branch = app_src.split("if chosen is not None:", 1)[1].split("settings =", 1)[0]
+    assert "audit.record" in branch, "мост не пишет, откуда взят код"
+    assert "chosen.fell_back" in branch, "откат не попадает в журнал"
+    assert "chosen.source" in branch and "chosen.version" in branch
