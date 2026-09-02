@@ -17,16 +17,21 @@ from ..capabilities import (
     CapabilityError,
     Runner,
     encode_screenshot,
+    refuse_if_dangerous,
 )
 from ..consent import ToolClass
 
 # Спавн шеллов и доступ к хранилищам кредов заблокированы на мосту —
 # скомпрометированный промпт не должен открывать консоль или тащить пароли
 # (зеркало APPLESCRIPT_BLOCKED).
-POWERSHELL_BLOCKED = ("powershell", "pwsh", "cmd.exe", "cmd /", "wscript",
-                      "cscript", "mshta", "reg add", "reg delete", "regedit",
-                      "cmdkey", "vaultcmd", "schtasks", "start-process cmd",
-                      "start-process powershell")
+#: ДОПОЛНЕНИЕ к `DANGEROUS_EVERYWHERE` — имена, опасные именно в Windows.
+#: Shell и синтез нажатий сюда не дублируются, они в общем списке: до F-6
+#: здесь не было ни `SendKeys`, ни `System.Windows.Forms`, то есть на первой
+#: же сборке инструмент делал то, что продукт объявляет невозможным.
+POWERSHELL_BLOCKED = ("reg add", "reg delete", "regedit", "cmdkey",
+                      "vaultcmd", "schtasks", "start-process cmd",
+                      "start-process powershell", "invoke-webrequest",
+                      "iex", "invoke-expression")
 
 _PS = ("powershell", "-NoProfile", "-NonInteractive", "-Command")
 
@@ -104,11 +109,7 @@ def _open_url(r: Runner, args: dict) -> str:
 
 def _automation(r: Runner, args: dict) -> str:
     script = str(args.get("script", ""))
-    low = script.lower()
-    for bad in POWERSHELL_BLOCKED:
-        if bad in low:
-            raise CapabilityError(
-                f"PowerShell, целящий в '{bad}', заблокирован на мосту")
+    refuse_if_dangerous(script, extra=POWERSHELL_BLOCKED)
     return r.run([*_PS, script], timeout=30.0) or "ran powershell"
 
 
@@ -151,7 +152,9 @@ def build_capabilities() -> dict[str, Capability]:
                    "запустить Shortcut «{name}»", _shortcut_stub,
                    {"name": _STR, "input": _STR}),
         Capability("automation", ToolClass.ACT,
-                   "выполнить PowerShell-команду", _automation,
+                   # Владелец обязан видеть СКРИПТ: самый опасный
+                   # инструмент нёс самую бессодержательную строку (F-6).
+                   "выполнить на компьютере PowerShell: {script}", _automation,
                    {"script": _STR}, binaries=("powershell",)),
         Capability("clipboard_read", ToolClass.ACT,
                    "прочитать буфер обмена", _clipboard_read, {},

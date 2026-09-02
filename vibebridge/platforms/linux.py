@@ -166,7 +166,10 @@ def build_capabilities() -> dict[str, Capability]:
                    "запустить Shortcut «{name}»", _shortcut_stub,
                    {"name": _STR, "input": _STR}),
         Capability("automation", ToolClass.ACT,
-                   "выполнить команду автоматизации", _automation_stub,
+                   # Даже у заглушки: строка согласия — обещание, и
+                   # менять её при включении настоящего исполнения значило бы
+                   # менять контракт молча (F-6).
+                   "выполнить на компьютере команду: {script}", _automation_stub,
                    {"script": _STR}),
         Capability("clipboard_read", ToolClass.ACT,
                    "прочитать буфер обмена", _clipboard_read, {},

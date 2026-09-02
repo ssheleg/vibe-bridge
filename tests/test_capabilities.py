@@ -109,11 +109,7 @@ def test_applescript_refuses_the_shell():
     предыдущая версия содержала запись против синтеза нажатий, которая не
     совпадала ни с одним реальным скриптом.
     """
-    from vibebridge.capabilities import (
-        APPLESCRIPT_BLOCKED,
-        CapabilityError,
-        _applescript,
-    )
+    from vibebridge.capabilities import CapabilityError, _applescript
 
     class _R:
         def run(self, *a, **kw):
@@ -127,7 +123,9 @@ def test_applescript_refuses_the_shell():
                    'tell application "Keychain Access" to activate'):
         with pytest.raises(CapabilityError):
             _applescript(_R(), {"script": script})
-    assert "do shell script" in APPLESCRIPT_BLOCKED
+    # В КАКОМ списке лежит правило — не свойство: после F-6 общие запреты
+    # переехали в `DANGEROUS_EVERYWHERE`, и ассерт на имя списка покраснел
+    # бы, хотя запрет работает. Проверяем поведение (класс A-43).
 
 
 def test_a_harmless_script_still_runs():

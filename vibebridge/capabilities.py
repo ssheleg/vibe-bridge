@@ -41,10 +41,42 @@ from .consent import ToolClass
 # boundary is that `automation` is ACT — the owner approves it, in the moment,
 # with THE SCRIPT ITSELF in front of them (see the summary below). This list
 # narrows the blast radius; the owner's eye is the gate.
+#: Запрещено ВЕЗДЕ, на любой платформе, потому что это не про синтаксис
+#: конкретного языка, а про анти-визию: «никакого shell» и «не автопилот
+#: компьютера, computer-use без права вето».
+#:
+#: Список общий не ради опрятности. Фикс A-1 лёг ТОЛЬКО в macOS-копию,
+#: потому что копий было три, и никто не обязан помнить про остальные две.
+#: Теперь забыть нельзя: платформа добавляет своё к общему, а не пишет свой
+#: список с нуля (F-6).
+DANGEROUS_EVERYWHERE = (
+    # shell любым именем
+    "do shell script", "system(", "popen", "subprocess",
+    "cmd.exe", "cmd /", "powershell", "pwsh", "/bin/sh", "/bin/bash",
+    "wscript", "cscript", "mshta",
+    # синтез ввода: печатать за владельца — это computer-use без вето
+    "keystroke", "key code", "sendkeys", "system.windows.forms",
+    "sendinput", "xdotool", "ydotool", "cliclick",
+)
+
+
+def refuse_if_dangerous(script: str, *, extra: tuple[str, ...] = ()) -> None:
+    """Бросить `CapabilityError`, если скрипт целит в запрещённое.
+
+    Общее плюс платформенное — в одном вызове. Платформа НЕ переопределяет
+    общее: она может только добавить, и это тоже часть контракта.
+    """
+    low = script.lower()
+    for bad in (*DANGEROUS_EVERYWHERE, *extra):
+        if bad in low:
+            raise CapabilityError(
+                f"скрипт, целящий в «{bad}», заблокирован на мосту: "
+                f"продукт не даёт ни shell, ни синтеза нажатий")
+
+
+#: ДОПОЛНЕНИЕ к общему списку — имена, опасные именно в AppleScript.
+#: Shell и синтез нажатий сюда не дублируются: они в `DANGEROUS_EVERYWHERE`.
 APPLESCRIPT_BLOCKED = (
-    "do shell script",          # the shell this product says it does not have
-    "keystroke",                # synthesised input: типing into any app
-    "key code",                 # the same by code
     "terminal",
     "keychain access",
     "keychain",
@@ -345,11 +377,10 @@ def _shortcut(r: Runner, args: dict) -> str:
 
 def _applescript(r: Runner, args: dict) -> str:
     script = str(args.get("script", ""))
-    low = script.lower()
-    for bad in APPLESCRIPT_BLOCKED:
-        if bad in low:
-            raise CapabilityError(
-                f"AppleScript targeting '{bad}' is blocked at the bridge")
+    # Общее — из `DANGEROUS_EVERYWHERE`, своё — рядом. Собственного списка
+    # «с нуля» у платформы больше нет, и потому фикс не может лечь в одну
+    # копию из трёх (F-6).
+    refuse_if_dangerous(script, extra=APPLESCRIPT_BLOCKED)
     return r.run(["osascript", "-e", script]) or "ran applescript"
 
 
