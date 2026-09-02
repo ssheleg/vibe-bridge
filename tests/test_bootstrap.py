@@ -281,3 +281,39 @@ def test_the_shell_guards_the_port_the_payload_will_take(tmp_path, monkeypatch):
     (tmp_path / "config.toml").write_text("port = 'нет'\n", encoding="utf-8")
     assert boot._configured_port() == 48620        # мусор → умолчание
 
+
+
+def test_the_guard_is_actually_given_the_configured_port(monkeypatch):
+    """A-29: `_configured_port` написан и протестирован — но проверялся В
+    ОДИНОЧКУ. Класс «написано, протестировано, не вызвано» стоил проекту уже
+    трёх случаев (A-37), и шов между настройкой и гвардом ровно такой же:
+    сломай вызов, и все тесты порта останутся зелёными."""
+    from vbboot import __main__ as boot
+
+    seen: list[int] = []
+    monkeypatch.setattr(boot, "_configured_port", lambda: 51777)
+    monkeypatch.setattr("vbboot.runner.guard_single_instance",
+                        lambda port: seen.append(port) or "порт занят")
+    monkeypatch.setattr(boot, "_complain", lambda msg: None)
+
+    assert boot.main() == 1          # занят → выходим с кодом
+    assert seen == [51777], "гвард получил не тот порт, который займёт payload"
+
+
+def test_the_busy_message_names_the_real_config_path(monkeypatch, tmp_path):
+    """Совет читают на всех платформах, а путь `~/Library/...` верен только
+    на macOS."""
+    import socket
+
+    from vbboot import layout, runner
+
+    monkeypatch.setattr(layout, "support_dir", lambda: tmp_path)
+    held = socket.socket()
+    held.bind(("0.0.0.0", 0))
+    held.listen(1)
+    try:
+        why = runner.guard_single_instance(held.getsockname()[1])
+    finally:
+        held.close()
+    assert why and str(tmp_path / "config.toml") in why
+    assert "~/Library" not in why

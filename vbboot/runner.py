@@ -138,10 +138,16 @@ def guard_single_instance(port: int, host: str = "0.0.0.0") -> str | None:  # no
     except OSError:
         holder = _port_holder(port)
         who = f" — его держит {holder}" if holder else ""
+        # Путь к конфигу берётся у layout, а не пишется руками: зашитый
+        # `~/Library/...` верен только на macOS, а совет читают на всех.
+        try:
+            from . import layout
+            where = str(layout.support_dir() / "config.toml")
+        except Exception:                   # noqa: BLE001 - совет не важнее отказа
+            where = "config.toml моста"
         return (f"порт {port} занят{who}. Если это второй экземпляр моста — "
                 f"закройте лишний (значок в меню-баре). Если порт нужен "
-                f"другой программе — поменяйте port в config.toml "
-                f"(~/Library/Application Support/vibe-bridge/config.toml)")
+                f"другой программе — поменяйте port в {where}")
     finally:
         probe.close()
     return None
