@@ -131,8 +131,14 @@ def entry_blocks(text: str, prefix: str) -> dict[str, str]:
 # gets a rule switched off.
 # The line suffix now includes a RANGE, because a range is what this layer
 # writes and stopping at the first number is what let one drift for a release.
+# Расширение до 11 символов, а не до 5: на пяти обрывался
+# `manifest.webmanifest` — файл, который продукт РЕАЛЬНО отгружает, — и
+# проверка сообщала «cites … which does not exist» про существующий путь
+# (найдено 2026-09-02, U-18). Проверка, которая не умеет назвать настоящий
+# файл, учит игнорировать себя. Оговорка выше про «любой токен со слэшем»
+# остаётся в силе: требование расширения не снято, расширен только предел.
 CITED_PATH = re.compile(
-    r"\b([\w.-]+(?:/[\w.-]+)+\.[A-Za-z][\w]{0,4}(?::\d+(?:-\d+)?)?)"
+    r"\b([\w.-]+(?:/[\w.-]+)+\.[A-Za-z][\w]{0,10}(?::\d+(?:-\d+)?)?)"
 )
 
 

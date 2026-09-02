@@ -21,10 +21,22 @@
 - **Style pack:** workbench (SHELEG Workbench — продуктовый UI-пак;
   референс-кит `~/ds-workbench`); визуальный слой — `docs/design/ui.md`
 - **Figma library:** none (Figma disabled — foundation.md, Design tooling)
-- **Tokens in code:** `web/src/theme/tokens.css` (план build-этапа; канон
-  значений до тех пор — docs/design/ui.md)
-- **Component source:** `web/src/components/` (план build-этапа)
-- **Assets:** `web/src/assets/`
+- **Tokens in code:** `vibebridge/webui/tokens.css` — единственная копия
+  палитры, радиусов, кривых, шкалы и кольца фокуса; грузят все четыре
+  поверхности
+- **Component source:** `vibebridge/webui/` — страницы и `mascot.js`; сборки
+  нет и не планируется (панель отдаётся файлами, без шага компиляции)
+- **Assets:** `vibebridge/webui/` — иконки PWA и маркa, генерируется
+  `scripts/make_icon.py`
+
+Каталога вайрфреймов в проекте нет; канон состояний — таблицы «States» в разделах экранов ниже.
+
+**Поправка 2026-09-02 (U-18):** три пути выше указывали на `web/src/…` —
+каталог, которого в проекте нет и не было; девять экранов из девяти стояли
+«Coverage: none yet» при отгруженных трее, панели, журнале, карточке
+согласия, настройках, визарде и PWA; все девять ссылались на
+`wireframes/SCR-0N.md`, а каталога `wireframes/` не существует. Собственный
+линтер проекта кричал об этом пятью `U057`, и это никем не читалось.
 
 ## Web surfaces
 
@@ -47,8 +59,8 @@
   | grant-active | активен грант класса | — | бейдж на иконке; пункт с остатком времени |
   | robot-offline | робот недоступен | — | приглушённая иконка; строка «недоступен с HH:MM» |
   | attention | ждёт решение согласия | — | акцент-иконка; клик ведёт к диалогу |
-- **Wireframe:** wireframes/SCR-01.md (optional)
-- **Coverage:** none yet
+- **Wireframe:** — (optional)
+- **Coverage:** `vibebridge/tray.py` (rumps на macOS, pystray на Win/Linux) — заголовок, пункты, бейдж ожидания; `vibebridge/app.py` — модальный лист согласия. Тесты: `tests/test_core_v2.py`, `tests/test_platforms.py`
 - **Scenarios:** SCN-003, SCN-005, SCN-006, SCN-007
 - **Resources:** rumps (macOS) / pystray (Win/Linux); нативные меню ОС
 - **Status:** designed
@@ -69,8 +81,8 @@
   | robot-offline | контакт потерян | — | «недоступен с HH:MM», что проверить; чат/апдейт отключены с причиной |
   | paused | мост на паузе | — | баннер паузы поверх любого статуса |
   | updating | апдейт запущен | — | прогресс «обновляется…», карточка блокирована |
-- **Wireframe:** wireframes/SCR-02.md
-- **Coverage:** none yet
+- **Wireframe:** —
+- **Coverage:** `vibebridge/webui/index.html` → `view-dash`, `render()`, карточки робота и ленты. Тесты: `tests/test_panel.py`
 - **Scenarios:** SCN-006, SCN-007, SCN-012, SCN-017
 - **Resources:** статус-API робота (CO-4); SSE-лента моста
 - **Status:** designed
@@ -89,8 +101,8 @@
   | undelivered | робот недоступен при отправке | — | пометка «не доставлено» + повтор |
   | disabled | робот офлайн | — | ввод отключён с причиной |
   | slow | молчит 150 с | — | «думает дольше обычного — ответ придёт событием» + retry |
-- **Wireframe:** wireframes/SCR-03.md
-- **Coverage:** none yet
+- **Wireframe:** —
+- **Coverage:** `vibebridge/webui/index.html` → `view-chat`; нить сессии — `vibebridge/web.py` (`chat_history`). Тесты: `tests/test_chat_thread.py`
 - **Scenarios:** SCN-008, SCN-009
 - **Resources:** Hermes gateway HTTP (bearer), таймаут-контракт 150 с
 - **Status:** designed
@@ -109,8 +121,8 @@
   | success | записи есть | — | лента, новые сверху |
   | filtered | включён фильтр | — | сужение + счётчик, сброс в один клик |
   | error | файл журнала недоступен | — | «журнал недоступен: причина», панель живёт дальше |
-- **Wireframe:** wireframes/SCR-04.md
-- **Coverage:** none yet
+- **Wireframe:** —
+- **Coverage:** `vibebridge/webui/index.html` → `view-journal`, `rowHtml()`, фильтры; записи — `vibebridge/audit.py`. Тесты: `tests/test_panel.py`, `tests/test_core_v2.py`
 - **Scenarios:** SCN-011, SCN-002
 - **Resources:** локальный аудит-лог (audit.py), ротация по размеру
 - **Status:** designed
@@ -127,8 +139,8 @@
   | phone-page | тап по пушу | — | та же тройка кнопок в PWA; остаток таймера |
   | resolved-elsewhere | решение принято на другой поверхности | — | «решено с телефона/компьютера», кнопки скрыты |
   | expired | таймаут до решения | — | «запрос истёк — действие не выполнено», без кнопок |
-- **Wireframe:** wireframes/SCR-05.md
-- **Coverage:** none yet
+- **Wireframe:** —
+- **Coverage:** `vibebridge/webui/index.html` → карточка `#consent` с таймер-баром; вторая поверхность — `vibebridge/webui/mascot.js` (`renderMascot`); третья — модальный лист `vibebridge/app.py`. Тесты: `tests/test_consent.py`, `tests/test_panel.py`
 - **Scenarios:** SCN-001, SCN-002, SCN-003, SCN-004
 - **Resources:** нативные диалоги (rumps NSAlert / нативный аналог per-OS);
   Web Push (VAPID); Android — кнопки на уведомлении, iOS — тап обязателен
@@ -149,8 +161,8 @@
   | writing | запись идёт | — | прогресс скачивания+записи; отмена |
   | insert-card | запись завершена | — | физическая инструкция + переход к ожиданию |
   | error | сбой записи/прав | — | причина человеческим языком + «Повторить», ввод сохранён |
-- **Wireframe:** wireframes/SCR-06.md
-- **Coverage:** none yet
+- **Wireframe:** —
+- **Coverage:** `vibebridge/webui/index.html` → `#wizardCard`, `loadWizard()`, `wizardPrepare()`; запись карты — `vibebridge/wizard.py`. Тесты: `tests/test_wizard.py`
 - **Scenarios:** SCN-013, SCN-014
 - **Resources:** механика Imager (firstrun.sh/cmdline.txt — Bookworm;
   cloud-init — Trixie); пейринг-токен отдельным FAT-файлом с self-delete
@@ -172,8 +184,7 @@
   | green | все проверки прошли | — | CTA «скажите роботу привет» → Чат |
   | diagnostic | таймаут ожидания | — | что проверить; «ждать» / «начать заново» |
   | failed | пункт чеклиста красный | — | пункт, причина, действие, перезапуск пункта |
-- **Wireframe:** —  *(каталога `wireframes/` в проекте нет; канон состояний —
-  таблица выше)*
+- **Wireframe:** —
 - **Coverage:** `vibebridge/web.py` → `pairing_state()` (фазы и четыре
   проверки, без HTTP-стека) и маршруты `/api/pairing/state`,
   `/api/pairing/consent-test`; `vibebridge/webui/index.html` → `loadPairing()`,
@@ -201,8 +212,8 @@
   | success | открытие | — | карта способностей текущей ОС/сессии |
   | permission-needed | способность ждёт прав | — | ряд с кнопкой в системный диалог |
   | degraded | способность недоступна на платформе | — | причина человеческим языком, без кнопки |
-- **Wireframe:** wireframes/SCR-08.md
-- **Coverage:** none yet
+- **Wireframe:** —
+- **Coverage:** `vibebridge/web.py` → `settings_view()` (решение без HTTP-стека); `vibebridge/webui/index.html` → `view-settings`, `loadAccess()`, `loadVersion()`, `loadPhone()`. Тесты: `tests/test_settings_view.py`
 - **Scenarios:** SCN-018, SCN-020
 - **Resources:** probe-регистрация способностей на старте (fail-fast)
 - **Status:** designed
@@ -219,8 +230,8 @@
   | offline-no-vpn | нет связи с мостом | — | «Нет связи с домом — включён ли Tailscale?» |
   | offline-bridge-down | tailnet есть, мост не отвечает | — | «Компьютер недоступен» — отличимо от VPN |
   | push-setup | первый вход | — | объяснение и подписка на пуши (iOS: сначала «на экран Домой») |
-- **Wireframe:** wireframes/SCR-09.md
-- **Coverage:** none yet
+- **Wireframe:** —
+- **Coverage:** `vibebridge/webui/sw.js` (оболочка и офлайн), `vibebridge/webui/manifest.webmanifest`, `vibebridge/webui/offline.html`, `vibebridge/push.py`. Тесты: `tests/test_phone.py`
 - **Scenarios:** SCN-004, SCN-019
 - **Resources:** service worker (офлайн-страница); Web Push; tailscale serve
   (HTTPS-сертификат tailnet-имени)

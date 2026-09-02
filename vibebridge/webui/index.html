@@ -349,8 +349,14 @@ const esc = vbEsc;
 const escAttr = vbEscAttr;
 function rowHtml(e){
   const cls = e.ok ? "ok" : (e.decision==="paused"||e.decision==="timeout" ? "mut" : "danger");
+  // Класс рисуется РЯДОМ с решением: запись его несёт, фильтры ACT/READ
+  // стоят в сорока пикселях, а строка о нём молчала — владелец фильтровал по
+  // признаку, которого не видел (U-17, SCN-011).
+  // Поле в API называется `class`, а не `tool_class`: первая версия читала
+  // второе и молча рисовала пустоту. Поймано запросом к живому мосту.
+  const кл = e["class"] ? `<span class="chip">${esc(e["class"])}</span> ` : "";
   return `<div class="row"><span class="dot ${cls}"></span>`+
-    `<span>${esc(e.line||e.tool)} — ${DW[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>`+
+    `<span>${кл}${esc(e.line||e.tool)} — ${DW[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>`+
     `<span class="t">${esc(localTs(e.ts))}</span></div>`;
 }
 function render(s){

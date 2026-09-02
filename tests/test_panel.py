@@ -405,3 +405,50 @@ def test_no_two_controls_share_one_id():
     # всегда одна.
     дубли.pop("updBtn", None)
     assert not дубли, f"один id на разных контролах: {дубли}"
+
+
+def test_the_journal_row_shows_the_class_it_can_be_filtered_by():
+    """SCN-011 обещает в строке журнала класс и краткий результат. Запись их
+    несёт, разметка не рисовала — а фильтры ACT/READ стоят в сорока пикселях:
+    владелец фильтровал по признаку, которого не видел (U-17).
+
+    Имя поля проверяется отдельно: в API оно `class`, и первая версия читала
+    `tool_class`, молча рисуя пустоту.
+    """
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text(
+        encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    строка = code.split("function rowHtml", 1)
+    assert len(строка) == 2, "функция строки журнала пропала"
+    тело = строка[1].split("\n}", 1)[0]
+    assert 'e["class"]' in тело, (
+        "строка журнала не рисует класс записи — или читает не то поле")
+
+    # ...и запись действительно его несёт, под этим именем
+    import inspect
+
+    from vibebridge.audit import AuditLog
+    src = inspect.getsource(AuditLog.record)
+    assert '"class": tool_class' in src, (
+        "имя поля в записи изменилось — разметка станет читать пустоту")
+
+
+def test_a_closed_request_is_not_guessed_at():
+    """Мост различает «истёк» и «решён с другой поверхности» (A-10). Запасная
+    строка виджета утверждала второе — именно тогда, когда не знает."""
+    from pathlib import Path
+
+    import vibebridge
+
+    window = (Path(vibebridge.__file__).parent / "webui" / "mascot.html").read_text(
+        encoding="utf-8")
+    запасная = window.split("let why = ", 1)[1].split(";", 1)[0]
+    assert "уже решён с другой поверхности" not in запасная, (
+        f"виджет угадывает причину закрытия: {запасная}")
+    assert "не сказал" in запасная, запасная
