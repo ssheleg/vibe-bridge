@@ -320,3 +320,48 @@ def test_only_shell_releases_published_means_nothing_to_take():
 def test_an_unparsable_feed_is_an_error_not_silence():
     res = update.check(current="0.1.0", fetch=lambda url: "<html>418</html>")
     assert res.found is None and res.error
+
+
+def test_installing_prunes_old_versions_on_every_path(tmp_path, keys):
+    """Уборка жила в фоновом цикле, а кнопка «Проверить обновления» ставила
+    и НЕ убирала. Два пути, одна уборка — и панель копила версии молча.
+
+    Измерено на этой машине 2026-09-02: пять версий payload при `keep=2`,
+    2,2 МБ, все поставлены кнопкой. Поэтому уборка переезжает в саму
+    установку: путь, который её забыл, — это путь, который её не звал.
+    """
+    from vbboot import layout
+
+    root = tmp_path / "payload"
+    for old in ("0.1.0", "0.2.0", "0.3.0"):
+        (root / old / "vibebridge").mkdir(parents=True)
+        (root / old / "vibebridge" / "__init__.py").write_text("")
+        layout.mark_installed(root, old)
+
+    priv, pub = keys
+    blob = make_payload("0.4.0")
+    ok, why = update.install(blob, priv.sign(blob), "0.4.0", root,
+                             pubkey=pub, shell_version="9.9.9")
+    assert ok, why
+    left = layout.installed(root)
+    assert "0.4.0" in left, "свежая версия не уцелела"
+    assert len(left) <= 2, f"уборка не сработала: {left}"
+
+
+def test_a_failed_install_does_not_prune_the_rollback_target(tmp_path, keys):
+    """Порядок обратный: уборка ТОЛЬКО после удачной установки. Иначе она
+    снесла бы версию, на которую мост откатится."""
+    from vbboot import layout
+
+    root = tmp_path / "payload"
+    for old in ("0.1.0", "0.2.0", "0.3.0"):
+        (root / old / "vibebridge").mkdir(parents=True)
+        (root / old / "vibebridge" / "__init__.py").write_text("")
+        layout.mark_installed(root, old)
+
+    priv, pub = keys
+    blob = make_payload("0.4.0", shell_min="9.0.0")
+    ok, why = update.install(blob, priv.sign(blob), "0.4.0", root,
+                             pubkey=pub, shell_version="0.0.1")  # оболочка стара
+    assert not ok and "оболочк" in why
+    assert len(layout.installed(root)) == 3, "провал установки унёс версии"

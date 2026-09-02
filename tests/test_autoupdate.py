@@ -13,6 +13,9 @@ twentieth identical one is noise.
 from __future__ import annotations
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+)
 
 from vbboot import layout
 from vibebridge import update
@@ -125,20 +128,36 @@ def test_recovery_is_reported_so_the_owner_knows_it_came_back(gear,
 def test_old_versions_are_pruned_after_a_successful_install(gear,
                                                             monkeypatch):
     """Versions accumulate forever otherwise — `prune` existed and nothing
-    ever called it."""
+    ever called it.
+
+    Заглушается СКАЧИВАНИЕ, а не установка. Прежняя версия подменяла
+    `fetch_and_install` целиком и проверяла, что уборку зовёт ВЫЗЫВАЮЩИЙ, —
+    и тем закрепляла ровно ту развилку, из-за которой кнопка «Проверить
+    обновления» ставила и не убирала. Уборка живёт в установке; здесь
+    проверяется, что фоновый путь до неё доходит.
+    """
+    from tests.test_update import make_payload
+
     root, audit = gear
     for v in ("0.1.0", "0.2.0", "0.3.0", "0.4.0"):
         (root / v / "vibebridge").mkdir(parents=True)
         (root / v / "vibebridge" / "__init__.py").write_text("")
         layout.mark_installed(root, v)
 
+    priv = Ed25519PrivateKey.generate()
+    blob = make_payload("0.5.0")
     found = update.Available("0.5.0", "https://x/p", "https://x/p.sig")
     monkeypatch.setattr(update, "check", lambda **kw: update.Check(found=found))
-    monkeypatch.setattr(update, "fetch_and_install",
-                        lambda *a, **kw: (True, "установлена"))
+    monkeypatch.setattr(update, "download",
+                        lambda url, opener=None: (
+                            blob if url.endswith("/p") else priv.sign(blob)))
 
-    _updater(root, audit).run_once()
-    assert layout.installed(root) == ["0.3.0", "0.4.0"]
+    updater = update.AutoUpdater(
+        root=root, audit=audit, state=_State(),
+        pubkey=update.public_key_bytes(priv.public_key()),
+        shell_version="9.9.9", current=lambda: "0.1.0")
+    assert updater.run_once() is True
+    assert layout.installed(root) == ["0.4.0", "0.5.0"]
 
 
 def test_a_failed_install_prunes_nothing(gear, monkeypatch):

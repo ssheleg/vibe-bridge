@@ -105,6 +105,11 @@ def verify(data: bytes, signature: bytes, pubkey: bytes) -> bool:
         return False
 
 
+#: Сколько версий payload держим на диске. Две: текущая и та, на которую
+#: мост откатится, если текущая не переживёт свой запуск.
+_KEEP_VERSIONS = 2
+
+
 def install(blob: bytes, signature: bytes, version: str, root: Path, *,
             pubkey: bytes | None, shell_version: str) -> tuple[bool, str]:
     """Install `blob` as `version`. Returns (ok, reason) and never raises.
@@ -149,6 +154,12 @@ def install(blob: bytes, signature: bytes, version: str, root: Path, *,
             _rmtree(final)
         tmp.rename(final)
         layout.mark_installed(root, version)   # stamped LAST — see layout.py
+        # Уборка живёт ЗДЕСЬ, а не у вызывающих. Их двое — фоновый цикл и
+        # кнопка «Проверить обновления», — и убирал только первый: панель
+        # копила версии молча. Измерено 2026-09-02: пять версий при keep=2.
+        # Путь, который забыл убрать, — это путь, который её не звал; из
+        # успешной ветки установки забыть нельзя.
+        layout.prune(root, keep=_KEEP_VERSIONS)
         return True, f"версия {version} установлена"
     except OSError as exc:
         return False, f"не удалось установить обновление: {exc}"
@@ -159,10 +170,11 @@ def install(blob: bytes, signature: bytes, version: str, root: Path, *,
 @dataclass(frozen=True)
 class Check:
     """The answer to "is there an update?", with the two negatives kept
-    apart: `up_to_date` means we asked and there is nothing, `error` means we
-    could not ask. Collapsing them into one None told the owner "обновлений
-    нет" while the bundle was in fact failing to reach GitHub (2026-08-30) —
-    the panel reported calm and the bridge was blind."""
+    apart: `found is None` without `error` means we asked and there is
+    nothing; `error` means we could not ask. Collapsing them into one None
+    told the owner "обновлений нет" while the bundle was in fact failing to
+    reach GitHub (2026-08-30) — the panel reported calm and the bridge was
+    blind."""
     found: Available | None = None
     error: str = ""
 
@@ -385,10 +397,7 @@ class AutoUpdater:
             tool="update", tool_class="SYS",
             decision="auto" if ok else "unavailable", ok=ok,
             line=f"обновление {result.found.version}: {why}", detail=why)
-        if ok:
-            # Only after a good install: pruning on failure could delete the
-            # version the bridge would roll back to.
-            layout.prune(self._root, keep=2)
+        # Уборка старых версий делается внутри `install` — одна на оба пути.
         return ok
 
     # --------------------------------------------------------- journal policy
