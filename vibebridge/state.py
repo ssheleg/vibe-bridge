@@ -12,7 +12,7 @@ import json
 import os
 import secrets
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 
@@ -85,27 +85,29 @@ class BridgeState:
         path = path or default_state_path()
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
-            return cls(path=path,
-                       panel_token=data["panel_token"],
-                       robot_token=data.get("robot_token"),
-                       mode=data.get("mode", "gateway"),
-                       robot_base_url=data.get("robot_base_url"),
-                       robot_chat_url=data.get("robot_chat_url"),
-                       robot_chat_key=data.get("robot_chat_key"),
-                       robot_name=data.get("robot_name"),
-                       vapid_private=data.get("vapid_private"),
-                       vapid_public=data.get("vapid_public"),
-                       push_subscriptions=data.get("push_subscriptions", []),
-                       pending_pair_token=data.get("pending_pair_token"),
-                       pending_pair_token_at=data.get("pending_pair_token_at"),
-                       autostart_registered=data.get(
-                           "autostart_registered", False),
-                       auto_update=data.get("auto_update", True),
-                       pet_session=data.get("pet_session"),
-                       pet_pos=data.get("pet_pos"))
+            return cls(path=path, **cls._known(data))
         state = cls(path=path, panel_token=secrets.token_urlsafe(32))
         state.save()
         return state
+
+    @classmethod
+    def _known(cls, data: dict) -> dict:
+        """Поля класса, взятые из файла. Список НЕ повторяется здесь.
+
+        `save()` пишет `asdict(self)` — то есть все поля, — а `load` до
+        2026-09-02 перечисляла четырнадцать штук руками. Пятнадцатое поле
+        писалось на диск и молча терялось при каждом рестарте: файл
+        правильный, состояние пустое, и никакой ошибки (F-10).
+
+        Умолчания берутся у самого dataclass, а не пишутся вторыми копиями
+        рядом — иначе `mode` умел бы отличаться в объявлении и здесь.
+
+        Ключи, которых у класса нет, игнорируются намеренно: файл, написанный
+        БОЛЕЕ НОВОЙ версией моста, не должен ронять старую — это откат, и он
+        обязан работать (ADR-0006).
+        """
+        names = {f.name for f in fields(cls)} - {"path"}
+        return {k: v for k, v in data.items() if k in names}
 
     def save(self) -> None:
         data = asdict(self)

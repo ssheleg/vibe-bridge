@@ -1079,9 +1079,17 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                                  dns=dns, https_ok=https_ok,
                                  port=settings.port)})
 
-    async def api_wizard_pairing_start(request: Request) -> Response:
-        """Arm pairing: mint the one-shot token and hand the wizard the
-        payload it writes to the SD (or shows as a code path later)."""
+    async def arm_pairing() -> dict:
+        """Взвести пейринг: выпустить одноразовый токен и назвать адрес моста.
+
+        Действие, а не обработчик. `api_wizard_prepare` звал соседний
+        ОБРАБОТЧИК и разбирал обратно его тело
+        (`json.loads(bytes(start.body))`) — то есть побочный эффект «выпущен
+        одноразовый токен» был спрятан внутри выражения «получить значение», а
+        HTTP-сериализация оказалась в пути между двумя своими же функциями
+        (F-11). Действие названо и вызывается напрямую; обработчик стал
+        адаптером над ним.
+        """
         from . import wizard as wiz
         from .net import serve_active, tailnet_dns_name
         token = wiz.pairing_token()
@@ -1091,9 +1099,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         dns = await asyncio.to_thread(tailnet_dns_name)
         https_ok = (await asyncio.to_thread(serve_active, settings.port)
                     if dns else False)
-        bridge_url = bridge_base_url(dns=dns, https_ok=https_ok,
-                                     port=settings.port)
-        return JSONResponse({"token": token, "bridge_url": bridge_url})
+        return {"token": token,
+                "bridge_url": bridge_base_url(dns=dns, https_ok=https_ok,
+                                              port=settings.port)}
+
+    async def api_wizard_pairing_start(request: Request) -> Response:
+        return JSONResponse(await arm_pairing())
 
     async def api_wizard_disks(request: Request) -> Response:
         from . import wizard as wiz
@@ -1116,8 +1127,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             if not str(body.get(fld, "")).strip():
                 return JSONResponse({"error": f"нужно поле {fld}"},
                                     status_code=400)
-        start = await api_wizard_pairing_start(request)
-        info = json.loads(bytes(start.body))
+        info = await arm_pairing()
         hostname = str(body.get("hostname") or "robot-" +
                        str(body["name"]).lower())[:32]
         try:

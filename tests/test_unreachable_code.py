@@ -195,16 +195,74 @@ def test_the_bundle_layout_is_known_in_exactly_one_place():
     HTTP-маршрутов (F-8). Подсадка «трей снова пишет свой обход» проходила
     зелёной, пока этой проверки не было.
     """
+    # Тоже по AST: строковая КОНСТАНТА "Resources" рядом с обращением к
+    # `.parents`. Докстринг — это одна большая константа, а не литерал
+    # "Resources", поэтому проза сюда не попадает.
     знают = []
     for root in ROOTS:
         for path in sorted(root.rglob("*.py")):
             if path.name in ("shell_api.py", "runner.py"):
                 continue          # `shell_api` — дом факта; `runner` — оболочка
-            text = path.read_text(encoding="utf-8")
-            code = "\n".join(ln for ln in text.splitlines()
-                             if not ln.lstrip().startswith("#"))
-            if '"Resources"' in code and "parents" in code:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            literal = any(isinstance(n, ast.Constant) and n.value == "Resources"
+                          for n in ast.walk(tree))
+            walk = any(isinstance(n, ast.Attribute) and n.attr == "parents"
+                       for n in ast.walk(tree))
+            if literal and walk:
                 знают.append(str(path.relative_to(REPO)))
     assert not знают, (
         "устройство бандла переписано заново в: " + ", ".join(знают) +
         " — зовите `shell_api.bundle_resources()`")
+
+
+def test_no_handler_calls_another_handler_and_parses_its_body_back():
+    """Обработчик — адаптер над действием, а не вызываемая функция.
+
+    `api_wizard_prepare` звал `api_wizard_pairing_start` и разбирал обратно
+    его тело: побочный эффект «выпущен одноразовый токен» прятался внутри
+    выражения «получить значение», а HTTP-сериализация оказывалась в пути
+    между двумя своими же функциями (F-11). Действие должно быть названо.
+    """
+    вызовы = []
+    for root in ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            handlers = {n.name for n in ast.walk(tree)
+                        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and n.name.startswith("api_")}
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = (node.func.id if isinstance(node.func, ast.Name)
+                        else getattr(node.func, "attr", None))
+                if name in handlers:
+                    вызовы.append(
+                        f"{path.relative_to(REPO)}:{node.lineno} → {name}()")
+    assert not вызовы, (
+        "обработчик зовёт обработчик: " + "; ".join(вызовы) +
+        " — назовите действие и зовите его, а маршрут пусть остаётся "
+        "адаптером")
+
+
+def test_no_response_body_is_parsed_back_by_our_own_code():
+    """`json.loads(bytes(...body))` над собственным ответом — верный признак
+    того, что действие не названо."""
+    # Разбор по AST, а не по тексту: первая версия искала подстроки и
+    # поймала ДОКСТРИНГ, который объясняет этот самый фикс. Проза,
+    # прочитанная как код, — четвёртый случай за сессию; у AST такого
+    # различия нет по построению.
+    следы = []
+    for root in ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "loads"):
+                    continue
+                if any(isinstance(inner, ast.Attribute) and inner.attr == "body"
+                       for arg in node.args for inner in ast.walk(arg)):
+                    следы.append(
+                        f"{path.relative_to(REPO)}:{node.lineno}")
+    assert not следы, (
+        "своё же тело ответа разбирается обратно в: " + ", ".join(следы))
