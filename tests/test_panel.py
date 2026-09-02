@@ -331,3 +331,77 @@ def test_switching_the_security_boundary_explains_itself_first():
     assert "Мост не ответил" in fn, "провал переключения снова беззвучен"
     assert "switch_effect" in code, "последствие не показывается ДО клика"
     assert "s.listens" in code, "панель не говорит, что мост слушает"
+
+
+def test_an_unavailable_control_is_disabled_not_absent():
+    """SCN-007 шаг 2: недоступное действие ОТКЛЮЧЕНО с причиной.
+
+    Офлайн-ветка карточки робота возвращалась раньше отрисовки кнопки, и
+    контрол просто исчезал. Исчезнувший контрол — не «отключено с причиной»,
+    а «его нет»: владелец учится, что такого действия не существует (U-6).
+    """
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text(
+        encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    кнопки = re.findall(r'<button[^>]*id="updBtn"[^>]*>', code)
+    assert len(кнопки) == 2, (
+        f"кнопка «Обновить робота» найдена {len(кнопки)} раз — она обязана "
+        f"существовать в ОБЕИХ ветках: живой и офлайн")
+    отключённая = [b for b in кнопки if "disabled" in b]
+    assert len(отключённая) == 1, "офлайн-кнопка не отключена"
+    assert "title=" in отключённая[0], (
+        "кнопка отключена молча — причина не названа")
+
+
+def test_the_chat_input_is_not_locked_by_a_cached_status():
+    """Канон противоречил сам себе: SCN-007 требовал отключить ввод,
+    SCN-009 — отправить с пометкой «не доставлено».
+
+    Спор решает факт: статус робота — кэш последнего опроса. Блокировать ввод
+    по устаревшему «недоступен» значит запретить работающий чат.
+    """
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text(
+        encoding="utf-8")
+    поле = [ln for ln in page.splitlines() if 'id="chatInput"' in ln]
+    assert поле, "поле ввода чата пропало"
+    assert "disabled" not in поле[0], (
+        "ввод чата отключён по статусу — а статус это кэш опроса")
+
+    scenarios = (Path(vibebridge.__file__).parents[1] / "docs" / "ux"
+                 / "scenarios.md").read_text(encoding="utf-8")
+    assert "система отключает ввод с причиной «робот недоступен»" not in scenarios, (
+        "канон снова требует отключать ввод — это противоречит SCN-009")
+
+
+def test_no_two_controls_share_one_id():
+    """`getElementById` отдаёт ПЕРВЫЙ в порядке документа.
+
+    `updBtn` жил на двух разных кнопках — у робота на дашборде и у моста в
+    настройках, — и «Проверить обновления» переписывало чужой контрол,
+    оставляя свой без обратной связи. Найдено гейтом U-6, а не отчётом.
+    """
+    import collections
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text(
+        encoding="utf-8")
+    ids = re.findall(r'\bid="([A-Za-z][\w-]*)"', page)
+    дубли = {i: n for i, n in collections.Counter(ids).items() if n > 1}
+    # `updBtn` у робота стоит дважды НАМЕРЕННО — это одна кнопка в двух
+    # взаимоисключающих ветках отрисовки (живой и офлайн), в документе она
+    # всегда одна.
+    дубли.pop("updBtn", None)
+    assert not дубли, f"один id на разных контролах: {дубли}"

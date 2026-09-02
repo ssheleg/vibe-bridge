@@ -425,9 +425,27 @@ def pairing_verdict(*, offered: str, expected: str | None,
     return PairVerdict.OK
 
 
-#: Поля, чьё расхождение файла и процесса означает «нужен перезапуск».
-_RESTART_FIELDS = ("port", "mode", "release_repo", "update_enabled",
-                   "update_interval_s", "ask_timeout_s")
+#: Не настройка, а диагностика чтения файла — сравнивать её бессмысленно.
+_NOT_A_SETTING = frozenset({"problems"})
+
+
+def restart_fields(live) -> tuple[str, ...]:
+    """Поля, чьё расхождение файла и процесса означает «нужен перезапуск».
+
+    Выводится из самого `Settings`, а не перечисляется: список из шести имён
+    молчал про `ask_for_read`, `mascot_window`, `mascot_skin` и `robot_repo`
+    — то есть про ОБЕ кнопки, которые владелец нажимает чаще всего. Клик
+    писал файл, строка показывала старое значение, ноты «ждёт перезапуска»
+    не было, и выглядело это как «кнопка не работает» (U-5).
+
+    Перезапуска требует КАЖДОЕ поле, и это не осторожность: объект
+    `Settings` захватывается при сборке приложения, а обработчики читают
+    его, а не файл. Поле, которое начнёт применяться на лету, надо будет
+    внести в исключения — вместе с тем, что делает его живым.
+    """
+    from dataclasses import fields
+    return tuple(f.name for f in fields(type(live))
+                 if f.name not in _NOT_A_SETTING)
 
 
 def settings_view(*, live, on_disk, bind_host: str, has_robot_token: bool,
@@ -445,7 +463,7 @@ def settings_view(*, live, on_disk, bind_host: str, has_robot_token: bool,
     """
     from .config import config_path
 
-    pending = [name for name in _RESTART_FIELDS
+    pending = [name for name in restart_fields(live)
                if getattr(live, name) != getattr(on_disk, name)]
     loopback = bind_host in ("127.0.0.1", "localhost", "::1")
     body: dict[str, Any] = {

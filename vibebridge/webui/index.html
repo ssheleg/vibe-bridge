@@ -415,8 +415,13 @@ function renderRobot(r){
   tab.title = r.online ? "" : "Робот недоступен — чат отправит с пометкой";
   if (!r.online){
     const since = r.offline_since ? new Date(r.offline_since*1000).toLocaleTimeString().slice(0,5) : "";
+    // Кнопка ОСТАЁТСЯ на месте — отключённой и с причиной. Раньше офлайн-ветка
+    // возвращалась раньше, и контрол просто исчезал: это не «отключено с
+    // причиной», это «его нет», и владелец учится, что такого действия не
+    // существует (U-6, SCN-007 шаг 2).
     el.innerHTML = `<p><span class="chip"><span class="dot mut"></span>недоступен${since?" с "+since:""}</span></p>`+
-      `<p class="note" style="margin-top:8px">${esc(r.reason||"")}. Проверьте питание робота, его Wi-Fi и связь (Tailscale).</p>`;
+      `<p class="note" style="margin-top:8px">${esc(r.reason||"")}. Проверьте питание робота, его Wi-Fi и связь (Tailscale).</p>`+
+      `<div style="margin-top:12px"><button class="btn ghost" id="updBtn" disabled title="Робот недоступен — обновлять нечего">Обновить робота</button></div>`;
     return;
   }
   el.innerHTML =
@@ -639,15 +644,40 @@ async function loadAccess(){
       `<p class="note" id="modeNote" style="margin-top:6px">${esc(s.switch_effect||"")}</p>`+
       `<button class="btn ghost" onclick="setSetting('ask_for_read',${s.ask_for_read?"false":"true"})">${s.ask_for_read?"Не спрашивать перед чтением":"Спрашивать перед чтением"}</button>`+
       `<button class="btn ghost" onclick="setSetting('mascot_window',${s.mascot_window?"false":"true"})">${s.mascot_window?"Убрать питомца с экрана":"Показать питомца на экране"}</button>`+
+      `<p class="note" id="setNote" style="margin-top:6px"></p>`+
       `</div>`;
     el.innerHTML = rows;
   } catch(e){ el.innerHTML = '<p class="empty">Не удалось получить настройки.</p>'; }
 }
+// Клик обязан ОТВЕТИТЬ. Прежняя версия писала файл, перерисовывала карточку
+// — и карточка показывала старое значение, потому что процесс держит
+// настройки, захваченные при старте. Ноты «ждёт перезапуска» не было, потому
+// что список ждущих полей молчал про обе эти кнопки. А сетевая ошибка
+// глоталась `catch(e){}` целиком: нажатие выглядело как «ничего не
+// произошло» (U-5).
+//
+// `alert()` заменён строкой в карточке намеренно: модальный диалог браузера
+// останавливает страницу целиком, включая поток событий от моста.
+function settingNote(text, bad){
+  const el = document.getElementById("setNote");
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = bad ? "var(--danger)" : "var(--muted)";
+}
 async function setSetting(key, value){
+  settingNote("Записываю…", false);
   try{
     const r = await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({[key]:value})});
-    if(!r.ok){ const d = await r.json(); alert(d.error||"Не получилось"); return; }
-  } catch(e){}
+    if(!r.ok){
+      let d = {}; try{ d = await r.json(); } catch(e){}
+      settingNote(d.error || "Не получилось записать настройку.", true);
+      return;
+    }
+  } catch(e){
+    settingNote("Мост не ответил — настройка не записана.", true);
+    return;
+  }
+  settingNote("Записано в файл настроек. Применится после перезапуска моста.", false);
   loadAccess();
 }
 async function switchMode(btn){
@@ -772,7 +802,7 @@ async function loadVersion(){
     if (v.pending) rows += `<p class="note" style="margin-top:8px">Готова версия ${esc(v.pending)} — ${esc(v.pending_note)}.</p>`;
     rows += `<div class="kv"><span class="k">Автообновление</span><span class="v">${v.auto_update?"включено — проверяет раз в 6 часов":"выключено"}</span></div>`;
     rows += `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">`+
-      `<button class="btn ghost" id="updBtn" onclick="checkUpdate()">Проверить обновления</button>`+
+      `<button class="btn ghost" id="updCheckBtn" onclick="checkUpdate()">Проверить обновления</button>`+
       `<button class="btn ghost" onclick="setAutoUpdate(${v.auto_update?"false":"true"})">${v.auto_update?"Выключить автообновление":"Включить автообновление"}</button>`+
       `</div>`+
       `<p class="note" id="updNote" style="margin-top:6px">Обновляется только собственный код моста — права, выданные приложению, при этом не сбрасываются. Каждое обновление и каждый отказ видны в журнале.</p>`;
@@ -802,7 +832,11 @@ async function openLoginItems(btn){
   } catch(e){ btn.textContent = "Мост не ответил"; }
 }
 async function checkUpdate(){
-  const btn = document.getElementById("updBtn"), note = document.getElementById("updNote");
+  // `updBtn` жил на ДВУХ разных кнопках: у робота на дашборде и у моста в
+  // настройках. `getElementById` отдаёт первую в порядке документа — то есть
+  // кнопку робота, — и «Проверить обновления» переписывало чужой контрол,
+  // оставляя свой без обратной связи. Найдено гейтом U-6.
+  const btn = document.getElementById("updCheckBtn"), note = document.getElementById("updNote");
   btn.disabled = true; btn.textContent = "Проверяю…";
   try{
     const r = await (await fetch("/api/update/check",{method:"POST"})).json();

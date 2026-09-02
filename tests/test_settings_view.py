@@ -83,10 +83,36 @@ def test_restart_is_owed_only_for_fields_that_need_one():
     moved = _view(live=Settings(port=48620), on_disk=Settings(port=51234))
     assert moved["pending"] == ["port"] and moved["restart_required"] is True
 
-    # ...а поле, которое читается на лету, перезапуска не требует
+    # Здесь стояло убеждение «поле, которое читается на лету, перезапуска не
+    # требует», и в качестве примера — `mascot_skin`. Измерение его
+    # опровергает: `api_settings_save` пишет ТОЛЬКО файл, а обработчики
+    # читают объект `Settings`, захваченный при сборке приложения
+    # (`web.py:1281` — `settings.mascot_skin` из замыкания). Живых полей нет
+    # ни одного, и список молчал про обе кнопки, которые владелец нажимает
+    # чаще всего (U-5).
     skin = _view(live=Settings(mascot_skin="vasya"),
                  on_disk=Settings(mascot_skin="другой"))
-    assert skin["pending"] == []
+    assert skin["pending"] == ["mascot_skin"], (
+        "изменение скина не показывается как ждущее перезапуска, хотя "
+        "процесс держит старое значение до рестарта")
+
+    ask = _view(live=Settings(ask_for_read=False),
+                on_disk=Settings(ask_for_read=True))
+    assert ask["pending"] == ["ask_for_read"], (
+        "кнопка «Спрашивать перед чтением» снова не даёт обратной связи")
+
+
+def test_the_restart_list_covers_every_setting_there_is():
+    """Список выводится из `Settings`, а не перечисляется. Перечисленный
+    молчал про четыре поля из десяти — включая обе кнопки панели."""
+    from dataclasses import fields
+
+    from vibebridge.web import restart_fields
+    покрыто = set(restart_fields(Settings()))
+    все = {f.name for f in fields(Settings)} - {"problems"}
+    assert покрыто == все, (
+        f"поля вне списка перезапуска: {sorted(все - покрыто)}; "
+        f"лишние: {sorted(покрыто - все)}")
 
 
 def test_the_panel_is_told_the_port_in_force_not_the_one_in_the_file():
