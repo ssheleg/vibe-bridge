@@ -80,53 +80,73 @@ WantedBy=multi-user.target
 
 
 def provision_script(repo_url: str = ROBOT_REPO_DEFAULT) -> str:
-    """The network-time half: clone → install → pair → shred the token.
-    Fail-open ordering: pairing runs even if install had trouble, so the
-    owner SEES the robot appear and gets an honest checklist instead of
-    silence (SCN-015/016)."""
+    """The network-time half: clone → install → pair → shred the seed.
+
+    Пейринг делает СОБСТВЕННЫЙ клиент робота (`scripts/bridge_pair.py`), а не
+    curl отсюда. Причина не в красоте: свой адрес знает только робот, и
+    `/pair` без `base_url` оставляет мост в состоянии «связан ✓, но не
+    подключён» — владелец видит зелёную галочку и серый чат (A-5). Вторая
+    реализация того же протокола здесь была бы третьей копией одной правды —
+    класс, который проект уже разбирал на палитре и на таблице инструментов.
+
+    Устанавливает `scripts/deploy.sh` робота. `pi-deploy.sh` — инструмент
+    ДЕВ-МАШИНЫ: он собирает, подписывает и ОТПРАВЛЯЕТ дерево роботу через
+    мост; запущенный на самой плате он пытался бы выкатить сам себе.
+
+    Порядок fail-open: установка может не удаться, пейринг всё равно
+    пробуется — владелец должен УВИДЕТЬ робота. Но закрывается юнит только
+    после успеха: пока робот не связан, `provision.done` не появляется и
+    следующая загрузка пробует снова (A-30 — Мак мог просто спать).
+    """
     return f"""#!/bin/bash
 # vibe-bridge robot-provision — runs once, with network, as root.
 set -u
 REPO="${{1:-{shlex.quote(repo_url)}}}"
-TOK=/boot/firmware/{TOKEN_FILENAME}
-[ -f "$TOK" ] || TOK=/boot/{TOKEN_FILENAME}
-STATE=/var/lib/robot-pairing.json
+# Корень путей. Юнит запускает скрипт без него (пусто = настоящая система);
+# набор подставляет временный каталог и потому исполняет ЭТОТ скрипт целиком.
+R="${{VB_PROVISION_ROOT:-}}"
+TOK="$R/boot/firmware/{TOKEN_FILENAME}"
+[ -f "$TOK" ] || TOK="$R/boot/{TOKEN_FILENAME}"
+SEED="$R/var/lib/{TOKEN_FILENAME}"
+ROBOT="$R/opt/robot"
+PAIR="$ROBOT/scripts/bridge_pair.py"
 
 # 1. Секрет с FAT — в 0600 немедленно, потом шредим оригинал (research B §5).
+# Шредим оригинал ТОЛЬКО после удачной копии: `&&` здесь — не стиль, а
+# единственный токен пейринга, который иначе исчезает совсем.
 if [ -f "$TOK" ]; then
-  install -m 600 "$TOK" "$STATE"
-  shred -u "$TOK" 2>/dev/null || rm -f "$TOK"
+  mkdir -p "$(dirname "$SEED")"
+  install -m 600 "$TOK" "$SEED" && {{ shred -u "$TOK" 2>/dev/null || rm -f "$TOK"; }}
 fi
 
-# 2. Стек робота: клон + его собственный инсталлер (дальше он живёт своим
-#    GitHub-таймером — fleet-канон, никакого SSH).
-if [ ! -d /opt/robot ]; then
-  git clone --depth 1 "$REPO" /opt/robot || true
+# 2. Стек робота: клон + его инсталлер НА УСТРОЙСТВЕ.
+if [ ! -d "$ROBOT/.git" ]; then
+  git clone --depth 1 "$REPO" "$ROBOT" || true
 fi
-if [ -x /opt/robot/pi-deploy.sh ]; then
-  (cd /opt/robot && ./pi-deploy.sh --unattended) || true
+if [ -f "$ROBOT/scripts/deploy.sh" ]; then
+  (cd "$ROBOT" && bash scripts/deploy.sh) || true
 fi
 
-# 3. Пейринг: предъявить одноразовый токен мосту, получить постоянный ключ.
-if [ -f "$STATE" ]; then
-  BRIDGE=$(python3 -c "import json;print(json.load(open('$STATE'))['bridge_url'])")
-  TOKEN=$(python3 -c "import json;print(json.load(open('$STATE'))['token'])")
-  NAME=$(python3 -c "import json;print(json.load(open('$STATE')).get('name','робот'))")
-  for i in $(seq 1 30); do
-    RESP=$(curl -fsS --max-time 10 -X POST "$BRIDGE/pair" \\
-      -H 'Content-Type: application/json' \\
-      -d "{{\\"token\\":\\"$TOKEN\\",\\"name\\":\\"$NAME\\"}}") && break
+# 3. Пейринг клиентом робота. `--status` — его же ответ на вопрос «я уже
+#    спарен?»: путь к creds принадлежит роботу, и мост его не повторяет.
+PAIRED=0
+python3 "$PAIR" --status >/dev/null 2>&1 && PAIRED=1
+if [ "$PAIRED" = 0 ] && [ -f "$SEED" ] && [ -f "$PAIR" ]; then
+  for _ in $(seq 1 60); do
+    python3 "$PAIR" --from-file "$SEED" && {{ PAIRED=1; break; }}
     sleep 10
   done
-  if [ -n "${{RESP:-}}" ]; then
-    printf '%s' "$RESP" > /var/lib/robot-bridge-credentials.json
-    chmod 600 /var/lib/robot-bridge-credentials.json
-    shred -u "$STATE" 2>/dev/null || rm -f "$STATE"
-  fi
 fi
 
-touch /var/lib/robot-provision.done
-systemctl disable robot-provision.service 2>/dev/null || true
+# 4. Закрываемся ТОЛЬКО связанными. Юнит робота гейтится наличием creds —
+#    поднять его обязан тот, кто их создал.
+if [ "$PAIRED" = 1 ]; then
+  shred -u "$SEED" 2>/dev/null || rm -f "$SEED"
+  systemctl enable --now bridge-api.service 2>/dev/null || true
+  mkdir -p "$R/var/lib"
+  touch "$R/var/lib/robot-provision.done"
+  systemctl disable robot-provision.service 2>/dev/null || true
+fi
 exit 0
 """
 

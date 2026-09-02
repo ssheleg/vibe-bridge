@@ -655,9 +655,20 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                         chat_url=state.robot_chat_url,
                         chat_key=state.robot_chat_key, name=name)
         robot_state.update({"configured": robot.configured})
+        # «Связан ✓» без адреса — ложь на весь остаток жизни установки:
+        # панель рядом скажет «не подключён», и владелец будет искать причину
+        # в сети. Токен принят — но так и говорим (A-5).
+        if robot.configured:
+            line = f"робот «{name}» связан с мостом"
+            toast = f"Робот «{name}» связан с мостом ✓"
+        else:
+            line = (f"робот «{name}» предъявил токен, но не назвал свой "
+                    f"адрес — панель покажет «не подключён»")
+            toast = (f"Робот «{name}» принят, но адреса не назвал — "
+                     f"подключения не будет")
         audit.record(tool="pair", tool_class="act", decision="allow", ok=True,
-                     line=f"робот «{name}» связан с мостом")
-        notify("vibe-bridge", f"Робот «{name}» связан с мостом ✓")
+                     line=line)
+        notify("vibe-bridge", toast)
         from .net import serve_active, tailnet_dns_name
         from .server import BRIDGE_PORT
         dns = await asyncio.to_thread(tailnet_dns_name)

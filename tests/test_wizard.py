@@ -40,12 +40,118 @@ def test_cmdline_patch_appends_once():
     assert wiz.cmdline_patch(once) == once          # idempotent
 
 
-def test_provision_script_shreds_token_and_pairs():
-    s = wiz.provision_script()
-    assert "shred -u" in s
-    assert "/pair" in s and "curl -fsS" in s
-    assert "chmod 600 /var/lib/robot-bridge-credentials.json" in s
-    assert "systemctl disable robot-provision.service" in s
+def _run_provision(tmp_path, *, pair_exit: int, with_client: bool = True,
+                   already_paired: bool = False) -> dict:
+    """Выполнить НАСТОЯЩИЙ скрипт провижининга под временным корнем.
+
+    Скрипт с карты — единственный код проекта, который до сих пор никогда не
+    исполнялся набором (A-39 про тот же класс в JS). Здесь он запускается
+    целиком: `git`, `systemctl`, `sleep` и клиент пейринга робота подменены
+    заглушками на PATH, каждая пишет свой вызов в журнал.
+    """
+    import os
+    import subprocess
+
+    root = tmp_path / "root"
+    (root / "boot" / "firmware").mkdir(parents=True)
+    (root / "var" / "lib").mkdir(parents=True)
+    (root / "boot" / "firmware" / wiz.TOKEN_FILENAME).write_text(
+        wiz.pairing_file(token="tok-1", bridge_url="https://mac.ts.net",
+                         name="Вася"), encoding="utf-8")
+    calls = root / "calls.log"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+
+    def stub(name: str, body: str) -> None:
+        p = bin_dir / name
+        p.write_text(f"#!/bin/bash\necho \"{name} $*\" >> {calls}\n{body}\n")
+        p.chmod(0o755)
+
+    stub("git", 'mkdir -p "$3/.git" "$3/scripts"; exit 0')
+    stub("systemctl", "exit 0")
+    stub("sleep", "exit 0")            # иначе провал ждал бы десять минут
+    stub("shred", 'rm -f "${@: -1}"; exit 0')
+
+    robot = root / "opt" / "robot" / "scripts"
+    robot.mkdir(parents=True)
+    (root / "opt" / "robot" / ".git").mkdir(parents=True)
+    (robot / "deploy.sh").write_text(f'#!/bin/bash\necho "deploy.sh $*" >> {calls}\n')
+    if with_client:
+        # Клиент робота: --status говорит «спарен?», --from-file пейрит.
+        (robot / "bridge_pair.py").write_text(
+            f'import sys\n'
+            f'open({str(calls)!r}, "a").write("bridge_pair " + " ".join(sys.argv[1:]) + "\\n")\n'
+            f'sys.exit(0 if ("--status" in sys.argv and {already_paired!r}) '
+            f'else ({pair_exit} if "--from-file" in sys.argv else 1))\n')
+
+    script = tmp_path / "provision.sh"
+    script.write_text(wiz.provision_script(), encoding="utf-8")
+    env = dict(os.environ,
+               PATH=f"{bin_dir}:{os.environ['PATH']}",
+               VB_PROVISION_ROOT=str(root))
+    proc = subprocess.run(["bash", str(script)], env=env, timeout=120,
+                          capture_output=True, text=True)
+    return {"rc": proc.returncode, "root": root,
+            "calls": calls.read_text(encoding="utf-8") if calls.exists() else "",
+            "stderr": proc.stderr}
+
+
+def test_provision_pairs_through_the_robots_own_client(tmp_path):
+    """A-5: карта POST'ила в /pair только {token, name}. Адрес робота знает
+    ТОЛЬКО робот, и без него мост говорит «связан ✓», а панель — «не
+    подключён». Протокол не должен существовать во второй реализации:
+    пейринг делает `scripts/bridge_pair.py` робота."""
+    got = _run_provision(tmp_path, pair_exit=0)
+    assert "bridge_pair --from-file" in got["calls"]
+    seed = got["root"] / "var" / "lib" / "robot-pairing.json"
+    assert f"--from-file {seed}" in got["calls"]
+    # Никакого второго клиента протокола в скрипте нет.
+    src = wiz.provision_script()
+    assert "curl" not in src and "/pair" not in src
+
+
+def test_provision_installs_with_the_on_device_installer(tmp_path):
+    """`pi-deploy.sh` — инструмент ДЕВ-МАШИНЫ: он отправляет сборку роботу
+    через мост. На самом роботе устанавливает `scripts/deploy.sh`."""
+    got = _run_provision(tmp_path, pair_exit=0)
+    assert "deploy.sh" in got["calls"]
+    assert "pi-deploy.sh" not in wiz.provision_script()
+
+
+def test_provision_starts_the_bridge_api_after_pairing(tmp_path):
+    """Юнит робота гейтится наличием creds — до пейринга он не может
+    стартовать. Значит поднять его обязан тот, кто создал creds."""
+    got = _run_provision(tmp_path, pair_exit=0)
+    assert "systemctl enable --now bridge-api.service" in got["calls"]
+
+
+def test_provision_closes_itself_only_when_pairing_succeeded(tmp_path):
+    """A-30: `provision.done` и `disable` выполнялись безусловно — спящий
+    Мак стоил владельцу всей карты. Провал обязан оставлять юнит включённым."""
+    ok = _run_provision(tmp_path, pair_exit=0)
+    assert (ok["root"] / "var" / "lib" / "robot-provision.done").exists()
+    assert "systemctl disable robot-provision.service" in ok["calls"]
+
+    bad = _run_provision(tmp_path / "second", pair_exit=1)
+    assert not (bad["root"] / "var" / "lib" / "robot-provision.done").exists()
+    assert "disable robot-provision.service" not in bad["calls"]
+    # Семя пейринга уцелело — следующая загрузка попробует им же.
+    assert (bad["root"] / "var" / "lib" / "robot-pairing.json").exists()
+
+
+def test_provision_shreds_the_seed_only_after_success(tmp_path):
+    ok = _run_provision(tmp_path, pair_exit=0)
+    assert not (ok["root"] / "var" / "lib" / "robot-pairing.json").exists()
+    # ...а с FAT секрет уходит сразу, до всякой сети (research B §5).
+    assert not (ok["root"] / "boot" / "firmware" / wiz.TOKEN_FILENAME).exists()
+
+
+def test_provision_does_not_repair_an_already_paired_robot(tmp_path):
+    """Идемпотентность: юнит может отработать второй раз (done потерян,
+    карта переставлена) — повторный пейринг сжёг бы рабочий токен."""
+    got = _run_provision(tmp_path, pair_exit=0, already_paired=True)
+    assert "--from-file" not in got["calls"]
+    assert (got["root"] / "var" / "lib" / "robot-provision.done").exists()
 
 
 def test_prepare_boot_partition_writes_files(tmp_path):
@@ -191,3 +297,19 @@ def test_the_card_carries_the_configured_robot_repository(tmp_path):
                         if p.is_file() and p.suffix in ("", ".sh", ".txt"))
     assert "example.org/mine.git" in written
     assert "ssheleg/rpi-ai-assistant" not in written
+
+
+def test_pair_without_an_address_does_not_claim_a_connection(tmp_path):
+    """A-5, вторая половина: токен принят, адрес не назван — мост обязан
+    сказать это, а не показать «связан ✓» рядом с «не подключён»."""
+    app, state, robot = _app(tmp_path)
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        start = c.post("/api/wizard/pairing/start").json()
+        r = c.post("/pair", json={"token": start["token"], "name": "Вася"})
+        assert r.status_code == 200                # токен настоящий
+        assert robot.configured is False           # но подключения нет
+        j = c.get("/api/journal?limit=3").json()
+        lines = [e.get("line", "") for e in j["entries"]]
+        assert any("не назвал свой адрес" in ln for ln in lines)
+        assert not any("связан с мостом" == ln.strip() for ln in lines)
