@@ -244,3 +244,22 @@ def test_a_capability_that_needs_permission_offers_the_way_to_grant_it():
     assert "/grant" in fn, "кнопка никуда не ходит"
     assert "capNote" in fn, "результат запроса прав не показывается"
     assert "Мост не ответил" in fn, "молчащая кнопка — тот же обман"
+
+
+def test_the_attach_form_asks_for_the_chat_address_and_reports_the_probe():
+    """A-12: `chat_url` в форме не было вовсе — вкладка «Чат» включалась, а
+    чат отвечал «робот не подключён» рядом с карточкой «в сети». И «привязан
+    ✓» печаталось без единого обращения к роботу."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    assert 'id="atChat"' in code, "адрес чата в форме не спрашивается"
+    fn = code.split("async function attachRobot(", 1)[1].split("\n}", 1)[0]
+    assert "chat_url" in fn, "адрес чата не отправляется"
+    assert "d.reached" in fn, "успех печатается без проверки связи"
+    assert "d.probe.error" in fn, "причина провала не показывается"

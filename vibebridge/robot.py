@@ -94,6 +94,46 @@ class RobotClient:
         self._last_online = time.time()
         return {"configured": True, "online": True, "name": self.name, **data}
 
+    async def probe(self) -> dict[str, Any]:
+        """Дозвониться до робота и сказать, ПОЧЕМУ не вышло.
+
+        Форма ручной привязки проверяла ровно одно — что адрес начинается с
+        `http://`. Дальше она объявляла «привязан ✓», и три разные беды
+        выглядели одинаково: чужой адрес, неверный ключ и выключенный робот
+        (A-12). Владельцу каждая из них говорит РАЗНОЕ, поэтому и различаем.
+        """
+        if self.base_url is None:
+            return {"ok": False, "kind": "unconfigured",
+                    "error": "адрес робота не задан"}
+        try:
+            r = await self._http.get(f"{self.base_url}/bridge/status",
+                                     headers=self._headers(),
+                                     timeout=STATUS_TIMEOUT_S)
+        except httpx.HTTPError as exc:
+            return {"ok": False, "kind": "unreachable",
+                    "error": f"робот не отвечает по этому адресу: "
+                             f"{_speakable(exc)}"}
+        if r.status_code in (401, 403):
+            return {"ok": False, "kind": "unauthorized",
+                    "error": "робот ответил «не пущу»: ключ не подошёл"}
+        if r.status_code >= 400:
+            return {"ok": False, "kind": "unreachable",
+                    "error": f"робот ответил {r.status_code}"}
+        try:
+            data = r.json()
+        except ValueError:
+            data = None
+        # Робот обязан назваться. Иначе по адресу отвечает ЧТО-ТО, но не он —
+        # а «привязан ✓» к чужому сайту хуже, чем честное «это не робот».
+        if not isinstance(data, dict) or not (data.get("name")
+                                              or data.get("version")):
+            return {"ok": False, "kind": "not-a-robot",
+                    "error": "по этому адресу отвечает не робот "
+                             "(нет его карточки статуса)"}
+        self._last_online = time.time()
+        self._offline_since = None
+        return {"ok": True, **data}
+
     # ── chat ────────────────────────────────────────────────────────────────
 
     async def chat(self, text: str, *, session: str = "panel",

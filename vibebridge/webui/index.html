@@ -201,8 +201,9 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
       <button class="tab" id="tabWizard" aria-selected="false" onclick="robotPath('wizard')">Новая Raspberry Pi</button>
     </div>
     <div id="attachCard">
-      <p style="margin-bottom:8px">Укажите адрес bridge-API робота и его ключ. Мост выдаст токен, который нужно прописать роботу.</p>
-      <div class="field"><label>Адрес робота</label><input id="atUrl" placeholder="https://robot.tailnet.ts.net"></div>
+      <p style="margin-bottom:8px">Укажите адрес bridge-API робота и его ключ. Мост выдаст токен, который нужно прописать роботу, и сразу проверит связь — «привязан» здесь значит «дозвонился».</p>
+      <div class="field"><label>Адрес робота</label><input id="atUrl" placeholder="https://robot.tailnet.ts.net:8630"></div>
+      <div class="field"><label>Адрес чата (если отдельный)</label><input id="atChat" placeholder="обычно тот же адрес — можно оставить пустым"></div>
       <div class="field"><label>Ключ робота (если задан)</label><input id="atKey" type="password" placeholder="можно оставить пустым"></div>
       <div class="field"><label>Имя</label><input id="atName" value="Вася"></div>
       <button class="btn primary" onclick="attachRobot()">Привязать</button>
@@ -432,12 +433,20 @@ async function attachRobot(){
   try{
     const r = await fetch("/api/robot/attach",{method:"POST",headers:{"Content-Type":"application/json"},
       body: JSON.stringify({base_url: document.getElementById("atUrl").value,
+                            chat_url: document.getElementById("atChat").value,
                             key: document.getElementById("atKey").value,
                             name: document.getElementById("atName").value})});
     const d = await r.json();
     if(!r.ok){ note.textContent = d.error || "Не получилось."; return; }
-    note.innerHTML = `Робот «${esc(d.name)}» привязан ✓<br>Пропишите роботу этот токен моста:<br>`+
-      `<span class="v mono" style="user-select:all;word-break:break-all">${esc(d.robot_token)}</span>`;
+    // «Привязан ✓» значит «дозвонился». Не дозвонились — говорим ЧТО именно
+    // не так: чужой адрес, неверный ключ и выключенный робот требуют от
+    // владельца трёх разных действий (A-12).
+    const head = d.reached
+      ? `Робот «${esc(d.name)}» привязан ✓ — отвечает.`
+      : `Робот «${esc(d.name)}» записан, но не отвечает: ${esc(d.probe.error)}`;
+    note.innerHTML = head + `<br>Пропишите роботу этот токен моста:<br>`+
+      `<span class="v mono" style="user-select:all;word-break:break-all">${esc(d.robot_token)}</span>`+
+      (d.reached ? "" : `<br><span class="note">После этого нажмите «Привязать» ещё раз — мост проверит связь снова.</span>`);
     loadOnboarding(); refresh();
   } catch(e){ note.textContent = "Мост не ответил."; }
 }

@@ -441,3 +441,44 @@ def test_a_second_turn_in_one_session_is_refused_while_the_first_runs(tmp_path):
         assert c.post("/api/robot/chat",
                       json={"text": "ещё"}).status_code == 200
         assert slow.turns == 2
+
+
+# ── A-12: привязка обязана ПРОВЕРИТЬ, а не поверить на слово ───────────────
+
+def test_probe_says_ok_when_a_real_robot_answers():
+    res = _run(_client(lambda r: httpx.Response(200, json={
+        "name": "Вася", "version": "v1.2.0", "build": 142}),
+        chat_key="k").probe())
+    assert res["ok"] is True and res["name"] == "Вася" and res["build"] == 142
+
+
+def test_probe_calls_a_wrong_key_by_its_name():
+    """Пустой ключ подставлял свежий `robot_token`, которого робот никогда
+    не видел, — и мост объявлял «привязан ✓» рядом с вечным 401."""
+    res = _run(_client(lambda r: httpx.Response(401, text="no")).probe())
+    assert res["ok"] is False and res["kind"] == "unauthorized"
+    assert "ключ" in res["error"]
+
+
+def test_probe_names_an_address_that_is_not_a_robot():
+    """Валидировался ТОЛЬКО префикс `http(s)://`: адрес чужого сайта
+    проходил как робот."""
+    res = _run(_client(lambda r: httpx.Response(200, text="<html>hello")).probe())
+    assert res["ok"] is False and res["kind"] == "not-a-robot"
+
+    wrong_shape = _run(_client(
+        lambda r: httpx.Response(200, json={"что-то": "другое"})).probe())
+    assert wrong_shape["ok"] is False and wrong_shape["kind"] == "not-a-robot"
+
+
+def test_probe_separates_unreachable_from_unauthorized():
+    def dead(req):
+        raise httpx.ConnectError("no route", request=req)
+    res = _run(_client(dead).probe())
+    assert res["ok"] is False and res["kind"] == "unreachable"
+
+
+def test_probe_without_an_address_is_not_an_error_about_the_network():
+    res = _run(RobotClient(http=httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200)))).probe())
+    assert res["ok"] is False and res["kind"] == "unconfigured"

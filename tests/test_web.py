@@ -489,3 +489,78 @@ def test_granting_a_permission_refreshes_the_map_without_a_restart(tmp_path):
     assert body["ok"] is False and "настройк" in body["why"]
     assert "mac_do" in body["capabilities"]      # свежая карта пришла сразу
     assert original is webmod.AvailabilityMap
+
+
+def _attach_app(tmp_path, handler):
+    """Панель с роботом, чей ответ задаёт тест."""
+    import httpx
+
+    from vibebridge.config import Settings
+    from vibebridge.robot import RobotClient
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="panel-secret")
+    robot = RobotClient(http=httpx.AsyncClient(
+        transport=httpx.MockTransport(handler)))
+    app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+                    state=state, robot=robot, settings=Settings(mode="gateway"))
+    return app, state, robot
+
+
+def test_manual_attach_does_not_claim_success_it_did_not_check(tmp_path):
+    """A-12: валидировался ТОЛЬКО префикс адреса, дальше «привязан ✓».
+    Пустой ключ подставлял свежий токен моста, которого робот не видел, —
+    и владелец получал зелёную галочку рядом с вечным 401."""
+    import httpx
+
+    app, state, _ = _attach_app(
+        tmp_path, lambda r: httpx.Response(401, text="no"))
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        d = c.post("/api/robot/attach",
+                   json={"base_url": "https://robot.ts.net",
+                         "name": "Вася"}).json()
+    assert d["ok"] is True                    # настройка сохранена
+    assert d["reached"] is False              # но успехом не названа
+    assert d["probe"]["kind"] == "unauthorized"
+    assert state.robot_base_url == "https://robot.ts.net"
+
+
+def test_manual_attach_reports_a_robot_that_answers(tmp_path):
+    import httpx
+
+    app, *_ = _attach_app(tmp_path, lambda r: httpx.Response(
+        200, json={"name": "Вася", "version": "v1.2.0", "build": 142}))
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        d = c.post("/api/robot/attach",
+                   json={"base_url": "https://robot.ts.net", "key": "k",
+                         "name": "Вася"}).json()
+    assert d["reached"] is True and d["probe"]["kind"] == "ok"
+
+
+def test_manual_attach_notices_an_address_that_is_not_a_robot(tmp_path):
+    import httpx
+
+    app, *_ = _attach_app(tmp_path,
+                          lambda r: httpx.Response(200, text="<html>hi"))
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        d = c.post("/api/robot/attach",
+                   json={"base_url": "https://example.com"}).json()
+    assert d["reached"] is False and d["probe"]["kind"] == "not-a-robot"
+
+
+def test_manual_attach_takes_the_chat_address_too(tmp_path):
+    """`chat_url` в форме не было вовсе: вкладка «Чат» включалась, а чат
+    отвечал «робот не подключён» рядом с карточкой «в сети»."""
+    import httpx
+
+    app, state, robot = _attach_app(tmp_path, lambda r: httpx.Response(
+        200, json={"name": "Вася", "version": "v1"}))
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        c.post("/api/robot/attach",
+               json={"base_url": "https://robot.ts.net:8630",
+                     "chat_url": "https://robot.ts.net:8642", "key": "k"})
+    assert state.robot_chat_url == "https://robot.ts.net:8642"
+    assert robot.chat_url == "https://robot.ts.net:8642"

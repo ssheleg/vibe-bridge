@@ -939,11 +939,31 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                         chat_url=state.robot_chat_url,
                         chat_key=state.robot_chat_key, name=name)
         robot_state.update({"configured": robot.configured})
+
+        # Настройка сохранена — владелец её и просил. Но «привязан ✓» без
+        # единого обращения к роботу было обещанием, которое мост не мог
+        # выполнить: валидировался только префикс адреса, а пустой ключ
+        # подставлял свежий `robot_token`, которого робот никогда не видел.
+        # Три разные беды выглядели одинаково; теперь каждая называется (A-12).
+        got = await robot.probe()
+        reached = bool(got.get("ok"))
+        robot_state.update({"configured": robot.configured, "online": reached})
+        if reached:
+            line = f"робот «{name}» привязан вручную и отвечает"
+            toast = f"Робот «{name}» связан с мостом ✓"
+        else:
+            line = (f"робот «{name}» привязан вручную, но не отвечает: "
+                    f"{got.get('error', '')}")
+            toast = f"Робот «{name}» записан, но пока не отвечает"
         audit.record(tool="pair", tool_class="act", decision="allow", ok=True,
-                     line=f"робот «{name}» привязан вручную")
-        notify("vibe-bridge", f"Робот «{name}» связан с мостом ✓")
+                     line=line)
+        notify("vibe-bridge", toast)
         return JSONResponse({
             "ok": True, "name": name,
+            # Дозвонились или нет — отдельным полем: форма показывает РАЗНОЕ.
+            "reached": reached,
+            "probe": {"kind": got.get("kind", "ok"),
+                      "error": got.get("error", "")},
             # What the owner must copy into the robot's own configuration.
             "robot_token": state.robot_token,
             "bridge_url": f"http://127.0.0.1:{settings.port}",
