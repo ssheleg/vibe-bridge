@@ -1,19 +1,34 @@
 /* vibe-bridge service worker: offline honesty + consent push (SCN-004/019).
    Scope is the origin root — served from /sw.js. */
 const OFFLINE_URL = "/offline.html";
-const CACHE = "vb-shell-v1";
+// Токены едут в кэш ВМЕСТЕ с офлайн-страницей. Палитра лежит одним файлом
+// (V-1), и страница, которая ссылается на него, без сети осталась бы голой
+// ровно в тот момент, ради которого существует. Имя кэша поднято, иначе
+// установленный воркер продолжил бы отдавать старый набор.
+const SHELL = [OFFLINE_URL, "/tokens.css"];
+const CACHE = "vb-shell-v2";
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.add(OFFLINE_URL)));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
   self.skipWaiting();
 });
-self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("activate", (e) => e.waitUntil(
+  caches.keys()
+    .then((names) => Promise.all(
+      names.filter((n) => n !== CACHE).map((n) => caches.delete(n))))
+    .then(() => self.clients.claim())
+));
 
 self.addEventListener("fetch", (e) => {
-  if (e.request.mode !== "navigate") return;
-  e.respondWith(
-    fetch(e.request).catch(() => caches.match(OFFLINE_URL))
-  );
+  const url = new URL(e.request.url);
+  // Оболочка страницы: сеть первой, кэш — когда сети нет. Кэш-первым здесь
+  // означал бы вечно старые токены после релиза.
+  if (e.request.mode === "navigate" || SHELL.includes(url.pathname)) {
+    e.respondWith(
+      fetch(e.request).catch(() => caches.match(
+        e.request.mode === "navigate" ? OFFLINE_URL : url.pathname))
+    );
+  }
 });
 
 self.addEventListener("push", (e) => {

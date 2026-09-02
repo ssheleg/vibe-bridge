@@ -279,11 +279,16 @@ def test_the_panel_cookie_outlives_the_browser(tmp_path):
 def test_the_door_tells_a_phone_owner_what_to_do():
     """Дверь была macOS-only: «нажмите значок в меню-баре», «откройте из
     Программ», путь внутри ~/Library. С телефона выполнимо ноль пунктов."""
-    from vibebridge.web import _DOOR_HTML
+    import vibebridge
+    from vibebridge.web import _DOOR_FILE
 
-    assert "Вы с телефона?" in _DOOR_HTML
-    assert "ссылке" in _DOOR_HTML or "ссылку" in _DOOR_HTML
-    assert "Library/Application" not in _DOOR_HTML, \
+    # Дверь переехала из питоновской строки в файл: строку не видит ни один
+    # инструмент, который смотрит на CSS, и она держала свою палитру (V-1).
+    door = (Path(vibebridge.__file__).parent / "webui" / _DOOR_FILE).read_text(
+        encoding="utf-8")
+    assert "Вы с телефона?" in door
+    assert "ссылке" in door or "ссылку" in door
+    assert "Library/Application" not in door, \
         "дверь снова показывает путь, которого на телефоне нет"
 
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import time
 from collections import deque
 from enum import Enum
@@ -28,7 +29,6 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
-    HTMLResponse,
     JSONResponse,
     RedirectResponse,
     Response,
@@ -72,29 +72,11 @@ def _solid_png(size: int, rgb: tuple[int, int, int] = (0x2F, 0x6F, 0xEB)) -> byt
 #: rather than `{"error":"unauthorized"}` because the reader is a person who
 #: typed the address or lost the tab, and the answer they need is one
 #: sentence. It carries no token: whoever sees this has proved nothing.
-_DOOR_HTML = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>vibe-bridge</title><style>
-body{font:15px/1.6 -apple-system,"SF Pro","Segoe UI",sans-serif;max-width:34rem;
-margin:12vh auto;padding:0 1.5rem;color:#1a1f2b;background:#f7f8fa}
-h1{font-size:1.25rem;margin:0 0 .75rem}
-p{margin:0 0 .75rem}code{background:#e6e9ef;padding:.1em .35em;border-radius:4px}
-.muted{color:#5b6472;font-size:13px}
-@media(prefers-color-scheme:dark){body{background:#0f1218;color:#e8ecf3}
-code{background:#232a36}.muted{color:#8a93a6}}
-</style></head><body>
-<h1>Панель открывается из меню-бара</h1>
-<p>Мост работает, но этот адрес сам по себе ничего не открывает: панель
-защищена ключом, который подставляется автоматически.</p>
-<p>Нажмите значок моста в меню-баре (вверху справа) и выберите
-<b>«Открыть панель»</b>.</p>
-<p><b>Вы с телефона?</b> Значка в меню-баре у вас нет и быть не может.
-Откройте панель на компьютере → «Настройки» → «Телефон» и пройдите по ссылке
-оттуда ещё раз: она принесёт ключ обратно.</p>
-<p class="muted">Значка нет и на компьютере? Значит мост не запущен — откройте
-<code>vibe-bridge</code> из «Программ». Ключ панели хранится в файле состояния
-моста; он секретный и здесь не показывается.</p>
-</body></html>"""
+#: Дверь — первое, что видит человек без ключа. Раньше она жила ЗДЕСЬ,
+#: питоновской строкой, и потому держала свою палитру и свои размеры: ни один
+#: инструмент, который смотрит на CSS, в строку не заглядывает (V-1). Теперь
+#: это файл среди прочих поверхностей, и гейт находит её сам.
+_DOOR_FILE = "door.html"
 
 PANEL_COOKIE = "vb_panel"
 #: Сколько живёт кука панели. Сессионная умирала вместе с браузером, и PWA на
@@ -667,11 +649,39 @@ def source_note() -> str:
 _NO_STORE = {"Cache-Control": "no-store, must-revalidate"}
 
 
-def _code_file(path, media: str | None = None) -> Response:
+def token_value(css: str, name: str) -> str:
+    """Значение токена из `tokens.css` — СВЕТЛОЙ темы, первое вхождение.
+
+    Манифест не умеет CSS-переменных, поэтому цвет в нём приходится
+    повторять. Повторять его РУКАМИ — это четвёртая копия палитры (V-1), а
+    копия, которую никто не сверяет, расходится молча: до 2026-09-02 в
+    манифесте лежали `#f7f8fa` и `#2f6feb`, и совпадали они по случайности.
+
+    Тёмная тема сюда не годится намеренно: манифест один, а тем две, и
+    выбирать за систему нечего — берём базовую.
+    """
+    head = css.split("@media", 1)[0]
+    found = re.search(rf"{re.escape(name)}\s*:\s*([^;}}]+)", head)
+    if not found:
+        raise KeyError(f"в tokens.css нет {name}")
+    return found.group(1).strip()
+
+
+def manifest_body(raw: str, css: str) -> bytes:
+    """Манифест с цветами, взятыми из токенов, а не написанными рядом."""
+    data = json.loads(raw)
+    data["background_color"] = token_value(css, "--bg")
+    data["theme_color"] = token_value(css, "--accent")
+    return json.dumps(data, ensure_ascii=False, indent=2).encode()
+
+
+def _code_file(path, media: str | None = None, *,
+               status_code: int = 200) -> Response:
     """A page or script of ours, served so the browser cannot keep it."""
     if media is None:
-        return FileResponse(path, headers=_NO_STORE)
-    return FileResponse(path, media_type=media, headers=_NO_STORE)
+        return FileResponse(path, headers=_NO_STORE, status_code=status_code)
+    return FileResponse(path, media_type=media, headers=_NO_STORE,
+                        status_code=status_code)
 
 
 def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
@@ -816,7 +826,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         if not _authed(request):
             # A person, not a program, is reading this. The token is never in
             # the page: whoever can see it here has not proved anything yet.
-            return HTMLResponse(_DOOR_HTML, status_code=401)
+            return _code_file(_WEBUI / _DOOR_FILE,
+                              "text/html; charset=utf-8",
+                              status_code=401)
         return _code_file(_WEBUI / "index.html")
 
     async def api_state(request: Request) -> Response:
@@ -1552,6 +1564,13 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return _code_file(_WEBUI / name, media)
         return handler
 
+    async def manifest(request: Request) -> Response:
+        return Response(
+            manifest_body((_WEBUI / "manifest.webmanifest").read_text(
+                              encoding="utf-8"),
+                          (_WEBUI / "tokens.css").read_text(encoding="utf-8")),
+            media_type="application/manifest+json", headers=_NO_STORE)
+
     async def icon(request: Request) -> Response:
         size = int(request.path_params["size"])
         if size not in (180, 192, 512):
@@ -1568,9 +1587,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         routes=[
             Route("/", index),
             Route("/sw.js", _static("sw.js", "application/javascript")),
-            Route("/manifest.webmanifest",
-                  _static("manifest.webmanifest",
-                          "application/manifest+json")),
+            Route("/manifest.webmanifest", manifest),
             Route("/offline.html", _static("offline.html", "text/html")),
             Route("/icon-{size:int}.png", icon),
             Route("/api/state", api_state),

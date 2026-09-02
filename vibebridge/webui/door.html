@@ -1,0 +1,27 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>vibe-bridge</title>
+<link rel="stylesheet" href="/tokens.css">
+<style>
+/* Первое, что видит человек без ключа. Раньше страница жила питоновской
+   строкой в `web.py` — и держала СВОЮ палитру и свои размеры, потому что ни
+   один инструмент, который смотрит на CSS, туда не заглядывал (V-1). */
+body{font:var(--t-page)/1.6 var(--font-ui);max-width:34rem;
+margin:12vh auto;padding:0 1.5rem;color:var(--ink);background:var(--bg)}
+h1{font-size:var(--t-page);margin:0 0 .75rem}
+p{margin:0 0 .75rem}
+code{background:var(--border);padding:.1em .35em;border-radius:var(--r-control)}
+.muted{color:var(--muted);font-size:var(--t-body)}
+</style></head><body>
+<h1>Панель открывается из меню-бара</h1>
+<p>Мост работает, но этот адрес сам по себе ничего не открывает: панель
+защищена ключом, который подставляется автоматически.</p>
+<p>Нажмите значок моста в меню-баре (вверху справа) и выберите
+<b>«Открыть панель»</b>.</p>
+<p><b>Вы с телефона?</b> Значка в меню-баре у вас нет и быть не может.
+Откройте панель на компьютере → «Настройки» → «Телефон» и пройдите по ссылке
+оттуда ещё раз: она принесёт ключ обратно.</p>
+<p class="muted">Значка нет и на компьютере? Значит мост не запущен — откройте
+<code>vibe-bridge</code> из «Программ». Ключ панели хранится в файле состояния
+моста; он секретный и здесь не показывается.</p>
+</body></html>
