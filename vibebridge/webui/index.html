@@ -371,8 +371,12 @@ async function decide(decision){
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({decision, id: cur.pendingId})});
   if (r.status === 404){
+    // «Решён или истёк» — две разные новости: истёк значит, что робот УЖЕ
+    // получил отказ, и владельцу надо знать именно это (A-10).
+    let why = "Запрос уже решён с другой поверхности.";
+    try { why = (await r.json()).error || why; } catch(e){}
     document.getElementById("consentLine").textContent =
-      "Запрос уже решён с другой поверхности или истёк.";
+      why.charAt(0).toUpperCase() + why.slice(1) + ".";
     setTimeout(refresh, 1200);
   }
 }

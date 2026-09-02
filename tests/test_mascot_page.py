@@ -633,3 +633,24 @@ def test_the_pet_also_shows_the_deadline():
         assert "asks_left_s" in code, f"{name}: срок вопроса не читается"
         assert "ask_timeout_s" in code, f"{name}: окно ожидания не читается"
         assert "истекло" in code, f"{name}: истёкший вопрос не назван словом"
+
+
+def test_the_pet_says_when_a_click_arrived_too_late():
+    """Ветка отправки решения у питомца была `catch(e){}`: он молча съедал и
+    «запрос истёк», и «мост не ответил». Владелец нажимал «Разрешить» и не
+    узнавал ничего (A-10)."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "mascot.html").read_text()
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    fn = code.split("async function decide(", 1)[1].split("\n}", 1)[0]
+    assert "r.ok" in fn, "ответ моста не проверяется"
+    assert "lateNote" in fn, "опоздавший клик остаётся без слов"
+    # Свойство не «нет пустых catch», а «сеть, которая не ответила, названа
+    # словом». Пустой catch вокруг разбора JSON законен — запасная строка
+    # там уже стоит, и глотать ему нечего.
+    assert "Мост не ответил" in fn, "провал отправки снова беззвучен"

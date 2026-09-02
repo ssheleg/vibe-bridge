@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vibebridge.consent import (
     ConsentEngine,
+    ConsentRequest,
     Decision,
     ToolClass,
     allowed,
@@ -208,3 +209,60 @@ def test_the_system_dialog_names_the_deadline_in_words():
     assert "message=" in call and "отказ" in call, \
         "системный диалог не говорит, что молчание — это отказ"
     assert "consent.remaining(req)" in src or "remaining(req)" in src
+
+
+# ── A-10: истёкший запрос закрыт, а не просто убран из очереди ─────────────
+
+def test_answering_after_the_timeout_is_refused_not_silently_accepted():
+    """A-10. По таймауту запрос удалялся из очереди, но `_event` не
+    выставлялся — и `resolve()` секундой позже возвращал True. Панель
+    показывала успех, системный диалог молчал, действие не исполнялось:
+    владелец нажал «Разрешить» и не узнал, что не разрешил ничего."""
+    eng = ConsentEngine(ask_timeout_s=0.1)
+    result: list[Decision] = []
+    t = threading.Thread(target=lambda: result.append(
+        eng.request("open_url", ToolClass.ACT, "ссылка")), daemon=True)
+    t.start()
+    for _ in range(200):
+        if eng.pending() is not None:
+            break
+        threading.Event().wait(0.01)
+    req = eng.pending()
+    t.join(timeout=5)
+    assert result == [Decision.TIMEOUT]
+    # ...и запоздавшее «да» честно проигрывает
+    assert req.resolve(Decision.ALLOW, by="dialog") is False
+    assert eng.resolve_by_id(req.id, Decision.ALLOW, by="panel") is False
+    assert req.decided_by == "timeout"      # поверхность может сказать ПОЧЕМУ
+
+
+def test_a_surface_that_answers_in_the_gap_still_wins():
+    """Зазор между «wait истёк» и «закрываем запрос» — настоящая гонка.
+    Ответ, попавший в него, обязан устоять: владелец нажал ДО срока."""
+    req = ConsentRequest(tool="open_url", tool_class=ToolClass.ACT,
+                         summary="ссылка")
+    assert req.resolve(Decision.ALLOW, by="panel") is True
+    # закрытие по таймауту приходит вторым и проигрывает
+    assert req.resolve(Decision.TIMEOUT, by="timeout") is False
+    assert req._decision is Decision.ALLOW and req.decided_by == "panel"
+
+
+def test_a_late_click_can_learn_what_actually_happened():
+    """«Запрос уже решён или истёк» — две разные новости в одной строке.
+    Истёк — значит робот получил отказ по молчанию; решён — значит владелец
+    ответил с другой поверхности. Поверхность должна мочь их различить."""
+    eng = ConsentEngine(ask_timeout_s=0.1)
+    t = threading.Thread(target=lambda:
+                         eng.request("open_url", ToolClass.ACT, "ссылка"),
+                         daemon=True)
+    t.start()
+    for _ in range(200):
+        if eng.pending() is not None:
+            break
+        threading.Event().wait(0.01)
+    rid = eng.pending().id
+    t.join(timeout=5)
+    got = eng.outcome(rid)
+    assert got is not None
+    assert got.decision is Decision.TIMEOUT and got.by == "timeout"
+    assert eng.outcome("нет такого") is None

@@ -368,12 +368,30 @@ async function send(text){
 
 // ─── the character ─────────────────────────────────────────────────────────
 
+// Что сказать владельцу, если его клик опоздал или не дошёл. До 2026-09-02
+// эта ветка была `catch(e){}`: питомец молча съедал и «запрос истёк», и
+// «мост не ответил» — владелец нажимал «Разрешить» и не узнавал ничего
+// (A-10, и тот же класс проглоченной ошибки, что A-36).
+let lateNote = null, lateAt = 0;
+const LATE_NOTE_MS = 6000;
+
 async function decide(id, decision){
   try{
-    await fetch("/api/consent/decide", {method:"POST",
+    const r = await fetch("/api/consent/decide", {method:"POST",
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({id, decision})});
-  } catch(e){}
+    if (!r.ok){
+      let why = "Запрос уже решён с другой поверхности.";
+      // Пустой catch здесь законен: запасная строка уже стоит,
+      // и разобрать тело — уточнение, а не условие ответа.
+      try{ why = (await r.json()).error || why; } catch(e){}
+      lateNote = why.charAt(0).toUpperCase() + why.slice(1) + ".";
+      lateAt = Date.now();
+    }
+  } catch(e){
+    lateNote = "Мост не ответил — решение не отправлено.";
+    lateAt = Date.now();
+  }
   tick();
 }
 
@@ -441,6 +459,9 @@ function paint(snap, force){
     return;                       // no measuring, no resize, no movement
   }
 
+  if (lateNote && Date.now() - lateAt > LATE_NOTE_MS) lateNote = null;
+  if (lateNote) snap = Object.assign({}, snap,
+                                     {says: lateNote, actionable: false});
   const showBubble = snap.says && !dialogOpen();
   el.innerHTML =
     (showBubble ? `<div class="bubble" id="bubble">${fmt(snap.says)}`+

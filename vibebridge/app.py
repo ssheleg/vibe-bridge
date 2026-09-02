@@ -277,10 +277,16 @@ def run() -> None:  # pragma: no cover - requires a GUI session
             decision = {1: Decision.ALLOW, 0: Decision.DENY,
                         2: Decision.ALLOW_GRANT}.get(resp, Decision.DENY)
             if not req.resolve(decision, by="dialog"):
-                # Lost the race: the panel/phone answered while the modal was
-                # up — say so instead of silently ignoring the click.
-                rumps.notification("vibe-bridge", "",
-                                   "Запрос уже решён с другой поверхности")
+                # Проиграли гонку — но КОМУ, владелец должен узнать. Модальный
+                # лист не закрывается сам по истечении срока (платформа не
+                # умеет), поэтому клик по нему через минуту — обычное дело, и
+                # молчать в ответ нельзя (A-10).
+                got = consent.outcome(req.id)
+                rumps.notification(
+                    "vibe-bridge", "",
+                    "Запрос истёк — робот получил отказ по молчанию"
+                    if got is not None and got.by == "timeout"
+                    else "Запрос уже решён с другой поверхности")
             self._refresh_recent()
 
         def _refresh_recent(self) -> None:

@@ -27,6 +27,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -74,6 +75,14 @@ class ConsentRequest:
             return True
 
 
+@dataclass(frozen=True)
+class Outcome:
+    """Чем закончился запрос — для того, кто пришёл слишком поздно."""
+    id: str
+    decision: Decision
+    by: str
+
+
 class ConsentEngine:
     def __init__(self, *, ask_timeout_s: float = ASK_TIMEOUT_S,
                  grant_ttl_s: float = GRANT_TTL_S,
@@ -88,6 +97,10 @@ class ConsentEngine:
         self._ask_for_read = ask_for_read
         self._lock = threading.Lock()
         self._pending: list[ConsentRequest] = []
+        # Чем ЗАКОНЧИЛИСЬ недавние запросы. Нужен ровно для одного ответа:
+        # опоздавший клик спрашивает «а что было-то?», и «уже решён ИЛИ
+        # истёк» — две разные новости в одной строке (A-10).
+        self._closed: deque[Outcome] = deque(maxlen=32)
         self._grant_until: dict[str, float] = {}   # по ИНСТРУМЕНТУ (A-8)
         self.paused = False
 
@@ -106,13 +119,24 @@ class ConsentEngine:
             req = ConsentRequest(tool=tool, tool_class=tool_class,
                                  summary=summary, created=self._clock())
             self._pending.append(req)
-        answered = req._event.wait(timeout=self._ask_timeout_s)
+        req._event.wait(timeout=self._ask_timeout_s)
+        # Запрос ЗАКРЫВАЕТСЯ, а не просто убирается из очереди. Раньше по
+        # таймауту он исчезал из `_pending` с невыставленным событием — и
+        # `resolve()` секундой позже возвращал True: панель показывала успех,
+        # системный диалог молчал, действие не исполнялось. Владелец нажимал
+        # «Разрешить» и не узнавал, что не разрешил ничего (A-10).
+        #
+        # Гонка в зазоре решается тем же first-wins: если поверхность успела
+        # ответить, `resolve` вернёт False и её решение останется в силе —
+        # владелец нажал ДО срока, и его ответ старше нашего вывода.
+        req.resolve(Decision.TIMEOUT, by="timeout")
         with self._lock:
             if req in self._pending:
                 self._pending.remove(req)
-        if not answered:
-            return Decision.TIMEOUT
         decision = req._decision or Decision.DENY
+        with self._lock:
+            self._closed.append(Outcome(id=req.id, decision=decision,
+                                        by=req.decided_by or "timeout"))
         if decision is Decision.ALLOW_GRANT:
             with self._lock:
                 self._grant_until[tool] = self._clock() + self._grant_ttl_s
@@ -150,6 +174,12 @@ class ConsentEngine:
         if req is None:
             return False
         return req.resolve(decision, by=by)
+
+    def outcome(self, req_id: str) -> Outcome | None:
+        """Чем закончился запрос, если он уже закрыт (иначе None)."""
+        with self._lock:
+            return next((o for o in reversed(self._closed)
+                         if o.id == req_id), None)
 
     def grant_active(self, tool: str) -> float:
         """Seconds of grant remaining for THIS tool (0 if none)."""

@@ -414,3 +414,47 @@ def test_the_panel_names_what_is_running_without_a_question(tmp_path):
     # молчать о стоящем гранте нельзя.
     assert grants["неизвестный"]["label"] == "неизвестный"
     assert st["grant_left_s"] > 0            # старый ключ жив для совместимости
+
+
+def test_a_late_answer_is_told_which_of_two_things_happened(tmp_path):
+    """A-10: «уже решён ИЛИ истёк» — две разные новости в одной строке.
+    Истёк значит, что робот УЖЕ получил отказ по молчанию."""
+    import threading
+
+    from vibebridge.consent import Decision, ToolClass
+
+    app, consent, *_ = _mk(tmp_path, ask_timeout=0.15)
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+
+        t = threading.Thread(target=lambda: consent.request(
+            "mac_do", ToolClass.ACT, "открыть «Почту»"), daemon=True)
+        t.start()
+        for _ in range(200):
+            if consent.pending() is not None:
+                break
+            threading.Event().wait(0.01)
+        rid = consent.pending().id
+        t.join(timeout=5)
+
+        r = c.post("/api/consent/decide", json={"decision": "allow", "id": rid})
+        assert r.status_code == 404
+        body = r.json()
+        assert body["expired"] is True
+        assert "истёк" in body["error"] and "по молчанию" in body["error"]
+
+        # ...а проигравший ГОНКУ слышит другое
+        t2 = threading.Thread(target=lambda: consent.request(
+            "mac_do", ToolClass.ACT, "открыть «Почту»"), daemon=True)
+        t2.start()
+        for _ in range(200):
+            if consent.pending() is not None:
+                break
+            threading.Event().wait(0.01)
+        req2 = consent.pending()
+        req2.resolve(Decision.DENY, by="phone")
+        t2.join(timeout=5)
+        r2 = c.post("/api/consent/decide",
+                    json={"decision": "allow", "id": req2.id})
+        assert r2.status_code == 404 and r2.json()["expired"] is False
+        assert "другой поверхности" in r2.json()["error"]

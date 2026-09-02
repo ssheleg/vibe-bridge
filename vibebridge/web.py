@@ -499,8 +499,16 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             req = consent.pending()
             done = req.resolve(decision, by="panel") if req else False
         if not done:
-            return JSONResponse(
-                {"error": "запрос уже решён или истёк"}, status_code=404)
+            # «Решён ИЛИ истёк» — две разные новости. Истёк значит, что робот
+            # УЖЕ получил отказ по молчанию, и владельцу надо знать именно
+            # это, а не гадать, кто нажал раньше (A-10).
+            got = consent.outcome(str(req_id)) if req_id else None
+            why = ("запрос истёк — робот получил отказ по молчанию"
+                   if got is not None and got.by == "timeout"
+                   else "запрос уже решён с другой поверхности")
+            return JSONResponse({"error": why, "expired":
+                                 bool(got is not None and got.by == "timeout")},
+                                status_code=404)
         return JSONResponse({"ok": True})
 
     async def api_pause(request: Request) -> Response:
