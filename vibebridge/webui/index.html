@@ -309,7 +309,18 @@ function renderRobot(r){
   const tab = document.getElementById("chatTab");
   if (!r.configured){
     tab.disabled = true;
-    el.innerHTML = '<p class="empty">Робот не подключён к панели. Подключение (пейринг) появится с визардом; робот уже может действовать на этом компьютере через мост.</p>';
+    // Обе половины прежней строки были неверны: визард отгружен давно, а
+    // «робот уже может действовать на этом компьютере» читалось как
+    // «неизвестный робот уже имеет руки на моём Маке» (A-23). Правда проще:
+    // пейринг — это ЮЖНЫЙ канал (статус, чат, события), а вызов инструментов
+    // идёт своим путём и от него не зависит.
+    el.innerHTML =
+      '<p class="empty">Панель ещё не знает вашего робота — здесь не будет ' +
+      'ни его статуса, ни чата, ни событий.</p>' +
+      '<p class="note" style="margin-top:8px">Инструменты — отдельный канал: ' +
+      'их вызов от этого подключения не зависит.</p>' +
+      '<div style="margin-top:12px"><button class="btn primary" ' +
+      'onclick="goConnectRobot()">Подключить робота</button></div>';
     return;
   }
   tab.disabled = false;   /* chat needs only "configured" — offline is honest per-message */
@@ -326,6 +337,12 @@ function renderRobot(r){
     (r.orchestrator?`<div class="kv"><span class="k">Мозг</span><span class="v">${esc(r.orchestrator)}</span></div>`:"")+
     (r.uptime_s?`<div class="kv"><span class="k">Аптайм</span><span class="v">${Math.floor(r.uptime_s/3600)} ч</span></div>`:"")+
     `<div style="margin-top:12px"><button class="btn ghost" id="updBtn" onclick="updateRobot(this)">Обновить робота</button></div>`;
+}
+function goConnectRobot(){
+  // Путь, а не совет: карточка сама открывает то место, где подключают.
+  document.querySelector('.tab[data-view="settings"]').click();
+  const card = document.getElementById("attachCard");
+  if (card) card.scrollIntoView({block: "center"});
 }
 async function updateRobot(btn){
   if (btn.dataset.armed !== "1"){

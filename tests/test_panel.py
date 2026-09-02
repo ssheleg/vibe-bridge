@@ -279,3 +279,30 @@ def test_the_feed_marks_an_event_that_only_mirrors_telegram():
     code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
     assert "e.channel" in code, "лента не смотрит на канал события"
     assert "из телеграма" in code, "зеркало телеграма никак не помечено"
+
+
+def test_the_robot_card_does_not_scare_or_lie_when_nothing_is_paired():
+    """A-23: обе половины строки были неверны. «Подключение появится с
+    визардом» — визард отгружен в T-WIZARD; «робот уже может действовать на
+    этом компьютере» читалось как «неизвестный робот уже имеет руки на моём
+    Маке». Правда проще: пейринг это ЮЖНЫЙ канал, а вызов инструментов идёт
+    своим путём."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    assert "появится с визардом" not in code, "визард всё ещё «появится»"
+    assert "уже может действовать на этом компьютере" not in code
+    # Фрагмент внутри ОДНОГО литерала: строка собирается
+    # конкатенацией, и проверка через её шов ломалась бы от
+    # переноса, а не от смены смысла (класс A-43).
+    assert "Панель ещё не знает вашего робота" in code
+    assert "Инструменты — отдельный канал" in code
+    # ...и у карточки есть ПУТЬ, а не только диагноз
+    assert "goConnectRobot" in code
+    fn = code.split("function goConnectRobot(", 1)[1].split("\n}", 1)[0]
+    assert 'data-view="settings"' in fn and "attachCard" in fn
