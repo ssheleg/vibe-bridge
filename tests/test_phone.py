@@ -188,7 +188,10 @@ def test_the_copy_button_does_not_leak_its_handler_into_the_label():
     import vibebridge
     page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
     assert "JSON.stringify(p.phone_link)" not in page
-    assert 'data-link="${esc(p.phone_link)}"' in page
+    # A-38: было `esc(...)` — ТЕКСТОВЫЙ экранировщик в позиции атрибута. Он
+    # пропускает кавычку, и `x" onmouseover="…` превратил бы data-атрибут в
+    # обработчик события. Тест закреплял этот шаблон как правильный.
+    assert 'data-link="${escAttr(p.phone_link)}"' in page
     assert "onclick=\"copyLink(this)\"" in page
 
 

@@ -257,7 +257,11 @@ const CAPW = {available:["ok","доступно"], "needs-permission":["warn","�
   unavailable:["danger","недоступно"]};
 let cur = {paused:false, pendingId:null, flt:"all", offset:0};
 
-function esc(x){const d=document.createElement("div");d.textContent=String(x??"");return d.innerHTML}
+// Обе функции живут в mascot.js — его подключают обе страницы. Здесь
+// только имена: `esc` для текста, `escAttr` для значения атрибута,
+// где кавычка закрывает его и превращает атрибут в обработчик (A-38).
+const esc = vbEsc;
+const escAttr = vbEscAttr;
 function rowHtml(e){
   const cls = e.ok ? "ok" : (e.decision==="paused"||e.decision==="timeout" ? "mut" : "danger");
   return `<div class="row"><span class="dot ${cls}"></span>`+
@@ -517,7 +521,7 @@ async function loadAccess(){
       // Кнопка сначала ОБЪЯСНЯЕТ, потом переключает: это граница
       // безопасности, а не настройка вида. Прежде она срабатывала с первого
       // клика, и последствие владелец узнавал после перезапуска (A-24).
-      `<button class="btn ghost" id="modeBtn" data-to="${esc(s.switch_to||"")}" onclick="switchMode(this)">Переключить в ${esc(s.switch_to||"")}</button>`+
+      `<button class="btn ghost" id="modeBtn" data-to="${escAttr(s.switch_to||"")}" onclick="switchMode(this)">Переключить в ${esc(s.switch_to||"")}</button>`+
       `<p class="note" id="modeNote" style="margin-top:6px">${esc(s.switch_effect||"")}</p>`+
       `<button class="btn ghost" onclick="setSetting('ask_for_read',${s.ask_for_read?"false":"true"})">${s.ask_for_read?"Не спрашивать перед чтением":"Спрашивать перед чтением"}</button>`+
       `<button class="btn ghost" onclick="setSetting('mascot_window',${s.mascot_window?"false":"true"})">${s.mascot_window?"Убрать питомца с экрана":"Показать питомца на экране"}</button>`+
@@ -614,7 +618,7 @@ async function loadPhone(){
       rows += `<div class="kv"><span class="k">Адрес для телефона</span><span class="v">${esc(p.https_url)}</span></div>`+
         `<p style="margin:8px 0 4px">Откройте эту ссылку на телефоне (перешлите себе — AirDrop/Заметки); она сразу выполнит вход:</p>`+
         `<p class="v mono" style="user-select:all;word-break:break-all">${esc(p.phone_link)}</p>`+
-        `<button class="btn ghost" style="margin-top:6px" data-link="${esc(p.phone_link)}" onclick="copyLink(this)">Скопировать ссылку</button>`;
+        `<button class="btn ghost" style="margin-top:6px" data-link="${escAttr(p.phone_link)}" onclick="copyLink(this)">Скопировать ссылку</button>`;
     } else if (p.dns_name){
       // Кнопка, а не команда для копипасты: визия §4 — владелец «не
       // настраивает туннели и не читает конфиги» (A-28). Команда остаётся
@@ -743,7 +747,7 @@ function paintCaps(caps){
       // Путь от «требует прав» к правам, не выходя из панели: без него
       // статус был диагнозом без лечения (A-11, SCN-020 шаг 2).
       const grant = i.status === "needs-permission"
-        ? ` <button class="btn ghost" data-grant="${esc(name)}">Выдать права</button>`
+        ? ` <button class="btn ghost" data-grant="${escAttr(name)}">Выдать права</button>`
         : "";
       return `<tr><td class="mono">${esc(name)}</td><td class="mono">${i.class.toUpperCase()}</td>`+
         `<td><span class="chip"><span class="dot ${cls}"></span>${word}</span>${reason}${grant}</td></tr>`;

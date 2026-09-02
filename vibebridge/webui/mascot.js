@@ -25,6 +25,31 @@
 
 /* Curves and durations come from the motion doctrine, not from taste.
  * `ease-in` is banned in UI; UI motion stays at or under 300 ms. */
+// ── экранирование ───────────────────────────────────────────────────────────
+//
+// ДВЕ функции, потому что позиций две. `vbEsc` — для текста: она пропускает
+// кавычку, и это правильно, текст в кавычках ничего не ломает. `vbEscAttr` —
+// для значения атрибута, где кавычка ЗАКРЫВАЕТ его: `x" onmouseover="…`
+// превращает наш `title` в обработчик события.
+//
+// До 2026-09-02 в позиции атрибута стояла текстовая: `title`, `data-link`,
+// `data-grant`, и — хуже всего — `href`/`src` медиа, чей URL присылает робот
+// (A-38). Живьём это не эксплуатировалось; закреплено тестом было.
+//
+// Живут здесь, потому что `mascot.js` грузят обе страницы: панель подключает
+// его строкой выше своего скрипта.
+function vbEsc(x) {
+  const d = document.createElement("div");
+  d.textContent = String(x == null ? "" : x);
+  return d.innerHTML;
+}
+
+function vbEscAttr(x) {
+  return String(x == null ? "" : x)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 const VB_EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
 const VB_EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)";
 const VB_DUR = 220;                       // state change, inside the ceiling
@@ -89,7 +114,7 @@ registerMascotSkin("vasya", (s, size, state) => {
   }[s.eyes];
 
   return `<svg viewBox="0 0 72 72" width="${size}" height="${size}" role="img"
-      aria-label="${s.label}" class="vb-skin vb-${state}"
+      aria-label="${vbEscAttr(s.label)}" class="vb-skin vb-${state}"
       style="overflow:visible">
     <line x1="36" y1="18" x2="36" y2="26" stroke="${s.ink}"
           stroke-width="3" stroke-linecap="round"/>
@@ -107,7 +132,7 @@ registerMascotSkin("vasya", (s, size, state) => {
  */
 registerMascotSkin("dot", (s, size, state) => `
   <svg viewBox="0 0 72 72" width="${size}" height="${size}" role="img"
-       aria-label="${s.label}" class="vb-skin vb-${state}"
+       aria-label="${vbEscAttr(s.label)}" class="vb-skin vb-${state}"
        style="overflow:visible">
     <circle cx="36" cy="36" r="22" fill="${s.ink}"/>
     ${s.eyes === "closed"
@@ -156,11 +181,7 @@ function renderMascot(el, snap, opts){
   mascotStyles();
   const size = opts.size || 72;
   const s = MASCOT_STATES[snap.state] || MASCOT_STATES.idle;
-  const esc = (x) => {
-    const d = document.createElement("div");
-    d.textContent = String(x == null ? "" : x);
-    return d.innerHTML;
-  };
+  const esc = vbEsc;
 
   // The bubble renders whatever the robot said, so it is escaped here and
   // inserted as text — a reply containing markup must stay a reply.
@@ -181,7 +202,7 @@ function renderMascot(el, snap, opts){
        </div>${deadline}` : "";
 
   el.innerHTML =
-    `${bubble}<div class="mascot-body" title="${esc(s.label)}">` +
+    `${bubble}<div class="mascot-body" title="${vbEscAttr(s.label)}">` +
     `${mascotSvg(snap.state, size, opts.skin)}</div>${buttons}`;
 
   if (buttons && opts.onDecide) {

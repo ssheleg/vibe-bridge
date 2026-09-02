@@ -76,3 +76,65 @@ def test_the_check_actually_sees_an_unexplained_handler(tmp_path):
     good.write_text("try:\n    x = 1\nexcept OSError:\n"
                     f"    pass  # {MARKER} причина\n", encoding="utf-8")
     assert MARKER in _silent_handlers(good)[0][1]
+
+
+# ── A-38: экранировщик текста в позиции атрибута ───────────────────────────
+
+#: Подстановки, законные без экранировщика атрибута, — каждая с причиной.
+#: Список без причин — это не гейт, а его отключение (см. A-37).
+SAFE_ATTR_VALUES = {
+    "i": "индекс цикла: число, которое породил наш же `map`, а не данные",
+    "state": "имя состояния из нашей собственной таблицы MASCOT_STATES",
+    "cls": "имя css-класса из нашей же ветки, не из данных",
+    "u": "уже прошло vbEscAttr строкой выше",
+    "size": "число пикселей, вычисленное нами и не приходящее извне",
+    "s.ink":
+        "имя css-переменной из нашей таблицы MASCOT_STATES; скин выбирает "
+        "функцию рисования, а не значения — снаружи сюда попасть нечем",
+    "busy ? \"Робот думает…\" : \"Сказать роботу…\"":
+        "две наши константы, выбор между ними",
+}
+
+
+def test_no_text_escaper_lands_in_an_attribute_value():
+    """A-38: `esc()` строит текст (`textContent` → `innerHTML`) и НЕ трогает
+    кавычку. В позиции атрибута `x" onmouseover="alert(1)` закрывает атрибут
+    и открывает обработчик. Хуже всего это было в `href`/`src` медиа: URL
+    туда присылает РОБОТ.
+    """
+    from tests.webui_rules import attribute_interpolations
+
+    bad: list[str] = []
+    seen = 0
+    for page in ("index.html", "mascot.html", "mascot.js"):
+        for lineno, expr in attribute_interpolations(page):
+            seen += 1
+            if expr in SAFE_ATTR_VALUES:
+                continue
+            if "escAttr" in expr or "vbEscAttr" in expr:
+                continue
+            bad.append(f"{page}:{lineno} — {expr}")
+    assert not bad, (
+        "подстановка в значение атрибута без экранировщика АТРИБУТА "
+        "(`escAttr`/`vbEscAttr`): " + "; ".join(bad))
+    assert seen > 5, f"разбор нашёл всего {seen} подстановок — он сломан"
+
+
+def test_the_attribute_escaper_actually_escapes_the_quote():
+    """Свойство, а не наличие функции: текстовый экранировщик кавычку
+    пропускает, и именно это делало его непригодным."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+    js = (Path(vibebridge.__file__).parent / "webui" / "mascot.js").read_text()
+    body = js.split("function vbEscAttr(", 1)[1].split("\n}", 1)[0]
+    for ch in ('"', "&", "<", ">"):
+        assert re.search(rf'replace\(/\{re.escape(ch)}/g|replace\(/{re.escape(ch)}/g',
+                         body) or f'/{ch}/g' in body, f"не экранируется {ch}"
+    assert "&quot;" in body, "кавычка не превращается в сущность"
+
+
+def test_every_safe_attribute_value_names_a_reason():
+    for expr, why in SAFE_ATTR_VALUES.items():
+        assert len(why) > 25, f"{expr}: причина слишком короткая, чтобы быть ей"

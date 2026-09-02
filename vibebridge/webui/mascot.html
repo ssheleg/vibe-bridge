@@ -258,7 +258,9 @@ function mediaOf(item){
 
 function mediaHtml(media){
   if (!media) return "";
-  const u = esc(media.url);
+  // URL присылает РОБОТ, и он уезжает в `href`/`src` — то есть в позицию
+  // атрибута, где текстовый экранировщик пропускает кавычку (A-38).
+  const u = vbEscAttr(media.url);
   const open = `<a href="${u}" target="_blank" rel="noreferrer">открыть в браузере</a>`;
   if (media.type === "image") return `<div class="media"><img src="${u}" alt="">${open}</div>`;
   if (media.type === "video") return `<div class="media"><video src="${u}" controls preload="metadata"></video>${open}</div>`;

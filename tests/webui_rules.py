@@ -81,3 +81,19 @@ def keyframes(name: str) -> dict[str, str]:
             i += 1
         out[match.group(1)] = code[match.end():i - 1]
     return out
+
+
+def attribute_interpolations(name: str) -> list[tuple[int, str]]:
+    """Все места вида `атрибут="${…}"` — то есть подстановки В ЗНАЧЕНИЕ
+    атрибута, где кавычка закрывает его.
+
+    Строка ищется по исходнику С комментариями намеренно: комментарий,
+    показывающий пример, — тоже строка, и лучше объяснить его один раз в
+    исключениях, чем пропустить настоящую подстановку.
+    """
+    out: list[tuple[int, str]] = []
+    for i, line in enumerate((WEBUI / name).read_text(encoding="utf-8")
+                             .splitlines(), start=1):
+        for m in re.finditer(r'[\w-]+="\$\{([^}]*)\}', line):
+            out.append((i, m.group(1).strip()))
+    return out
