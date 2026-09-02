@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Вася</title>
+<title>Робот</title>
 <!-- Which of the widget's two windows this document is. Set before the body
      renders, because the two surfaces lay out differently and a flash of the
      wrong one is visible on a transparent window. -->
@@ -147,6 +147,10 @@ const native = window.webkit && window.webkit.messageHandlers
    resizable one moved the character every time it grew, four reports running —
    see the note at the top of desktop.py. */
 const IS_PET = document.documentElement.dataset.surface === "pet";
+// Имя робота приходит из его же статуса. Зашитое «Вася» — имя робота одного
+// владельца, и для любого другого продукт звал его чужим именем (U-15).
+let ROBOT_NAME = "Робот";
+function robotName(){ return ROBOT_NAME; }
 
 /* Моушен-слой персонажа приходит из `mascot.js` и до 2026-09-01 на этих
    страницах НЕ применялся вовсе: `mascotStyles()` вызывается внутри
@@ -295,7 +299,7 @@ async function pullStream(){
       const key = (it.ts || "") + "|" + (it.text || "");
       if (seen.has(key)) continue;
       seen.add(key);
-      stream.push({who: "Вася", text: it.text, kind: it.kind || "event",
+      stream.push({who: robotName(), text: it.text, kind: it.kind || "event",
                    media: mediaOf(it)});
     }
   } catch(e){}
@@ -377,10 +381,10 @@ async function send(text){
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({text, session})})).json();
     const answer = r.ok ? r.reply : (r.error || "не ответил");
-    stream.push({who: "Вася", text: answer, kind: "chat",
+    stream.push({who: robotName(), text: answer, kind: "chat",
                  media: mediaOf({text: answer})});
   } catch(e){
-    stream.push({who: "Вася", text: "мост не ответил", kind: "chat"});
+    stream.push({who: robotName(), text: "мост не ответил", kind: "chat"});
   }
   busy = false;
   if (dialogOpen()) await renderDialog();
@@ -541,6 +545,8 @@ async function tick(){
 async function pullStatus(){
   try{
     const s = await (await fetch("/api/robot/status")).json();
+    ROBOT_NAME = s.name || "Робот";     // одна точка правды на весь виджет
+    if (document.title !== ROBOT_NAME) document.title = ROBOT_NAME;
     status = {name: s.name, online: s.online, reason: s.reason,
               version: s.version, orchestrator: s.orchestrator,
               uptime_h: s.uptime_s != null ? Math.round(s.uptime_s / 3600) : null};

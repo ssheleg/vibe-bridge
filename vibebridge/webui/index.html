@@ -214,7 +214,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
         <div class="kv"><span class="k">Запросов в очереди</span><span class="v" id="pendCount">0</span></div>
       </div>
       <div class="card" id="mascotCard" style="text-align:center">
-        <div class="cap" style="text-align:left">Вася</div>
+        <div class="cap" style="text-align:left" id="mascotName">Робот</div>
         <div id="mascot" style="display:flex;flex-direction:column;align-items:center;gap:0"></div>
       </div>
       <div class="card">
@@ -281,7 +281,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
       <div class="field"><label>Адрес робота</label><input id="atUrl" placeholder="https://robot.tailnet.ts.net:8630"></div>
       <div class="field"><label>Адрес чата (если отдельный)</label><input id="atChat" placeholder="обычно тот же адрес — можно оставить пустым"></div>
       <div class="field"><label>Ключ робота (если задан)</label><input id="atKey" type="password" placeholder="можно оставить пустым"></div>
-      <div class="field"><label>Имя</label><input id="atName" value="Вася"></div>
+      <div class="field"><label>Имя</label><input id="atName" placeholder="как вы его зовёте"></div>
       <button class="btn primary" onclick="attachRobot()">Привязать</button>
       <p class="note" id="atNote" style="margin-top:6px"></p>
     </div>
@@ -788,7 +788,7 @@ async function loadWizard(){
         d.boot_volumes.map(v=>`<option>${esc(v)}</option>`).join("")+`</select></div>`+
         `<div class="field"><label>Wi-Fi сеть робота</label><input id="wzSsid"></div>`+
         `<div class="field"><label>Пароль Wi-Fi</label><input id="wzPsk" type="password"></div>`+
-        `<div class="field"><label>Имя робота</label><input id="wzName" value="Вася"></div>`+
+        `<div class="field"><label>Имя робота</label><input id="wzName" placeholder="как вы его зовёте"></div>`+
         `<button class="btn primary" onclick="wizardPrepare()">Записать на карту</button>`+
         `<p class="note" id="wzNote" style="margin-top:6px"></p>`;
     } else {
@@ -880,6 +880,16 @@ function b64ToU8(b64){
   const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(raw, ch => ch.charCodeAt(0));
 }
+async function forgetPush(id){
+  try{
+    const r = await fetch("/api/phone/forget", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify({id})});
+    if (!r.ok){ const d = await r.json().catch(()=>({}));
+      settingNote(d.error || "Не получилось отозвать.", true); return; }
+    settingNote("Подписка отозвана.", false);
+  } catch(e){ settingNote("Мост не ответил — подписка не отозвана.", true); }
+  loadPhone();
+}
 async function loadPhone(){
   const el = document.getElementById("phoneCard");
   try{
@@ -900,7 +910,19 @@ async function loadPhone(){
     } else {
       rows += `<p class="empty">Tailscale на этом компьютере не найден — телефонный доступ работает через tailnet (ADR-0004).</p>`;
     }
-    rows += `<div class="kv"><span class="k">Пуш-подписок</span><span class="v">${p.subscriptions}</span></div>`;
+  // Канал уведомлений и подписчики — В ПАНЕЛИ. Канал был известен только
+  // журналу, а от подписок показывался счётчик без списка и без отзыва:
+  // «подписок: 2» не отвечает, КАКИЕ устройства получают мои согласия, и не
+  // даёт ни одну отозвать (U-14).
+  rows += `<div class="kv"><span class="k">Канал уведомлений</span><span class="v">${esc(p.notify_backend||"неизвестно")}</span></div>`;
+  if (p.subscribers && p.subscribers.length){
+    rows += `<div class="kv"><span class="k">Получают согласия</span><span class="v">${p.subscribers.length}</span></div>`;
+    rows += p.subscribers.map(s =>
+      `<div class="row"><span class="dot info"></span><span>${esc(s.where)}</span>`+
+      `<button class="btn ghost" style="margin-left:auto" onclick="forgetPush(${s.id})">Отозвать</button></div>`).join("");
+  } else {
+    rows += `<p class="note">Ни одно устройство не получает согласия пушем.</p>`;
+  }
     rows += `<div style="margin-top:12px"><button class="btn ghost" id="pushBtn" onclick="enablePush()">Включить пуши на этом устройстве</button></div>`+
       `<p class="note" id="pushNote" style="margin-top:6px">iPhone: сначала «Поделиться → На экран “Домой”», пуши работают только из установленной PWA.</p>`;
     el.innerHTML = rows;
@@ -1110,6 +1132,11 @@ async function tickMascot(){
     const snap = await (await fetch("/api/mascot")).json();
     // The panel already shows a consent card of its own; the mascot here is
     // presence, not a second set of buttons for one decision.
+    // Имя приходит от РОБОТА, а не зашито: «Вася» — имя робота одного
+    // владельца, и для другого продукт звал его чужим (U-15). Данные были
+    // всегда — `status.name` в снимке, — их просто игнорировали.
+    const имя = document.getElementById("mascotName");
+    if (имя) имя.textContent = (s.robot && s.robot.name) || "Робот";
     renderMascot(el, snap, {size: 64, answerable: false, skin: snap.skin});
   } catch(e){}
 }

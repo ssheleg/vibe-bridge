@@ -737,6 +737,18 @@ def pairing_state(*, armed: bool, robot_url: str | None, robot_name: str | None,
             "done": sum(1 for c in checks if c["ok"]), "total": len(checks)}
 
 
+def _subscriber_where(sub: dict) -> str:
+    """Откуда подписка — хост эндпоинта, без самого эндпоинта.
+
+    Хост отличает телефон от ноутбука и от чужого браузера; полный
+    эндпоинт — это ключ доставки, и показывать его на экране незачем.
+    """
+    from urllib.parse import urlparse
+    endpoint = str((sub or {}).get("endpoint", ""))
+    host = urlparse(endpoint).hostname or ""
+    return host or "неизвестное устройство"
+
+
 def _code_file(path, media: str | None = None, *,
                status_code: int = 200) -> Response:
     """A page or script of ours, served so the browser cannot keep it."""
@@ -986,6 +998,22 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     #: галочка, пережившая перезапуск, — это обещание без проверки.
     pairing_consent_ok: dict[str, bool | None] = {"value": None}
 
+    async def api_push_forget(request: Request) -> Response:
+        """Отозвать подписку. Список без отзыва — это опись, а не контроль."""
+        body = await request.json() if await request.body() else {}
+        index = body.get("id")
+        if not isinstance(index, int) or not (
+                0 <= index < len(state.push_subscriptions)):
+            return JSONResponse({"error": "нет такой подписки"},
+                                status_code=404)
+        ушёл = state.push_subscriptions.pop(index)
+        await asyncio.to_thread(state.save)
+        audit.record(tool="push", tool_class="SYS", decision="auto", ok=True,
+                     line=f"подписка отозвана: {_subscriber_where(ушёл)}",
+                     detail="")
+        return JSONResponse({"ok": True,
+                             "left": len(state.push_subscriptions)})
+
     async def api_presence(request: Request) -> Response:
         """Поверхность сообщает, что она на экране (SCN-010 шаг 3)."""
         presence["seen"] = time.time()
@@ -1149,7 +1177,19 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             "phone_link": (f"{https_url}?token={state.panel_token}"
                            if https_url else None),
             "setup_command": f"tailscale serve --bg {settings.port}",
+            # Список, а не счётчик: «подписок: 2» не отвечает на вопрос
+            # «какие устройства получают мои согласия» и не даёт ни одного
+            # отозвать (U-14). Показываем ХОСТ эндпоинта — этого хватает,
+            # чтобы отличить телефон от ноутбука, и не хватает, чтобы
+            # утащить подписку: сам эндпоинт наружу не отдаётся.
             "subscriptions": len(state.push_subscriptions),
+            "subscribers": [
+                {"id": i, "where": _subscriber_where(s)}
+                for i, s in enumerate(state.push_subscriptions)],
+            # Канал уведомлений был известен ТОЛЬКО журналу: владелец, у
+            # которого тосты не приходят, не мог узнать, чем их вообще
+            # показывают и работает ли нажатие.
+            "notify_backend": getattr(_base_notify, "backend", "неизвестно"),
         })
 
     async def pair(request: Request) -> Response:
@@ -1816,6 +1856,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                   methods=["POST"]),
             Route("/api/wizard/disks", api_wizard_disks),
             Route("/api/presence", api_presence, methods=["POST"]),
+            Route("/api/phone/forget", api_push_forget, methods=["POST"]),
             Route("/api/pairing/state", api_pairing_state),
             Route("/api/pairing/consent-test", api_pairing_consent_test,
                   methods=["POST"]),
