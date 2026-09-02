@@ -42,6 +42,7 @@ from .capabilities import (
     build_capabilities,
 )
 from .consent import ConsentEngine, Decision
+from .feed import EventFeed
 from .mascot import Mascot
 from .push import PushSender, ensure_vapid_keys
 from .robot import RobotClient
@@ -381,6 +382,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               notify=None,
               push_sender: PushSender | None = None,
               settings=None,
+              feed: EventFeed | None = None,
               peer_guard: bool = False) -> Starlette:
     from .config import load as _load_settings
     from .net import allowed_hosts as _net_allowed_hosts
@@ -413,8 +415,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """
         line = f"{title}: {text}" if title else text
         try:
-            robot_events.append({"ts": _now_iso(), "kind": "notify",
-                                 "text": line})
+            robot_events.add({"ts": _now_iso(), "kind": "notify",
+                              "text": line})
             mascot.say(line, kind="notify")
         except Exception:                       # noqa: BLE001 - never fatal
             pass
@@ -422,7 +424,15 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     robot_state: dict = {"configured": robot.configured, "online": False,
                          "reason": "робот не подключён к панели"
                          if not robot.configured else "ещё не проверял"}
-    robot_events: deque[dict] = deque(maxlen=50)
+    # Лента переживает перезапуск: до 2026-09-02 она жила только в памяти, и
+    # всё сказанное роботом, пока мост был выключен или перезапускался,
+    # исчезало молча (A-19). Файл ложится рядом с журналом — тот же каталог,
+    # та же судьба при переезде.
+    robot_events = feed or EventFeed(audit.path.parent / "robot-feed.jsonl")
+    if robot_events.last_error:
+        audit.record(tool="feed", tool_class="SYS", decision="error",
+                     ok=False, line=robot_events.last_error,
+                     detail=robot_events.last_error)
     # The live thread, per conversation. Bounded and forgotten on a new
     # session: enough for the brain to follow what was just said, not an
     # archive (vision, «Не мессенджер»).
@@ -472,7 +482,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     def _full_snapshot() -> dict[str, Any]:
         snap = _snapshot(consent, audit, caps)
         snap["robot"] = dict(robot_state)
-        snap["robot_events"] = list(robot_events)[-10:]
+        snap["robot_events"] = robot_events.tail(10)
         return snap
     # The transport keeps its own /mcp path and the inner app mounts at the
     # ROOT, after every panel route. Mounting at "/mcp" instead produces a
@@ -988,9 +998,14 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             state.pet_session = "pet-" + _s.token_hex(5)
             await asyncio.to_thread(state.save)
             if request.method == "POST":
-                # A new conversation starts with a clean feed; the old turns
-                # stay in the journal.
-                robot_events.clear()
+                # Новый РАЗГОВОР — это чистый контекст мозга, а не амнезия.
+                # Раньше здесь стиралась лента с объяснением «старые ходы
+                # остаются в журнале»: журнал — это аудит решений по
+                # инструментам, событий робота в нём нет вовсе, и сказанное
+                # им исчезало насовсем (A-19). Вместо стирания — граница,
+                # чтобы владелец видел, где начался новый разговор.
+                robot_events.add({"ts": _now_iso(), "kind": "session",
+                                  "text": "— новый разговор —"})
                 chat_history.clear()
         return JSONResponse({"session": state.pet_session})
 
@@ -1003,7 +1018,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return JSONResponse({"items": list(robot_events)[-40:]})
+        return JSONResponse({"items": robot_events.tail(40)})
 
     async def api_mascot_dismiss(request: Request) -> Response:
         """The owner clicked the bubble away. Better than waiting out a timer
@@ -1263,7 +1278,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                       # Optional, for when the robot starts sending media:
                       # {"url": …, "type": "image"|"audio"|"video"|"link"}.
                       "media": ev.get("media") or None}
-                robot_events.append(ev)
+                robot_events.add(ev)
                 if consent.paused:
                     missed_while_paused["n"] += 1
                 else:

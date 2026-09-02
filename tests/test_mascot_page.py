@@ -332,11 +332,18 @@ def test_a_new_conversation_mints_a_new_id(tmp_path):
     c = TestClient(app)
     c.cookies.set("vb_panel", "pt")
 
+    c.post("/api/robot/chat", json={"text": "привет"})   # что-то было сказано
     before = c.get("/api/mascot/session").json()["session"]
     after = c.post("/api/mascot/session").json()["session"]
     assert after != before
-    # The feed starts clean; the old turns are in the journal, not lost.
-    assert c.get("/api/mascot/stream").json()["items"] == []
+
+    # Новый РАЗГОВОР — чистый контекст мозга, а не амнезия. Прежняя версия
+    # требовала пустую ленту и объясняла это тем, что «старые ходы остаются в
+    # журнале»: журнал — это аудит решений по инструментам, событий робота в
+    # нём нет вовсе, и сказанное исчезало насовсем (A-19).
+    items = c.get("/api/mascot/stream").json()["items"]
+    assert items, "лента стёрлась — сказанное роботом потеряно"
+    assert items[-1]["kind"] == "session", "граница разговора не отмечена"
 
 
 def test_the_session_endpoint_is_guarded(tmp_path):
