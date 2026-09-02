@@ -180,12 +180,23 @@ def test_the_pet_breathes_but_stops_when_asked():
 
 
 def test_a_drag_is_not_read_as_a_click():
-    """Moving the pet must not open its menu on release."""
+    """Moving the pet must not open its menu on release.
+
+    A-43: было `assert "moved > 4" in page` — точная строка исходника вместе
+    с пробелами. Она ломается от `moved>4` и молчит при `moved > 0`, то есть
+    при отсутствии порога, ради которого всё и написано. Свойство: порог
+    ЕСТЬ, он больше нуля и меньше пальца.
+    """
+    import re
     from pathlib import Path
 
     import vibebridge
     page = (Path(vibebridge.__file__).parent / "webui" / "mascot.html").read_text()
-    assert "moved > 4" in page
+    found = re.search(r"moved\s*>\s*(\d+)", page)
+    assert found, "порога «это был драг, а не клик» нет вовсе"
+    assert 0 < int(found.group(1)) <= 20, (
+        f"порог {found.group(1)}px: ноль читает драг как клик, "
+        f"а слишком большой — клик как драг")
 
 
 def test_the_window_is_told_to_fit_what_is_drawn():

@@ -132,11 +132,20 @@ def test_the_window_is_wide_enough_for_all_three_answers():
 def test_the_bubble_cannot_outgrow_the_window():
     """It grew into a half-screen column of two-word lines and the whole
     window jumped as it appeared and expired (seen 2026-08-31)."""
+    import re
+
+    from vibebridge import desktop as mw
+
     html = (WEBUI / "mascot.html").read_text()
     rule = html.split(".bubble{", 1)[1].split("}", 1)[0].replace(" ", "")
-    assert "width:300px" in rule
-    assert "max-height:230px" in rule
-    assert "overflow-y:auto" in rule
+    # A-43: было `"width:300px" in rule` — текущее значение вместо свойства.
+    # Свойство в докстроке: пузырь ОГРАНИЧЕН и не перерастает окно.
+    width = int(re.search(r"(?<!max-)width:(\d+)px", rule).group(1))
+    height = int(re.search(r"max-height:(\d+)px", rule).group(1))
+    assert 0 < width <= mw.SIDE_START[0], (
+        f"пузырь шире окна-компаньона: {width} против {mw.SIDE_START[0]}")
+    assert 0 < height <= 400, f"пузырь высотой {height}px — это колонка"
+    assert "overflow-y:auto" in rule       # и он скроллится, а не растёт
 
 
 def test_the_panel_wires_the_mascot_exactly_once():
@@ -475,9 +484,21 @@ def test_only_compositor_safe_properties_are_animated():
 
 
 def test_motion_stays_inside_the_doctrine_ceiling():
-    """UI motion stays at or under 300 ms, and `ease-in` is banned."""
+    """UI motion stays at or under 300 ms, and `ease-in` is banned.
+
+    A-43: раньше здесь стояло `assert "VB_DUR = 220" in js` — то есть текущее
+    ЗНАЧЕНИЕ вместо свойства из докстроки. Такой ассерт ломается от
+    переформатирования (`VB_DUR=220`) и молчит при `VB_DUR = 900`, которое
+    доктрину и нарушает. Число теперь ВЫЧИСЛЯЕТСЯ движком и сравнивается с
+    потолком.
+    """
+    from tests.js_runner import run
+
     js = (WEBUI / "mascot.js").read_text()
-    assert "VB_DUR = 220" in js
+    line = next(ln for ln in js.splitlines() if ln.startswith("const VB_DUR"))
+    dur = run([line], "console.log(JSON.stringify(VB_DUR))")
+    assert isinstance(dur, int | float) and 0 < dur <= 300, (
+        f"длительность {dur} мс выходит за потолок доктрины (300 мс)")
     assert "cubic-bezier(0.23, 1, 0.32, 1)" in js      # the doctrine's ease-out
     assert "ease-in;" not in js and "ease-in," not in js
 
