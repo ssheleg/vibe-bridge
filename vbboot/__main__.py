@@ -58,7 +58,10 @@ def _complain(message: str) -> None:
              f"display notification {_applescript_string(message)} "
              f'with title "vibe-bridge"'],
             check=False, timeout=10)
-    except Exception:                       # noqa: BLE001 - best effort only
+    except Exception:                       # noqa: BLE001
+        # молчим: это САМА жалоба — последняя попытка сказать владельцу, что
+        # мост не поднялся. Ронять процесс из-за того, что не удалось
+        # пожаловаться, — оставить его вообще без объяснения.
         pass
 
 
@@ -80,7 +83,10 @@ def _configured_port() -> int:
             value = tomllib.load(fh).get("port")
         if isinstance(value, int) and 1 <= value <= 65535:
             return value
-    except Exception:                       # noqa: BLE001 - умолчание честнее
+    except Exception:                       # noqa: BLE001
+        # молчим: конфиг нечитаем или его нет — берём умолчание. Оболочка не
+        # имеет права не запуститься из-за испорченного файла настроек, а
+        # неверный порт назовёт сам гвард занятости.
         pass
     return 48620
 

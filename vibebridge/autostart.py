@@ -53,6 +53,10 @@ def ensure_registered(state, mod=None) -> tuple[bool | None, str]:
         try:
             state.save()
         except OSError:                     # pragma: no cover - unwritable
+            # молчим: система УЖЕ зарегистрировала автозапуск, и это главное.
+            # Не запомнили — при следующем старте зарегистрируем снова, шаг
+            # идемпотентный. Вернуть здесь ошибку значило бы сказать «не
+            # получилось» про то, что получилось.
             pass
     return ok, message
 

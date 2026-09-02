@@ -702,3 +702,26 @@ def test_the_app_arms_the_notify_brake_from_the_setting(tmp_path):
               settings=Settings(notify_per_minute=0))
     assert caps._notify_limit is None
     caps._set_notify_limit(None)
+
+
+def test_a_journal_that_cannot_write_says_so(tmp_path):
+    """A-36: все три отказа журнала молчали. Мост работал БЕЗ журнала, и
+    никто не узнавал — при том что «журналирует каждое обращение» стоит в
+    описании продукта."""
+    blocked = tmp_path / "не-каталог"
+    blocked.write_text("я файл", encoding="utf-8")
+    audit = AuditLog(blocked / "audit.log")
+    assert audit.last_error and "недоступен" in audit.last_error
+
+    app = build_app(consent=ConsentEngine(), audit=audit,
+                    state=BridgeState(path=tmp_path / "s.json",
+                                      panel_token="pt"))
+    with TestClient(app) as c:
+        c.get("/?token=pt")
+        st = c.get("/api/state").json()
+    assert st["journal_error"], "панель молчит о том, что журнала нет"
+
+    # ...а здоровый журнал не паникует зря
+    ok = AuditLog(tmp_path / "ok.log")
+    ok.record(tool="t", tool_class="read", decision="auto", ok=True)
+    assert ok.last_error is None

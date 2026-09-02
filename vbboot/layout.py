@@ -87,6 +87,9 @@ def begin_launch(root: Path, version: str) -> None:
         root.mkdir(parents=True, exist_ok=True)
         (root / f"{_LAUNCHING}{version}").write_text(version)
     except OSError:  # pragma: no cover - unwritable support dir
+        # молчим: метка «пробую запуститься» — страховка, а не условие
+        # запуска. Каталог недоступен → откат по метке не сработает, и это
+        # хуже; но НЕ ЗАПУСТИТЬ мост из-за неудачной страховки хуже вдвое.
         pass
 
 
@@ -98,6 +101,9 @@ def quarantine(root: Path, version: str) -> None:
     try:
         (root / f"{_FAILED}{version}").write_text(version)
     except OSError:  # pragma: no cover
+        # молчим: карантин не поставился — сбойная версия будет пробоваться
+        # снова при следующем старте. Цена названа честно; альтернатива —
+        # бросок из ветки отката, то есть падение вместо отката.
         pass
     complete_launch(root, version)
 
@@ -167,4 +173,6 @@ def _unlink(path: Path) -> None:
     try:
         path.unlink()
     except OSError:
+        # молчим: снятие метки — уборка. Оставшаяся метка приведёт к лишней
+        # проверке на следующем старте, и это весь ущерб.
         pass

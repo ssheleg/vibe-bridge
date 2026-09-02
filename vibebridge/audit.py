@@ -64,10 +64,14 @@ class AuditLog:
         self._max_bytes = max_bytes
         self._lock = threading.Lock()
         self._recent: deque[dict] = deque(maxlen=tail)
+        #: Почему журнал не пишется, если не пишется. Раньше все три отказа
+        #: молчали — мост работал БЕЗ журнала, и никто об этом не узнавал,
+        #: хотя «журналирует каждое обращение» это обещание продукта (A-36).
+        self.last_error: str | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
+        except OSError as exc:
+            self.last_error = f"каталог журнала недоступен: {exc}"
 
     def record(self, *, tool: str, tool_class: str, decision: str,
                ok: bool, detail: str = "", line: str = "") -> dict:
@@ -89,8 +93,10 @@ class AuditLog:
                     fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
                 if new:
                     os.chmod(self.path, 0o600)
-            except OSError:
-                pass   # a full disk must not break the bridge
+            except OSError as exc:
+                # Полный диск не должен ронять мост — но и молчать о том, что
+                # журнала больше нет, тоже нельзя.
+                self.last_error = f"журнал не пишется: {exc}"
         return entry
 
     def _rotate_locked(self) -> None:
@@ -100,8 +106,8 @@ class AuditLog:
         try:
             if self.path.exists() and self.path.stat().st_size >= self._max_bytes:
                 self.path.replace(self.path.with_suffix(self.path.suffix + ".1"))
-        except OSError:
-            pass
+        except OSError as exc:
+            self.last_error = f"журнал не ротируется: {exc}"
 
     def recent(self, n: int = 20) -> list[dict]:
         with self._lock:

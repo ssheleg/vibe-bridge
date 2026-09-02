@@ -201,6 +201,10 @@ def _screenshot(r: Runner, args: dict) -> str:
             try:
                 os.unlink(path)
             except OSError:
+                # молчим: снимок уже прочитан и уходит роботу. Провал unlink
+                # значит, что файл держит ОС, и повтор здесь не поможет;
+                # `/var/folders` она чистит сама. Уронить вызов из-за уборки
+                # хуже, чем оставить временный файл в системном каталоге.
                 pass
     return encode_screenshot(data, mime)
 

@@ -108,6 +108,8 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
   </span>
 </header>
 
+<div class="banner" id="journalError" style="display:none;border-color:var(--danger);color:var(--danger)"></div>
+
 <div class="banner" id="pausedBanner">Мост на паузе — для робота этот компьютер выглядит выключенным. События копятся в журнале.</div>
 
 <div class="card consent" id="consent" style="display:none" role="alertdialog" aria-label="Запрос согласия">
@@ -286,6 +288,13 @@ function render(s){
       "--left", (100 * left / full) + "%");
     document.getElementById("consentSecs").textContent =
       left > 0 ? Math.ceil(left) + " с" : "истекло";
+  }
+  // Журнал, который не пишется, — это молчащий продукт: панель показывает
+  // ленту и выглядит рабочей, а записи никуда не идут (A-36).
+  const jerr = document.getElementById("journalError");
+  if (jerr){
+    jerr.textContent = s.journal_error ? "Журнал: " + s.journal_error : "";
+    jerr.style.display = s.journal_error ? "" : "none";
   }
   const feed = document.getElementById("feed");
   // Канал робот кладёт ИМЕННО для ленты: показ на этом компьютере и зеркало

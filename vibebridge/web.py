@@ -147,7 +147,11 @@ class _RefusalJournal:
             self._audit.record(tool="boundary", tool_class="SYS",
                                decision="deny", ok=False,
                                line=line, detail=detail or line)
-        except Exception:                   # noqa: BLE001 - журнал не граница
+        except Exception:                   # noqa: BLE001
+            # молчим: отказ УЖЕ произошёл — это граница, а не запись о ней.
+            # Пустить исключение отсюда значило бы отменить отказ ради
+            # неудачной строчки в журнале. Сам провал журнала виден
+            # владельцу в панели (`journal_error`).
             pass
 
 
@@ -299,6 +303,10 @@ def _snapshot(consent: ConsentEngine, audit: AuditLog,
                     "left_s": int(left)}
                    for t, left in sorted(consent.grants().items())],
         "grant_left_s": int(max(consent.grants().values(), default=0)),
+        # Мост, работающий БЕЗ журнала, — это не мост: «журналирует каждое
+        # обращение» стоит в описании продукта. Если писать не выходит,
+        # владелец узнаёт об этом здесь, а не никогда (A-36).
+        "journal_error": getattr(audit, "last_error", None),
         "recent": audit.recent(20),
     }
 
@@ -434,7 +442,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             robot_events.add({"ts": _now_iso(), "kind": "notify",
                               "text": line})
             mascot.say(line, kind="notify")
-        except Exception:                       # noqa: BLE001 - never fatal
+        except Exception:                       # noqa: BLE001
+            # молчим: системный тост ниже — главное, а лента и питомец
+            # украшение. Робот не должен терять уведомление владельцу из-за
+            # того, что не нарисовалась вторая поверхность.
             pass
         return _base_notify(title, text)
     robot_state: dict = {"configured": robot.configured, "online": False,
