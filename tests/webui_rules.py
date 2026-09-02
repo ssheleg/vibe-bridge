@@ -57,3 +57,27 @@ def rule_body(name: str, selector: str) -> str:
     if selector not in code:
         return ""
     return code.split(selector, 1)[1].split("}", 1)[0].replace(" ", "")
+
+
+def keyframes(name: str) -> dict[str, str]:
+    """Все `@keyframes` файла ЦЕЛИКОМ: имя → тело со всеми шагами.
+
+    Прежний разбор резал блок по первой `}` — то есть видел только ПЕРВЫЙ
+    шаг. Доказано подсадкой (A-33): `width` в шаге `50%` проходил банлист
+    моторной доктрины насквозь, и анимация раскладки уезжала бы в релиз.
+
+    Считаем скобки, а не ищем первую: у `@keyframes` вложенность ровно на
+    один уровень глубже, чем предполагал `split`.
+    """
+    out: dict[str, str] = {}
+    code = code_of(name)
+    for match in re.finditer(r"@keyframes\s+([\w-]+)\s*\{", code):
+        depth, i = 1, match.end()
+        while i < len(code) and depth:
+            if code[i] == "{":
+                depth += 1
+            elif code[i] == "}":
+                depth -= 1
+            i += 1
+        out[match.group(1)] = code[match.end():i - 1]
+    return out

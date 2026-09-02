@@ -13,7 +13,11 @@ import pytest
 from starlette.testclient import TestClient
 
 import vibebridge
-from tests.webui_rules import reduced_motion_kills_animation
+from tests.webui_rules import (
+    code_of,
+    keyframes,
+    reduced_motion_kills_animation,
+)
 from vibebridge.audit import AuditLog
 from vibebridge.config import Settings
 from vibebridge.consent import ConsentEngine
@@ -446,15 +450,28 @@ def test_pause_and_offline_carry_no_motion_at_all():
 
 def test_only_compositor_safe_properties_are_animated():
     """The doctrine bans animating layout. The previous version animated SVG
-    geometry attributes (`r`, `cx`), which is exactly that."""
-    js = (WEBUI / "mascot.js").read_text()
-    keyframes = [b.split("}", 1)[0] for b in js.split("@keyframes ")[1:]]
-    for frame in keyframes:
-        for banned in ("width", "height", "top:", "left:", "margin", "padding",
-                       "font-size"):
-            assert banned not in frame
-        assert "transform" in frame or "opacity" in frame
-    assert "attributeName" not in js          # no SMIL geometry animation
+    geometry attributes (`r`, `cx`), which is exactly that.
+
+    A-33: разбор резал блок по первой `}` и видел только ПЕРВЫЙ шаг.
+    Доказано подсадкой — `width` в шаге `50%` проходил банлист насквозь. И
+    сканировался один `mascot.js`, тогда как анимации есть и на странице
+    виджета: доктрина проверяла половину поверхностей.
+    """
+    banned = ("width", "height", "top:", "left:", "margin", "padding",
+              "font-size")
+    seen = 0
+    for page in ("mascot.js", "mascot.html", "index.html"):
+        for name, frame in keyframes(page).items():
+            seen += 1
+            for prop in banned:
+                assert prop not in frame, f"{page}: {name} анимирует {prop}"
+            assert "transform" in frame or "opacity" in frame, \
+                f"{page}: {name} не двигает ни transform, ни opacity"
+        assert "attributeName" not in code_of(page)   # no SMIL geometry
+    # Канарейка на сам разбор: молчаливый ноль — самый вероятный способ
+    # для этой проверки снова стать бесполезной, и он выглядит как
+    # успех. Число — пол, а не точная опись.
+    assert seen >= 4, f"доктрина увидела всего {seen} анимаций"
 
 
 def test_motion_stays_inside_the_doctrine_ceiling():
