@@ -1259,6 +1259,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                 ev = {"ts": ev.get("ts") or _now_iso(),
                       "kind": ev.get("kind", "event"),
                       "text": str(ev.get("text", ""))[:400],
+                      # Канал робот кладёт ИМЕННО для ленты: показ на этом
+                      # компьютере и зеркало телеграма — разные новости, и
+                      # мост его выбрасывал (A-18).
+                      "channel": ev.get("channel") or None,
                       # Optional, for when the robot starts sending media:
                       # {"url": …, "type": "image"|"audio"|"video"|"link"}.
                       "media": ev.get("media") or None}
@@ -1266,7 +1270,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                 if consent.paused:
                     missed_while_paused["n"] += 1
                 else:
-                    notify(robot.name, ev["text"] or ev["kind"])
+                    # ТОЛЬКО системный тост. Обёртка `notify` существует для
+                    # того, что приходит в обход ленты: она сама добавляет
+                    # строку и говорит её питомцу. Здесь событие уже в ленте
+                    # СО СВОИМ медиа, поэтому обёртка добавляла вторую копию
+                    # без него и заставляла питомца сказать всё дважды (A-13).
+                    _base_notify(robot.name, ev["text"] or ev["kind"])
                     # The robot's own words, verbatim — the mascot composes
                     # nothing («Не второй мозг»).
                     mascot.say(ev["text"] or ev["kind"], kind="event")

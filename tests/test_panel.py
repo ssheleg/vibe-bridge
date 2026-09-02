@@ -263,3 +263,19 @@ def test_the_attach_form_asks_for_the_chat_address_and_reports_the_probe():
     assert "chat_url" in fn, "адрес чата не отправляется"
     assert "d.reached" in fn, "успех печатается без проверки связи"
     assert "d.probe.error" in fn, "причина провала не показывается"
+
+
+def test_the_feed_marks_an_event_that_only_mirrors_telegram():
+    """A-18: робот кладёт `channel` в событие ИМЕННО для ленты — с
+    комментарием «без этого лента не отличает показ на компьютере от зеркала
+    телеграма». Мост поле выбрасывал, панель о нём не знала."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    assert "e.channel" in code, "лента не смотрит на канал события"
+    assert "из телеграма" in code, "зеркало телеграма никак не помечено"

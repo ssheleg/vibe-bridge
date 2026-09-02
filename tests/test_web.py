@@ -564,3 +564,64 @@ def test_manual_attach_takes_the_chat_address_too(tmp_path):
                      "chat_url": "https://robot.ts.net:8642", "key": "k"})
     assert state.robot_chat_url == "https://robot.ts.net:8642"
     assert robot.chat_url == "https://robot.ts.net:8642"
+
+
+def test_one_robot_event_makes_one_line_and_one_spoken_phrase(tmp_path):
+    """A-13: событие попадало в ленту ДВАЖДЫ, и питомец произносил его
+    дважды. Консьюмер писал событие, затем звал `notify`, чья обёртка
+    добавляла вторую строку («Вася: текст», уже без медиа) и говорила её
+    питомцу, а следом консьюмер говорил ещё раз."""
+    import time as _t
+
+    import httpx
+
+    from vibebridge.config import Settings
+    from vibebridge.robot import RobotClient
+
+    said: list[tuple[str, str]] = []
+    toasts: list[tuple[str, str]] = []
+
+    class _OneEvent(RobotClient):
+        async def events(self):
+            yield {"ts": "2026-09-02T00:00:00+00:00", "kind": "task_done",
+                   "text": "полил цветы", "channel": "computer",
+                   "media": {"url": "shot.jpg", "type": "image"}}
+
+    from vibebridge.mascot import Mascot
+    real_say = Mascot.say
+
+    def spy_say(self, text, *, kind="event", **kw):
+        said.append((kind, text))
+        return real_say(self, text, kind=kind, **kw)
+
+    robot = _OneEvent(base_url="http://robot", chat_key="k", name="Вася",
+                      http=httpx.AsyncClient(transport=httpx.MockTransport(
+                          lambda r: httpx.Response(200, json={}))))
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+                    state=state, robot=robot, settings=Settings(mode="gateway"),
+                    notify=lambda t, x: toasts.append((t, x)))
+
+    Mascot.say = spy_say
+    try:
+        with TestClient(app) as c:
+            c.get("/?token=pt")
+            for _ in range(100):
+                items = c.get("/api/mascot/stream").json()["items"]
+                if items:
+                    break
+                _t.sleep(0.05)
+            _t.sleep(0.2)                     # дать второй копии шанс прийти
+            items = c.get("/api/mascot/stream").json()["items"]
+    finally:
+        Mascot.say = real_say
+
+    assert len(items) == 1, f"событие продублировано: {items}"
+    assert items[0]["kind"] == "task_done"
+    assert items[0]["media"] == {"url": "shot.jpg", "type": "image"}
+    # A-18: канал, который робот кладёт ИМЕННО для ленты, не выбрасывается
+    assert items[0]["channel"] == "computer"
+    # системный тост всё равно один
+    assert len(toasts) == 1 and toasts[0][0] == "Вася"
+    # ...и питомец произнёс его РОВНО один раз, словами робота
+    assert said == [("event", "полил цветы")], said

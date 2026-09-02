@@ -288,9 +288,17 @@ function render(s){
       left > 0 ? Math.ceil(left) + " с" : "истекло";
   }
   const feed = document.getElementById("feed");
-  const evRows = (s.robot_events||[]).map(e =>
-    `<div class="row"><span class="dot info"></span><span>${esc(e.text||e.kind)}</span>`+
-    `<span class="t">${esc(localTs(e.ts))}</span></div>`);
+  // Канал робот кладёт ИМЕННО для ленты: показ на этом компьютере и зеркало
+  // телеграма — разные новости, и без пометки они выглядели одинаково (A-18).
+  const CHAN = {telegram: "из телеграма", computer: "", bridge: ""};
+  const evRows = (s.robot_events||[]).map(e => {
+    const tag = CHAN[e.channel] !== undefined ? CHAN[e.channel]
+                                              : (e.channel || "");
+    const mark = tag ? ` <span class="note">· ${esc(tag)}</span>` : "";
+    return `<div class="row"><span class="dot info"></span>`+
+      `<span>${esc(e.text||e.kind)}${mark}</span>`+
+      `<span class="t">${esc(localTs(e.ts))}</span></div>`;
+  });
   const auditRows = (s.recent||[]).slice().reverse().map(rowHtml);
   const rows = evRows.concat(auditRows);
   if (rows.length) feed.innerHTML = rows.join("");
