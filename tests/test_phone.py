@@ -297,3 +297,101 @@ def test_the_service_worker_tells_401_from_already_decided():
     code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
     assert "r.status === 401" in code
     assert "разлогинен" in code
+
+
+def test_the_bridge_turns_on_serve_itself(monkeypatch):
+    """A-28: панель выдавала владельцу команду `tailscale serve --bg` для
+    копипасты в терминал — против визии §4, где он «не настраивает туннели и
+    не читает конфиги»."""
+    import subprocess
+
+    from vibebridge import net
+
+    calls: list[list[str]] = []
+
+    class _Done:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(net.shutil, "which", lambda x: "/usr/bin/tailscale")
+    monkeypatch.setattr(subprocess, "run",
+                        lambda argv, **kw: calls.append(argv) or _Done())
+    ok, why = net.serve_enable(48620)
+    assert ok is True and "HTTPS" in why
+    assert calls[0][1:] == ["serve", "--bg", "48620"]
+
+
+def test_a_tailnet_without_serve_is_named_precisely(monkeypatch):
+    """Единственный случай, который сам tailscale объясняет плохо: функция
+    выключена в админке, и починить её можно ТОЛЬКО там."""
+    import subprocess
+
+    from vibebridge import net
+
+    class _Fail:
+        returncode = 1
+        stdout = ""
+        stderr = "serve is not enabled for your tailnet"
+
+    monkeypatch.setattr(net.shutil, "which", lambda x: "/usr/bin/tailscale")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kw: _Fail())
+    ok, why = net.serve_enable(48620)
+    assert ok is False and "админке" in why
+
+
+def test_a_missing_tailscale_is_not_a_mysterious_failure(monkeypatch):
+    from vibebridge import net
+
+    monkeypatch.setattr(net.shutil, "which", lambda x: None)
+    monkeypatch.setattr(net.Path, "exists", lambda self: False)
+    ok, why = net.serve_enable(48620)
+    assert ok is False and "не найден" in why
+
+
+def test_the_panel_offers_a_button_not_a_terminal_command():
+    """A-28: «Один раз выполните на этом компьютере: tailscale serve --bg» —
+    ровно то, чего визия §4 обещает не требовать."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    assert "Один раз выполните на этом компьютере" not in code
+    assert "enableServe" in code, "кнопки включения HTTPS нет"
+    fn = code.split("async function enableServe(", 1)[1].split("\n}", 1)[0]
+    assert "/api/phone/serve" in fn
+    assert "Мост не ответил" in fn, "провал снова беззвучен"
+
+
+def test_the_serve_endpoint_reports_both_outcomes(tmp_path, monkeypatch):
+    from starlette.testclient import TestClient
+
+    from vibebridge import net
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"),
+                    state=BridgeState(path=tmp_path / "s.json",
+                                      panel_token="pt"),
+                    settings=Settings(port=48620))
+    with TestClient(app) as c:
+        c.get("/?token=pt")
+        monkeypatch.setattr(net, "serve_enable", lambda port: (True, "готово"))
+        r = c.post("/api/phone/serve")
+        assert r.status_code == 200 and r.json()["ok"] is True
+
+        monkeypatch.setattr(net, "serve_enable",
+                            lambda port: (False, "Serve выключен в админке"))
+        r = c.post("/api/phone/serve")
+        assert r.status_code == 502 and "админке" in r.json()["why"]
+        j = c.get("/api/journal?limit=3").json()
+        assert any("HTTPS для телефона" in e.get("line", "")
+                   for e in j["entries"])

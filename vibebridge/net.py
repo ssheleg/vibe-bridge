@@ -100,8 +100,7 @@ def tailnet_dns_name(*, force: bool = False) -> str | None:
 
 def serve_active(port: int) -> bool:
     """True when `tailscale serve` already fronts the given local port."""
-    exe = shutil.which("tailscale") or (
-        _TAILSCALE_APP if Path(_TAILSCALE_APP).exists() else None)
+    exe = _tailscale_exe()
     if not exe:
         return False
     try:
@@ -110,6 +109,40 @@ def serve_active(port: int) -> bool:
         return f"127.0.0.1:{port}" in out.stdout or f":{port}" in out.stdout
     except Exception:
         return False
+
+
+def serve_enable(port: int) -> tuple[bool, str]:
+    """Включить `tailscale serve` для порта панели — САМИМ мостом.
+
+    Визия §4: владелец «не настраивает туннели и не читает конфиги». Панель
+    же выдавала ему команду копипастой в терминал — то есть ровно то, чего
+    продукт обещает не требовать (A-28).
+
+    Возвращает (получилось, что сказать владельцу). Ошибки не глотаются и не
+    переводятся: `tailscale` объясняет их лучше нас, и его слова уходят
+    владельцу как есть — кроме одного случая, который он объясняет плохо.
+    """
+    exe = _tailscale_exe()
+    if not exe:
+        return False, ("Tailscale на этом компьютере не найден — установите "
+                       "его и войдите в свою сеть")
+    try:
+        out = subprocess.run([exe, "serve", "--bg", str(port)],
+                             capture_output=True, text=True, timeout=30.0)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"не удалось запустить tailscale: {exc}"
+    if out.returncode == 0:
+        return True, "HTTPS включён — ссылка на телефон готова"
+    said = (out.stderr or out.stdout or "").strip()
+    # Единственный случай, который сам tailscale объясняет плохо: функция
+    # выключена в админке тейлнета, и починить её можно ТОЛЬКО там.
+    if "serve" in said.lower() and ("disabled" in said.lower()
+                                    or "not enabled" in said.lower()
+                                    or "https" in said.lower()):
+        return False, ("Serve/HTTPS выключен в вашей сети Tailscale — "
+                       "включите его в админке (Settings → Features), это "
+                       "делается один раз: " + said[:200])
+    return False, said[:300] or f"tailscale вернул код {out.returncode}"
 
 
 def standalone_bind_host() -> str:

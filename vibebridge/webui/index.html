@@ -607,9 +607,12 @@ async function loadPhone(){
         `<p class="v mono" style="user-select:all;word-break:break-all">${esc(p.phone_link)}</p>`+
         `<button class="btn ghost" style="margin-top:6px" data-link="${esc(p.phone_link)}" onclick="copyLink(this)">Скопировать ссылку</button>`;
     } else if (p.dns_name){
-      rows += `<p style="margin-bottom:8px">Панель ещё не опубликована в tailnet по HTTPS. Один раз выполните на этом компьютере:</p>`+
-        `<p class="v mono" style="user-select:all">${esc(p.setup_command)}</p>`+
-        `<p class="note" style="margin-top:6px">Нужны MagicDNS и HTTPS-сертификаты, включённые в админке Tailscale. После этого адрес появится здесь.</p>`;
+      // Кнопка, а не команда для копипасты: визия §4 — владелец «не
+      // настраивает туннели и не читает конфиги» (A-28). Команда остаётся
+      // видимой мелким шрифтом: она честно говорит, ЧТО именно произойдёт.
+      rows += `<p style="margin-bottom:8px">Панель ещё не опубликована в tailnet по HTTPS.</p>`+
+        `<button class="btn primary" id="serveBtn" onclick="enableServe(this)">Включить HTTPS для телефона</button>`+
+        `<p class="note" id="serveNote" style="margin-top:6px">Мост выполнит <span class="mono">${esc(p.setup_command)}</span> сам. Нужны MagicDNS и HTTPS, включённые в админке Tailscale — это делается один раз.</p>`;
     } else {
       rows += `<p class="empty">Tailscale на этом компьютере не найден — телефонный доступ работает через tailnet (ADR-0004).</p>`;
     }
@@ -672,6 +675,21 @@ function copyLink(btn){
   navigator.clipboard.writeText(btn.dataset.link)
     .then(()=>{ btn.textContent = "Скопировано ✓"; })
     .catch(()=>{ btn.textContent = "Скопировать не вышло — выделите вручную"; });
+}
+async function enableServe(btn){
+  const note = document.getElementById("serveNote");
+  btn.disabled = true; btn.textContent = "Включаю…";
+  try{
+    const r = await fetch("/api/phone/serve", {method:"POST"});
+    const d = await r.json();
+    note.textContent = d.why || "";
+    if (d.ok){ loadPhone(); return; }
+  } catch(e){
+    // Молчащая кнопка — тот же обман, что и команда, которую владелец
+    // выполнил и не понял, сработала ли она.
+    note.textContent = "Мост не ответил — HTTPS не включён.";
+  }
+  btn.disabled = false; btn.textContent = "Включить HTTPS для телефона";
 }
 async function enablePush(){
   const note = document.getElementById("pushNote");

@@ -604,6 +604,22 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return JSONResponse({"ok": ok, "why": why,
                              "capabilities": _cap_map()})
 
+    async def api_phone_serve(request: Request) -> Response:
+        """Включить HTTPS для телефона — кнопкой, а не командой в терминал.
+
+        Визия §4: владелец «не настраивает туннели и не читает конфиги», а
+        панель выдавала ему `tailscale serve --bg` копипастой (A-28).
+        """
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from .net import serve_enable
+        ok, why = await asyncio.to_thread(serve_enable, settings.port)
+        audit.record(tool="phone", tool_class="SYS",
+                     decision="allow" if ok else "error", ok=ok,
+                     line=f"HTTPS для телефона: {why}")
+        return JSONResponse({"ok": ok, "why": why}, status_code=200 if ok
+                            else 502)
+
     async def api_robot_status(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -1437,6 +1453,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/push/unsubscribe", api_push_unsubscribe,
                   methods=["POST"]),
             Route("/api/phone", api_phone),
+            Route("/api/phone/serve", api_phone_serve,
+                  methods=["POST"]),
             Route("/pair", pair, methods=["POST"]),
             Route("/api/wizard/pairing/start", api_wizard_pairing_start,
                   methods=["POST"]),
