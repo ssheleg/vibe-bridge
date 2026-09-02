@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sys
 
-from .consent import ConsentEngine, ToolClass
+from .consent import ConsentEngine
 
 
 def _bundled_icon():
@@ -123,7 +123,7 @@ def tray_title(consent: ConsentEngine) -> str:
         return "⏸"
     if consent.pending() is not None:
         return "🤖❗"
-    if consent.grant_active(ToolClass.ACT) > 0:
+    if consent.grants():
         return "🤖⏳"
     return "🤖"
 

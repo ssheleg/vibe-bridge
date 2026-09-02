@@ -65,8 +65,10 @@ def test_silence_still_means_refusal_for_reads():
                           "смотрю") is Decision.TIMEOUT
 
 
-def test_a_grant_covers_later_reads_like_any_other_class():
-    engine = ConsentEngine(ask_for_read=True, ask_timeout_s=5)
+def test_a_grant_covers_later_calls_of_the_same_read():
+    """Грант работает и в строгом режиме — но поимённо: разрешив «смотрю на
+    экран», владелец не разрешил заодно перечислять его приложения (A-8)."""
+    engine = ConsentEngine(ask_for_read=True, ask_timeout_s=0.2)
     result: list[Decision] = []
     t = threading.Thread(
         target=lambda: result.append(
@@ -78,8 +80,10 @@ def test_a_grant_covers_later_reads_like_any_other_class():
         threading.Event().wait(0.01)
     engine.pending().resolve(Decision.ALLOW_GRANT, by="test")
     t.join(timeout=5)
-    # The next read rides the grant instead of asking again.
-    assert engine.request("list_apps", ToolClass.READ, "окна") is Decision.AUTO
+    # Тот же снимок едет на гранте...
+    assert engine.request("screenshot", ToolClass.READ, "снова") is Decision.AUTO
+    # ...а сосед спрашивает заново: отвечать некому, значит истекает.
+    assert engine.request("list_apps", ToolClass.READ, "окна") is Decision.TIMEOUT
 
 
 def test_pause_still_swallows_reads_whole():

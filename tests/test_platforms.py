@@ -138,11 +138,11 @@ def test_linux_no_session_is_unavailable(monkeypatch):
 # ── tray backend: selection + pure helpers (no GUI) ─────────────────────────
 
 def test_tray_title_states():
-    from vibebridge.consent import ConsentEngine, ToolClass
+    from vibebridge.consent import ConsentEngine
     from vibebridge.tray import tray_title
     eng = ConsentEngine()
     assert tray_title(eng) == "🤖"
-    eng._grant_until[ToolClass.ACT] = eng._clock() + 600
+    eng._grant_until["open_url"] = eng._clock() + 600
     assert tray_title(eng) == "🤖⏳"
     eng.paused = True
     assert tray_title(eng) == "⏸"          # pause wins over grant

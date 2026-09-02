@@ -4,8 +4,14 @@ The robot's brain calls tools over MCP; every tool carries a class:
 
   * READ  — executes immediately (look, list, notify). Logged, never asked.
   * ACT   — requires the owner's explicit approval via the menu bar:
-            Allow once / Allow this class for GRANT_TTL / Deny.
+            Allow once / Allow THIS TOOL for GRANT_TTL / Deny.
             No answer within ASK_TIMEOUT = denied.
+
+Грант ключуется на ИНСТРУМЕНТ, а не на класс. До 2026-09-02 он ключевался
+на класс, и «да» на «открыть ссылку» на пятнадцать минут молча включало
+AppleScript, буфер обмена и Shortcuts — кнопка об этом не говорила ни
+слова (A-8). Визия §1 обещает согласие ПОИМЁННОЕ; грант на класс — это
+«всё или ничего» внутри класса, ровно то, от чего продукт уходит.
 
 The engine is pure and synchronous from the caller's side: the MCP tool
 thread calls `request()` and blocks; the menu-bar main loop polls
@@ -32,7 +38,7 @@ class ToolClass(Enum):
 
 class Decision(Enum):
     ALLOW = "allow"
-    ALLOW_GRANT = "allow_grant"   # allow + grant this class for GRANT_TTL_S
+    ALLOW_GRANT = "allow_grant"   # allow + grant THIS TOOL for GRANT_TTL_S
     DENY = "deny"
     TIMEOUT = "timeout"
     PAUSED = "paused"
@@ -82,7 +88,7 @@ class ConsentEngine:
         self._ask_for_read = ask_for_read
         self._lock = threading.Lock()
         self._pending: list[ConsentRequest] = []
-        self._grant_until: dict[ToolClass, float] = {}
+        self._grant_until: dict[str, float] = {}   # по ИНСТРУМЕНТУ (A-8)
         self.paused = False
 
     # -- called from the MCP tool thread -------------------------------------
@@ -94,7 +100,7 @@ class ConsentEngine:
         if tool_class is ToolClass.READ and not self._ask_for_read:
             return Decision.AUTO
         with self._lock:
-            until = self._grant_until.get(tool_class, 0.0)
+            until = self._grant_until.get(tool, 0.0)
             if self._clock() < until:
                 return Decision.AUTO
             req = ConsentRequest(tool=tool, tool_class=tool_class,
@@ -109,7 +115,7 @@ class ConsentEngine:
         decision = req._decision or Decision.DENY
         if decision is Decision.ALLOW_GRANT:
             with self._lock:
-                self._grant_until[tool_class] = self._clock() + self._grant_ttl_s
+                self._grant_until[tool] = self._clock() + self._grant_ttl_s
         return decision
 
     # -- called from the menu-bar main loop -----------------------------------
@@ -132,11 +138,21 @@ class ConsentEngine:
             return False
         return req.resolve(decision, by=by)
 
-    def grant_active(self, tool_class: ToolClass) -> float:
-        """Seconds of grant remaining for the class (0 if none)."""
+    def grant_active(self, tool: str) -> float:
+        """Seconds of grant remaining for THIS tool (0 if none)."""
         with self._lock:
-            left = self._grant_until.get(tool_class, 0.0) - self._clock()
+            left = self._grant_until.get(tool, 0.0) - self._clock()
         return max(0.0, left)
+
+    def grants(self) -> dict[str, float]:
+        """Живые гранты: инструмент → сколько секунд ещё проходит без
+        вопроса. Поверхности показывают ИМЕНА — счётчик минут сам по себе
+        не отвечает на вопрос «что мне сейчас разрешено»."""
+        with self._lock:
+            now = self._clock()
+            return {tool: until - now
+                    for tool, until in self._grant_until.items()
+                    if until > now}
 
     def revoke_grants(self) -> None:
         with self._lock:

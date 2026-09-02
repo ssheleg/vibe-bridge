@@ -41,7 +41,7 @@ from .capabilities import (
     build_capabilities,
     probe_availability,
 )
-from .consent import ConsentEngine, Decision, ToolClass
+from .consent import ConsentEngine, Decision
 from .mascot import Mascot
 from .push import PushSender, ensure_vapid_keys
 from .robot import RobotClient
@@ -252,7 +252,18 @@ class BearerGuard:
         await self.app(scope, receive, send)
 
 
-def _snapshot(consent: ConsentEngine, audit: AuditLog) -> dict[str, Any]:
+def _grant_label(tool: str, caps: dict | None) -> str:
+    """Человеческое имя способности для списка грантов. Берётся из шаблона
+    строки согласия — до первой подстановки: «открыть ссылку {url}» →
+    «открыть ссылку». Второго словаря имён здесь не заводится."""
+    cap = (caps or {}).get(tool)
+    if cap is None:
+        return tool
+    return cap.summary_template.split("{")[0].strip(" ,:«").strip() or tool
+
+
+def _snapshot(consent: ConsentEngine, audit: AuditLog,
+              caps: dict | None = None) -> dict[str, Any]:
     reqs = consent.pending_all()
     req = reqs[0] if reqs else None
     return {
@@ -261,7 +272,12 @@ def _snapshot(consent: ConsentEngine, audit: AuditLog) -> dict[str, Any]:
                      "class": req.tool_class.value,
                      "summary": req.summary} if req else None),
         "pending_count": len(reqs),
-        "grant_left_s": int(consent.grant_active(ToolClass.ACT)),
+        # Гранты называются ПОИМЁННО: счётчик минут не отвечает на вопрос
+        # «что мне сейчас разрешено без вопроса» (A-8, визия §1).
+        "grants": [{"tool": t, "label": _grant_label(t, caps),
+                    "left_s": int(left)}
+                   for t, left in sorted(consent.grants().items())],
+        "grant_left_s": int(max(consent.grants().values(), default=0)),
         "recent": audit.recent(20),
     }
 
@@ -428,7 +444,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                        allowed_hosts=mcp_allowed_hosts)
 
     def _full_snapshot() -> dict[str, Any]:
-        snap = _snapshot(consent, audit)
+        snap = _snapshot(consent, audit, caps)
         snap["robot"] = dict(robot_state)
         snap["robot_events"] = list(robot_events)[-10:]
         return snap

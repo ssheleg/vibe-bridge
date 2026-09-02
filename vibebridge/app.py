@@ -267,7 +267,7 @@ def run() -> None:  # pragma: no cover - requires a GUI session
                 message=req.summary,
                 ok="Разрешить",
                 cancel="Отклонить",
-                other="Разрешить 15 мин",
+                other="Такие 15 мин",
             )
             # rumps.alert: 1=ok, 0=cancel, 2=other
             decision = {1: Decision.ALLOW, 0: Decision.DENY,

@@ -95,7 +95,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
   <div class="line" id="consentLine"></div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn primary" onclick="decide('allow')">Разрешить</button>
-    <button class="btn ghost" onclick="decide('allow_grant')">Разрешить на 15 мин</button>
+    <button class="btn ghost" onclick="decide('allow_grant')">Разрешить такие на 15 мин</button>
     <button class="btn dangerous" onclick="decide('deny')">Отклонить</button>
   </div>
 </div>
@@ -110,7 +110,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
       <div class="card">
         <div class="cap">Мост</div>
         <div class="kv"><span class="k">Состояние</span><span class="v" id="bridgeState">—</span></div>
-        <div class="kv"><span class="k">Грант ACT</span><span class="v" id="grantLeft">нет</span></div>
+        <div class="kv"><span class="k">Идёт без вопроса</span><span class="v" id="grantLeft">ничего</span></div>
         <div class="kv"><span class="k">Запросов в очереди</span><span class="v" id="pendCount">0</span></div>
       </div>
       <div class="card" id="mascotCard" style="text-align:center">
@@ -187,7 +187,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
   </div>
   <div class="card">
     <div class="cap">Разрешения</div>
-    <p style="margin-bottom:8px">Грант «Разрешить на 15 мин» действует на класс действий. Отзыв вернёт вопрос на следующем действии.</p>
+    <p style="margin-bottom:8px">«Разрешить такие на 15 мин» действует на ЭТО действие — не на остальные. Отзыв вернёт вопрос на следующем вызове.</p>
     <button class="btn ghost" onclick="fetch('/api/grants/revoke',{method:'POST'}).then(refresh)">Отозвать разрешения</button>
   </div>
   <div class="card">
@@ -242,8 +242,12 @@ function render(s){
   document.getElementById("statedot").className = "dot " + (s.paused ? "mut" : (s.pending ? "warn" : "ok"));
   document.getElementById("pauseSw").setAttribute("aria-checked", s.paused);
   document.getElementById("bridgeState").textContent = s.paused ? "на паузе" : "активен";
+  // Гранты называются, а не считаются: «ещё 12 мин» не отвечает на вопрос
+  // «что мне сейчас разрешено» (A-8).
   document.getElementById("grantLeft").textContent =
-    s.grant_left_s > 0 ? "ещё " + Math.ceil(s.grant_left_s/60) + " мин" : "нет";
+    (s.grants && s.grants.length)
+      ? s.grants.map(g => g.label + " — " + Math.ceil(g.left_s/60) + " мин").join(", ")
+      : "ничего";
   document.getElementById("pendCount").textContent = s.pending_count;
   const c = document.getElementById("consent");
   c.style.display = s.pending ? "block" : "none";

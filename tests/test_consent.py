@@ -78,16 +78,50 @@ def test_act_timeout_denies():
     assert eng.pending() is None
 
 
-def test_grant_suppresses_second_dialog():
+def test_grant_suppresses_the_second_call_of_the_SAME_tool():
     clk = FakeClock()
     eng = ConsentEngine(ask_timeout_s=2.0, grant_ttl_s=900.0, clock=clk)
     _answer_async(eng, Decision.ALLOW_GRANT)
     d1 = eng.request("mac_open_app", ToolClass.ACT, "открыть Safari")
     assert d1 is Decision.ALLOW_GRANT
-    assert eng.grant_active(ToolClass.ACT) > 0
-    # second ACT within TTL is auto — no dialog, so no answerer needed
-    d2 = eng.request("mac_open_url", ToolClass.ACT, "открыть ссылку")
+    assert eng.grant_active("mac_open_app") > 0
+    # тот же инструмент в окне гранта — без диалога
+    d2 = eng.request("mac_open_app", ToolClass.ACT, "открыть Почту")
     assert d2 is Decision.AUTO
+
+
+def test_a_grant_does_not_leak_to_the_neighbouring_tools():
+    """A-8. Грант ключевался на КЛАСС: «да» на «открыть ссылку» на 15 минут
+    молча включал AppleScript, буфер обмена и Shortcuts — три способности,
+    о которых кнопка не сказала ни слова. Визия §1 обещает согласие
+    ПОИМЁННОЕ."""
+    clk = FakeClock()
+    eng = ConsentEngine(ask_timeout_s=0.05, grant_ttl_s=900.0, clock=clk)
+    _answer_async(eng, Decision.ALLOW_GRANT)
+    assert eng.request("open_url", ToolClass.ACT, "открыть ссылку") is \
+        Decision.ALLOW_GRANT
+    # сосед по классу обязан спросить заново — здесь некому ответить,
+    # поэтому истекает, а не проходит молча
+    assert eng.request("automation", ToolClass.ACT, "AppleScript") is \
+        Decision.TIMEOUT
+    assert eng.grant_active("automation") == 0
+    assert eng.grant_active("open_url") > 0
+
+
+def test_grants_are_listed_by_name_so_a_surface_can_show_them():
+    """Владелец должен видеть, ЧТО именно сейчас проходит без вопроса —
+    иначе «видимое согласие» из визии видимо только как счётчик минут."""
+    clk = FakeClock()
+    eng = ConsentEngine(ask_timeout_s=0.05, grant_ttl_s=900.0, clock=clk)
+    assert eng.grants() == {}
+    _answer_async(eng, Decision.ALLOW_GRANT)
+    eng.request("open_url", ToolClass.ACT, "открыть ссылку")
+    _answer_async(eng, Decision.ALLOW_GRANT)
+    eng.request("clipboard_read", ToolClass.ACT, "прочитать буфер")
+    assert set(eng.grants()) == {"open_url", "clipboard_read"}
+    assert all(v > 0 for v in eng.grants().values())
+    clk.advance(901.0)
+    assert eng.grants() == {}          # истёкшие не перечисляются
 
 
 def test_grant_expires():
@@ -96,7 +130,7 @@ def test_grant_expires():
     _answer_async(eng, Decision.ALLOW_GRANT)
     eng.request("mac_open_app", ToolClass.ACT, "x")
     clk.advance(901.0)
-    assert eng.grant_active(ToolClass.ACT) == 0
+    assert eng.grant_active("mac_open_app") == 0
     # next ACT asks again → times out (no answerer)
     d = eng.request("mac_open_app", ToolClass.ACT, "x")
     assert d is Decision.TIMEOUT
@@ -115,6 +149,7 @@ def test_revoke_grants():
     eng = ConsentEngine(ask_timeout_s=2.0, grant_ttl_s=900.0, clock=clk)
     _answer_async(eng, Decision.ALLOW_GRANT)
     eng.request("mac_open_app", ToolClass.ACT, "x")
-    assert eng.grant_active(ToolClass.ACT) > 0
+    assert eng.grant_active("mac_open_app") > 0
     eng.revoke_grants()
-    assert eng.grant_active(ToolClass.ACT) == 0
+    assert eng.grant_active("mac_open_app") == 0
+    assert eng.grants() == {}

@@ -243,13 +243,12 @@ def test_pause_endpoint_toggles(tmp_path):
 
 
 def test_grants_revoke_endpoint(tmp_path):
-    from vibebridge.consent import ToolClass as TC
     app, consent, *_ = _mk(tmp_path)
-    consent._grant_until[TC.ACT] = consent._clock() + 600
+    consent._grant_until["open_url"] = consent._clock() + 600
     with TestClient(app) as c:
         c.get("/?token=panel-secret")
         assert c.post("/api/grants/revoke").status_code == 200
-    assert consent.grant_active(TC.ACT) == 0.0
+    assert consent.grants() == {}
 
 
 def test_capabilities_endpoint_shape(tmp_path):
@@ -396,3 +395,22 @@ def test_editing_the_file_does_not_change_what_the_panel_claims_is_running(
     assert body["port"] == 48620                 # what is actually bound
     assert "port" in body["pending"]
     assert body["restart_required"] is True
+
+
+def test_the_panel_names_what_is_running_without_a_question(tmp_path):
+    """A-8: счётчик «ещё 12 мин» не отвечает на вопрос «что мне сейчас
+    разрешено». Снимок называет способности человеческим именем, взятым из
+    той же строки согласия — второго словаря имён проект не заводит."""
+    app, consent, *_ = _mk(tmp_path)
+    consent._grant_until["mac_do"] = consent._clock() + 600
+    consent._grant_until["неизвестный"] = consent._clock() + 600
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        st = c.get("/api/state").json()
+    grants = {g["tool"]: g for g in st["grants"]}
+    assert grants["mac_do"]["label"] == "открыть"      # из строки согласия
+    assert grants["mac_do"]["left_s"] > 0
+    # Способность, которой в таблице нет, называется хотя бы своим именем —
+    # молчать о стоящем гранте нельзя.
+    assert grants["неизвестный"]["label"] == "неизвестный"
+    assert st["grant_left_s"] > 0            # старый ключ жив для совместимости

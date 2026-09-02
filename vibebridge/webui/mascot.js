@@ -169,7 +169,7 @@ function renderMascot(el, snap, opts){
   const buttons = (snap.actionable && opts.answerable)
     ? `<div class="mascot-actions">
          <button class="btn primary" data-decide="allow">Разрешить</button>
-         <button class="btn ghost" data-decide="allow_grant">На 15 мин</button>
+         <button class="btn ghost" data-decide="allow_grant">Такие — 15 мин</button>
          <button class="btn dangerous" data-decide="deny">Отклонить</button>
        </div>` : "";
 
