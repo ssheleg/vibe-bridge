@@ -22,6 +22,16 @@ from typing import Any
 import httpx
 
 CHAT_TIMEOUT_S = 150.0        # Hermes thinks long — the robot's own contract
+#: Потолок файла, который мост втягивает в ОЗУ ради показа владельцу. Кадр с
+#: камеры — сотни килобайт; всё, что сильно больше, это видео, и его надо
+#: отдавать иначе, а не молча съедать память моста (A-20).
+MEDIA_MAX_BYTES = 25 * 1024 * 1024
+MEDIA_TIMEOUT_S = 30.0
+
+
+def _too_large(size: int) -> str:
+    return (f"файл слишком велик для показа ({size // (1024 * 1024)} МБ, "
+            f"потолок {MEDIA_MAX_BYTES // (1024 * 1024)} МБ)")
 STATUS_TIMEOUT_S = 5.0
 UPDATE_TIMEOUT_S = 20.0
 
@@ -221,23 +231,62 @@ class RobotClient:
             return {"ok": False, "error": str(data["error"])}
         return {"ok": True, **data}
 
-    async def media(self, name: str) -> tuple[bytes, str] | None:
+    async def media(self, name: str) -> dict[str, Any]:
         """Забрать файл, на который ссылается событие.
 
         Мост ходит к роботу своим bearer'ом и отдаёт байты странице: иначе
         страница держала бы токен робота, а публиковать фото наружу ради
         показа хозяину — плата, которой он не просил.
+
+        Возвращает {ok: True, body, type} либо {ok: False, kind, error}.
+        Раньше это был `tuple | None`, и четыре разные беды — офлайн-робот,
+        неверный ключ, отсутствующий файл и обход каталога — приходили
+        владельцу одним 404 «файл недоступен» (A-20). Следующий шаг у каждой
+        свой, и назвать их одним словом значит не сказать ничего.
+
+        Тело читается ПОТОКОМ с потолком: `r.content` втягивал в ОЗУ моста
+        сколько дал робот, а видео по размеру не ограничивает ни одна
+        сторона.
         """
-        if self.base_url is None or not name or "/" in name or ".." in name:
-            return None
+        if self.base_url is None:
+            return {"ok": False, "kind": "unconfigured",
+                    "error": "робот не подключён"}
+        if not name or "/" in name or ".." in name:
+            return {"ok": False, "kind": "bad-name",
+                    "error": "недопустимое имя файла"}
         try:
-            r = await self._http.get(f"{self.base_url}/bridge/media/{name}",
-                                     headers=self._headers(), timeout=20.0)
-            r.raise_for_status()
-        except httpx.HTTPError:
-            return None
-        return r.content, r.headers.get("content-type",
-                                        "application/octet-stream")
+            async with self._http.stream(
+                    "GET", f"{self.base_url}/bridge/media/{name}",
+                    headers=self._headers(), timeout=MEDIA_TIMEOUT_S) as r:
+                if r.status_code in (401, 403):
+                    return {"ok": False, "kind": "unauthorized",
+                            "error": "робот не принял ключ моста"}
+                if r.status_code == 404:
+                    return {"ok": False, "kind": "not-found",
+                            "error": "робот не нашёл этот файл"}
+                if r.status_code >= 400:
+                    return {"ok": False, "kind": "unreachable",
+                            "error": f"робот ответил {r.status_code}"}
+                # Объявленный размер — дешёвый отказ: тянуть гигабайт, чтобы
+                # потом сказать «слишком много», значит заплатить ровно ту
+                # цену, которой мы избегаем.
+                declared = r.headers.get("content-length")
+                if declared and declared.isdigit() and \
+                        int(declared) > MEDIA_MAX_BYTES:
+                    return {"ok": False, "kind": "too-large",
+                            "error": _too_large(int(declared))}
+                buf = bytearray()
+                async for chunk in r.aiter_bytes():
+                    buf += chunk
+                    if len(buf) > MEDIA_MAX_BYTES:
+                        return {"ok": False, "kind": "too-large",
+                                "error": _too_large(len(buf))}
+                ctype = r.headers.get("content-type",
+                                      "application/octet-stream")
+        except httpx.HTTPError as exc:
+            return {"ok": False, "kind": "unreachable",
+                    "error": f"робот не отдал файл: {_speakable(exc)}"}
+        return {"ok": True, "body": bytes(buf), "type": ctype}
 
     async def trigger_update(self) -> dict[str, Any]:
         if self.base_url is None:

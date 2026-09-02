@@ -640,10 +640,17 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         name = request.path_params["name"]
         got = await robot.media(name)
-        if got is None:
-            return JSONResponse({"error": "файл недоступен"}, status_code=404)
-        body, kind = got
-        return Response(body, media_type=kind,
+        if not got.get("ok"):
+            # Четыре разные беды больше не называются одним словом: у каждой
+            # свой следующий шаг для владельца (A-20). Наружу уходит причина,
+            # а не устройство моста — путей и внутренностей здесь нет.
+            status = {"bad-name": 400, "not-found": 404,
+                      "too-large": 413, "unauthorized": 502,
+                      "unconfigured": 409}.get(got.get("kind"), 502)
+            return JSONResponse({"error": got.get("error", "файл недоступен"),
+                                 "kind": got.get("kind", "unreachable")},
+                                status_code=status)
+        return Response(got["body"], media_type=got["type"],
                         headers={"Cache-Control": "private, max-age=3600"})
 
     async def api_robot_system(request: Request) -> Response:

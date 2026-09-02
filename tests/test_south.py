@@ -304,8 +304,9 @@ def test_media_is_fetched_with_the_bridges_own_bearer():
                          chat_key="tok", name="Вася",
                          http=httpx.AsyncClient(
                              transport=httpx.MockTransport(handler)))
-    body, kind = asyncio.run(client.media("1-snap.jpg"))
-    assert body.startswith(b"\xff\xd8\xff") and kind == "image/jpeg"
+    got = asyncio.run(client.media("1-snap.jpg"))
+    assert got["ok"] is True
+    assert got["body"].startswith(b"\xff\xd8\xff") and got["type"] == "image/jpeg"
 
 
 def test_media_refuses_a_name_that_walks_out():
@@ -323,7 +324,8 @@ def test_media_refuses_a_name_that_walks_out():
                              transport=httpx.MockTransport(
                                  lambda r: httpx.Response(200, content=b"x"))))
     for bad in ("../secret", "a/b", "..", ""):
-        assert asyncio.run(client.media(bad)) is None
+        got = asyncio.run(client.media(bad))
+        assert got["ok"] is False and got["kind"] == "bad-name", bad
 
 
 def test_the_thread_so_far_travels_with_the_question():
@@ -482,3 +484,90 @@ def test_probe_without_an_address_is_not_an_error_about_the_network():
     res = _run(RobotClient(http=httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(200)))).probe())
     assert res["ok"] is False and res["kind"] == "unconfigured"
+
+
+# ── A-20: медиа под потолком, и отказы различимы ───────────────────────────
+
+class _Stream(httpx.AsyncBaseTransport):
+    """Робот, отдающий медиа кусками — как настоящий."""
+
+    def __init__(self, chunks, *, status=200, ctype="image/jpeg",
+                 length=None) -> None:
+        self.chunks = chunks
+        self.status = status
+        self.ctype = ctype
+        self.length = length
+
+    async def handle_async_request(self, request):
+        headers = {"content-type": self.ctype}
+        if self.length is not None:
+            headers["content-length"] = str(self.length)
+
+        async def body():
+            for c in self.chunks:
+                yield c
+
+        return httpx.Response(self.status, headers=headers,
+                              stream=httpx.AsyncByteStream() if False
+                              else _Iter(body()))
+
+
+class _Iter(httpx.AsyncByteStream):
+    def __init__(self, gen):
+        self._gen = gen
+
+    async def __aiter__(self):
+        async for chunk in self._gen:
+            yield chunk
+
+
+def _media_client(transport, **kw):
+    return RobotClient(base_url="http://robot", chat_key="k",
+                       http=httpx.AsyncClient(transport=transport), **kw)
+
+
+def test_media_comes_back_with_its_type():
+    got = _run(_media_client(_Stream([b"\xff\xd8", b"jpeg"])).media("shot.jpg"))
+    assert got["ok"] is True
+    assert got["body"] == b"\xff\xd8jpeg" and got["type"] == "image/jpeg"
+
+
+def test_media_over_the_cap_is_refused_by_its_own_name():
+    """A-20: тело втягивалось в ОЗУ моста целиком и без потолка. Видео ни
+    одна сторона по размеру не ограничивает."""
+    from vibebridge.robot import MEDIA_MAX_BYTES
+
+    big = [b"x" * 100_000] * ((MEDIA_MAX_BYTES // 100_000) + 2)
+    got = _run(_media_client(_Stream(big)).media("video.mp4"))
+    assert got["ok"] is False and got["kind"] == "too-large"
+    assert "велик" in got["error"]
+
+
+def test_a_declared_size_is_refused_before_a_single_byte_is_read():
+    """Content-Length — дешёвый отказ: тянуть гигабайт, чтобы потом сказать
+    «слишком много», значит заплатить ровно ту цену, которой избегаем."""
+    from vibebridge.robot import MEDIA_MAX_BYTES
+
+    t = _Stream([b"x"], length=MEDIA_MAX_BYTES * 4)
+    got = _run(_media_client(t).media("video.mp4"))
+    assert got["ok"] is False and got["kind"] == "too-large"
+
+
+def test_the_four_failures_are_told_apart():
+    """Офлайн-робот, неверный ключ, отсутствующий файл и обход каталога
+    назывались одним 404 «файл недоступен» — четыре разные беды, каждая с
+    разным следующим шагом для владельца."""
+    assert _run(_media_client(_Stream([], status=404)).media("нет.jpg")
+                )["kind"] == "not-found"
+    assert _run(_media_client(_Stream([], status=401)).media("a.jpg")
+                )["kind"] == "unauthorized"
+    assert _run(RobotClient(http=httpx.AsyncClient(
+        transport=_Stream([]))).media("a.jpg"))["kind"] == "unconfigured"
+    assert _run(_media_client(_Stream([])).media("../../etc/passwd")
+                )["kind"] == "bad-name"
+
+    class _Dead(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            raise httpx.ConnectError("no route", request=request)
+
+    assert _run(_media_client(_Dead()).media("a.jpg"))["kind"] == "unreachable"

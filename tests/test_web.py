@@ -625,3 +625,38 @@ def test_one_robot_event_makes_one_line_and_one_spoken_phrase(tmp_path):
     assert len(toasts) == 1 and toasts[0][0] == "Вася"
     # ...и питомец произнёс его РОВНО один раз, словами робота
     assert said == [("event", "полил цветы")], said
+
+
+def test_the_media_endpoint_names_which_failure_happened(tmp_path):
+    """A-20: панель получала один 404 «файл недоступен» на четыре разные
+    беды. Обход каталога — это ошибка запроса, отсутствующий файл — ответ
+    робота, а недозвон — вообще не про файл."""
+    import httpx
+
+    from vibebridge.config import Settings
+    from vibebridge.robot import RobotClient
+
+    def app_with(handler):
+        robot = RobotClient(base_url="http://robot", chat_key="k",
+                            http=httpx.AsyncClient(
+                                transport=httpx.MockTransport(handler)))
+        return build_app(consent=ConsentEngine(),
+                         audit=AuditLog(tmp_path / "a.log"),
+                         state=BridgeState(path=tmp_path / "s.json",
+                                           panel_token="pt"),
+                         robot=robot, settings=Settings(mode="gateway"))
+
+    with TestClient(app_with(lambda r: httpx.Response(404))) as c:
+        c.get("/?token=pt")
+        r = c.get("/api/robot/media/нет.jpg")
+        assert r.status_code == 404 and r.json()["kind"] == "not-found"
+        # Голый «..» до обработчика не доходит вовсе — роутер нормализует
+        # путь, и это его собственная защита. Проверяем то, что доходит.
+        bad = c.get("/api/robot/media/a..b")
+        assert bad.status_code == 400 and bad.json()["kind"] == "bad-name"
+
+    with TestClient(app_with(lambda r: httpx.Response(401))) as c:
+        c.get("/?token=pt")
+        r = c.get("/api/robot/media/a.jpg")
+        assert r.status_code == 502 and r.json()["kind"] == "unauthorized"
+        assert "ключ" in r.json()["error"]
