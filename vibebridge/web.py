@@ -19,6 +19,7 @@ import contextlib
 import json
 import time
 from collections import deque
+from enum import Enum
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -270,6 +271,120 @@ class BearerGuard:
                 )(scope, receive, send)
                 return
         await self.app(scope, receive, send)
+
+
+class PairVerdict(Enum):
+    """Решение о предъявленном токене пейринга — и слова для обеих сторон.
+
+    Вынесено из `build_app` (F-2). Внутри замыкания это была ветка в
+    обработчике, и проверить её можно было только через HTTP; при этом
+    решение чисто арифметическое и никакого сервера не требует.
+
+    Отказы РАЗНЫЕ намеренно (A-22): истёкший токен и подделанный — разные
+    новости. В первом случае владельцу надо выдать новый в панели, во
+    втором — задуматься, кто стучится.
+    """
+
+    OK = ("", "")
+    BAD_TOKEN = ("попытка пейринга с неверным токеном",
+                 "неверный или погашенный токен")
+    EXPIRED = ("токен пейринга истёк — выдайте новый в панели",
+               "токен пейринга истёк — возьмите новый в панели")
+
+    def __init__(self, journal: str, spoken: str) -> None:
+        self.journal = journal
+        self.spoken = spoken
+
+
+def pairing_verdict(*, offered: str, expected: str | None,
+                    issued_at: float | None, ttl_s: float,
+                    now: float | None = None) -> PairVerdict:
+    """Пускать ли этого робота. Чистая функция — время передаётся."""
+    import secrets as _secrets
+
+    # Сравниваем БАЙТЫ. `compare_digest` на строках отказывается работать с
+    # не-ASCII и БРОСАЕТ TypeError — а `offered` приходит из сети, где может
+    # быть что угодно. В обработчике это исключение улетало бы наружу, и
+    # мост отвечал бы 500 там, где должен ответить 403. Найдено ровно тем,
+    # что решение вынули из замыкания и смогли позвать напрямую (F-2).
+    if not expected or not _secrets.compare_digest(
+            offered.encode("utf-8", "surrogatepass"),
+            expected.encode("utf-8", "surrogatepass")):
+        return PairVerdict.BAD_TOKEN
+    moment = time.time() if now is None else now
+    if ttl_s > 0 and issued_at is not None and moment - issued_at > ttl_s:
+        return PairVerdict.EXPIRED
+    return PairVerdict.OK
+
+
+#: Поля, чьё расхождение файла и процесса означает «нужен перезапуск».
+_RESTART_FIELDS = ("port", "mode", "release_repo", "update_enabled",
+                   "update_interval_s", "ask_timeout_s")
+
+
+def settings_view(*, live, on_disk, bind_host: str, has_robot_token: bool,
+                  gateway_ok: bool | None,
+                  config_path_fn=None) -> dict[str, Any]:
+    """Что панель показывает в «Доступе и настройках» — ЧИСТО.
+
+    Вынесено из `build_app` (F-2): там это жило внутри замыкания на тысячу
+    строк, и проверить, что «переключить в …» называет правильный режим,
+    можно было только подняв HTTP-стек целиком. Пять находок этого рана
+    (A-11, A-13, A-16, A-21, A-41) правились точечно ровно поэтому.
+
+    `gateway_ok`: True/False в режиме gateway, None в standalone — там
+    вопрос не задаётся, и выдумывать ответ значило бы врать.
+    """
+    from .config import config_path
+
+    pending = [name for name in _RESTART_FIELDS
+               if getattr(live, name) != getattr(on_disk, name)]
+    loopback = bind_host in ("127.0.0.1", "localhost", "::1")
+    body: dict[str, Any] = {
+        "path": str((config_path_fn or config_path)()),
+        "port": live.port,
+        "mode": live.mode,
+        "release_repo": live.release_repo,
+        "update_enabled": live.update_enabled,
+        "update_interval_hours": round(live.update_interval_s / 3600, 2),
+        "ask_timeout_s": live.ask_timeout_s,
+        "ask_for_read": live.ask_for_read,
+        "robot_repo": live.robot_repo,
+        "mascot_window": live.mascot_window,
+        "mascot_skin": live.mascot_skin,
+        "problems": on_disk.problems,
+        "pending": pending,
+        "restart_required": bool(pending),
+        "mcp_url": (f"http://127.0.0.1:{live.port}/mcp"
+                    if live.mode == "gateway"
+                    else f"http://<адрес в tailnet>:{live.port}/mcp"),
+        # Панель не говорила, какие интерфейсы мост СЛУШАЕТ, — а это и есть
+        # граница, которую переключает одна кнопка (A-24).
+        "bind_host": bind_host,
+        "listens": ("только этот компьютер (loopback)" if loopback
+                    else f"все интерфейсы этой машины ({bind_host})"),
+        # Что случится, если нажать «Переключить» — ДО нажатия, а не после
+        # перезапуска.
+        "switch_to": "standalone" if live.mode == "gateway" else "gateway",
+        "switch_effect": (
+            "standalone: мост начнёт слушать сеть, и дверью станет "
+            "bearer-токен робота — сам мост, а не шлюз."
+            if live.mode == "gateway" else
+            "gateway: мост уйдёт на loopback, а границей станет "
+            "agentgateway — БЕЗ него /mcp останется без проверки токена."),
+        "gateway_ok": gateway_ok,
+    }
+    if live.mode == "gateway":
+        body["mcp_auth"] = "нет — границей служит agentgateway"
+        if not gateway_ok:
+            body["warning"] = (
+                "режим gateway, но agentgateway на этой машине не отвечает: "
+                "MCP-эндпоинт сейчас БЕЗ аутентификации. Переключитесь на "
+                "standalone или запустите шлюз.")
+    else:
+        body["mcp_auth"] = ("bearer-токен робота" if has_robot_token else
+                            "токен появится после связки с роботом")
+    return body
 
 
 def _grant_label(tool: str, caps: dict | None) -> str:
@@ -774,29 +889,21 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             body = await request.json()
         except Exception:
             return JSONResponse({"error": "bad json"}, status_code=400)
-        offered = str(body.get("token", ""))
-        expected = state.pending_pair_token
-        if not expected or not _secrets.compare_digest(offered, expected):
+        verdict = pairing_verdict(
+            offered=str(body.get("token", "")),
+            expected=state.pending_pair_token,
+            issued_at=state.pending_pair_token_at,
+            ttl_s=float(settings.pairing_ttl_hours) * 3600)
+        if verdict is not PairVerdict.OK:
+            if verdict is PairVerdict.EXPIRED:
+                # Истёкший токен гасится: он уже не ключ, и держать его —
+                # значит держать на карте то, что ничего не открывает.
+                state.pending_pair_token = None
+                state.pending_pair_token_at = None
+                state.save()
             audit.record(tool="pair", tool_class="act", decision="deny",
-                         ok=False, line="попытка пейринга с неверным токеном")
-            return JSONResponse({"error": "неверный или погашенный токен"},
-                                status_code=403)
-        # Токен стареет. Его копия остаётся на FAT-разделе карты, и карта в
-        # ящике стола не должна годами оставаться ключом «стань роботом»
-        # (A-22). Отказ называется отдельно: истёкший токен и подделанный —
-        # разные новости, и владельцу надо выдать новый, а не искать врага.
-        issued = state.pending_pair_token_at
-        ttl_s = float(settings.pairing_ttl_hours) * 3600
-        if ttl_s > 0 and issued is not None and time.time() - issued > ttl_s:
-            state.pending_pair_token = None
-            state.pending_pair_token_at = None
-            state.save()
-            audit.record(tool="pair", tool_class="act", decision="deny",
-                         ok=False,
-                         line="токен пейринга истёк — выдайте новый в панели")
-            return JSONResponse(
-                {"error": "токен пейринга истёк — возьмите новый в панели"},
-                status_code=403)
+                         ok=False, line=verdict.journal)
+            return JSONResponse({"error": verdict.spoken}, status_code=403)
         state.pending_pair_token = None            # one-shot: burned now
         state.pending_pair_token_at = None
         # СВЕЖИЙ ключ на каждый пейринг. Раньше стояло `or`, и робот-замена
@@ -1152,79 +1259,26 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     async def api_settings(request: Request) -> Response:
         """The settings in force — never the file's wish.
 
-        `gateway_ok` is the honest half: in gateway mode the MCP endpoint has
-        no bearer check at all, because the agentgateway on this machine is
-        supposed to be the boundary. When it is not running there IS no
-        boundary, and the panel has to say so rather than print the mode and
-        look calm.
+        Тонкий слой: аутентификация, два похода наружу (файл и шлюз) и
+        передача решения в `settings_view`. Само решение — чистая функция
+        на модульном уровне, и потому проверяется без HTTP-стека (F-2).
         """
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        from .config import config_path, load
+        from .config import load
         from .net import gateway_reachable
 
         # In force = what this process started with. The file is read only to
         # report its problems and to say whether a restart is owed. Reporting
         # the FILE would mean the panel shows a port the bridge is not
         # listening on the moment someone edits it.
-        live = settings
         on_disk = await asyncio.to_thread(load)
-        pending = [
-            name for name in ("port", "mode", "release_repo",
-                              "update_enabled", "update_interval_s",
-                              "ask_timeout_s")
-            if getattr(live, name) != getattr(on_disk, name)
-        ]
-        body = {
-            "path": str(config_path()),
-            "port": live.port,
-            "mode": live.mode,
-            "release_repo": live.release_repo,
-            "update_enabled": live.update_enabled,
-            "update_interval_hours": round(live.update_interval_s / 3600, 2),
-            "ask_timeout_s": live.ask_timeout_s,
-            "ask_for_read": live.ask_for_read,
-            "robot_repo": live.robot_repo,
-            "mascot_window": live.mascot_window,
-            "mascot_skin": live.mascot_skin,
-            "problems": on_disk.problems,
-            "pending": pending,
-            "restart_required": bool(pending),
-            "mcp_url": (f"http://127.0.0.1:{live.port}/mcp"
-                        if live.mode == "gateway"
-                        else f"http://<адрес в tailnet>:{live.port}/mcp"),
-            # Панель не говорила, какие интерфейсы мост СЛУШАЕТ, — а это и
-            # есть граница, которую переключает одна кнопка (A-24).
-            "bind_host": bind_host,
-            "listens": ("только этот компьютер (loopback)"
-                        if bind_host in ("127.0.0.1", "localhost", "::1")
-                        else f"все интерфейсы этой машины ({bind_host})"),
-            # Что случится, если нажать «Переключить» — ДО нажатия, а не
-            # после перезапуска.
-            "switch_to": ("standalone" if live.mode == "gateway"
-                          else "gateway"),
-            "switch_effect": (
-                "standalone: мост начнёт слушать сеть, и дверью станет "
-                "bearer-токен робота — сам мост, а не шлюз."
-                if live.mode == "gateway" else
-                "gateway: мост уйдёт на loopback, а границей станет "
-                "agentgateway — БЕЗ него /mcp останется без проверки токена."),
-        }
-        if live.mode == "gateway":
-            ok = await asyncio.to_thread(gateway_reachable)
-            body["gateway_ok"] = ok
-            body["mcp_auth"] = "нет — границей служит agentgateway"
-            if not ok:
-                body["warning"] = (
-                    "режим gateway, но agentgateway на этой машине не "
-                    "отвечает: MCP-эндпоинт сейчас БЕЗ аутентификации. "
-                    "Переключитесь на standalone или запустите шлюз.")
-        else:
-            body["gateway_ok"] = None
-            body["mcp_auth"] = ("bearer-токен робота"
-                                if state.robot_token else
-                                "токен появится после связки с роботом")
-        return JSONResponse(body)
+        gateway_ok = (await asyncio.to_thread(gateway_reachable)
+                      if settings.mode == "gateway" else None)
+        return JSONResponse(settings_view(
+            live=settings, on_disk=on_disk, bind_host=bind_host,
+            has_robot_token=bool(state.robot_token), gateway_ok=gateway_ok))
+
 
     async def api_settings_save(request: Request) -> Response:
         """Change a setting from the panel. Values the reader would reject are

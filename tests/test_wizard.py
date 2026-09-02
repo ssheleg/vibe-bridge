@@ -369,3 +369,17 @@ def test_a_replacement_robot_does_not_inherit_the_old_credential(tmp_path):
                       ).json()["robot_token"]
     assert tok1 != tok2, "новый робот получил ключ предыдущего"
     assert state.robot_token == tok2
+
+
+def test_a_non_ascii_token_gets_403_not_500(tmp_path):
+    """Сквозная проверка того же дефекта: `/pair` — дверь, открытая наружу, и
+    на кириллице в токене она отвечала бы 500. Пятисотка на границе — это не
+    «некрасиво», это сообщение атакующему о том, что он нашёл ветку, которую
+    не обрабатывали."""
+    app, state, _ = _app(tmp_path)
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        c.post("/api/wizard/pairing/start")
+        r = c.post("/pair", json={"token": "не тот", "name": "x"})
+        assert r.status_code == 403, r.text
+        assert state.pending_pair_token, "токен сгорел от чужой попытки"
