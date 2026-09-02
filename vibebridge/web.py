@@ -684,9 +684,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         from .net import serve_active, tailnet_dns_name
-        from .server import BRIDGE_PORT
         dns = await asyncio.to_thread(tailnet_dns_name)
-        active = (await asyncio.to_thread(serve_active, BRIDGE_PORT)
+        active = (await asyncio.to_thread(serve_active, settings.port)
                   if dns else False)
         https_url = f"https://{dns}/" if dns and active else None
         return JSONResponse({
@@ -698,7 +697,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             # auth — whoever sees this already holds the token.
             "phone_link": (f"{https_url}?token={state.panel_token}"
                            if https_url else None),
-            "setup_command": f"tailscale serve --bg {BRIDGE_PORT}",
+            "setup_command": f"tailscale serve --bg {settings.port}",
             "subscriptions": len(state.push_subscriptions),
         })
 
@@ -752,12 +751,11 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                      line=line)
         notify("vibe-bridge", toast)
         from .net import serve_active, tailnet_dns_name
-        from .server import BRIDGE_PORT
         dns = await asyncio.to_thread(tailnet_dns_name)
-        https_ok = (await asyncio.to_thread(serve_active, BRIDGE_PORT)
+        https_ok = (await asyncio.to_thread(serve_active, settings.port)
                     if dns else False)
         mcp_url = (f"https://{dns}/mcp" if https_ok
-                   else f"http://127.0.0.1:{BRIDGE_PORT}/mcp")
+                   else f"http://127.0.0.1:{settings.port}/mcp")
         return JSONResponse({"robot_token": state.robot_token,
                              "mcp_url": mcp_url})
 
@@ -768,15 +766,14 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         from . import wizard as wiz
         from .net import serve_active, tailnet_dns_name
-        from .server import BRIDGE_PORT
         token = wiz.pairing_token()
         state.pending_pair_token = token
         state.save()
         dns = await asyncio.to_thread(tailnet_dns_name)
-        https_ok = (await asyncio.to_thread(serve_active, BRIDGE_PORT)
+        https_ok = (await asyncio.to_thread(serve_active, settings.port)
                     if dns else False)
         bridge_url = (f"https://{dns}" if https_ok else
-                      f"http://{dns or '127.0.0.1'}:{BRIDGE_PORT}")
+                      f"http://{dns or '127.0.0.1'}:{settings.port}")
         return JSONResponse({"token": token, "bridge_url": bridge_url})
 
     async def api_wizard_disks(request: Request) -> Response:

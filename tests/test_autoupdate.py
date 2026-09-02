@@ -194,3 +194,62 @@ def test_no_public_key_means_it_stays_quiet_instead_of_failing_hourly(gear,
                             current=lambda: "0.1.0")
     assert up.run_once() is False
     assert called == [] and _entries(audit) == []
+
+
+def test_the_updater_is_given_the_settings_the_owner_wrote(tmp_path,
+                                                           monkeypatch):
+    """A-16: `AutoUpdater` создавался без `interval_s` и без `settings`,
+    поэтому `update.interval_hours` не действовал вовсе, а выключатель
+    обновлений читался только из state. Совпадение умолчаний (6 ч) прятало
+    это: настройка «работала», пока её не меняли."""
+    from vibebridge import app as appmod
+    from vibebridge.config import Settings
+    from vibebridge.state import BridgeState
+
+    seen: dict = {}
+
+    class _Recorder:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+        def start(self):
+            seen["started"] = True
+
+    monkeypatch.setattr("vibebridge.update.AutoUpdater", _Recorder)
+    monkeypatch.setattr("vibebridge.update.bundled_public_key",
+                        lambda res: b"k")
+    monkeypatch.setattr("vibebridge.web._bundle_resources", lambda: tmp_path)
+
+    settings = Settings(update_interval_s=3600)
+    state = BridgeState(path=tmp_path / "state.json", panel_token="t")
+    appmod.start_autoupdate(state, AuditLog(tmp_path / "a.log"),
+                            settings=settings)
+    assert seen.get("started") is True
+    assert seen["settings"] is settings
+    assert seen["interval_s"] == 3600
+
+
+def test_without_settings_the_updater_keeps_its_own_default(tmp_path,
+                                                            monkeypatch):
+    """Вызов без настроек остаётся законным — в наборе и в тестовой сборке
+    их может не быть."""
+    from vibebridge import app as appmod
+    from vibebridge.state import BridgeState
+
+    seen: dict = {}
+
+    class _Recorder:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr("vibebridge.update.AutoUpdater", _Recorder)
+    monkeypatch.setattr("vibebridge.update.bundled_public_key",
+                        lambda res: b"k")
+    monkeypatch.setattr("vibebridge.web._bundle_resources", lambda: tmp_path)
+    appmod.start_autoupdate(BridgeState(path=tmp_path / "s.json",
+                                        panel_token="t"),
+                            AuditLog(tmp_path / "a.log"))
+    assert seen["settings"] is None and seen["interval_s"] is None

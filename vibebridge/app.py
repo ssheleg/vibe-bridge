@@ -49,21 +49,29 @@ def start_server(consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                      name="vibe-bridge-web", daemon=True).start()
 
 
-def start_autoupdate(state: BridgeState, audit: AuditLog):
+def start_autoupdate(state: BridgeState, audit: AuditLog, settings=None):
     """Arm the background checker. Returns None outside a signed bundle —
-    there is no trust anchor there, so there is nothing to check against."""
+    there is no trust anchor there, so there is nothing to check against.
+
+    Настройки передаются ЯВНО. Без них `update.interval_hours` не действовал
+    вовсе, а выключатель обновлений читался только из state — и совпадение
+    умолчаний (шесть часов там и там) это прятало: настройка «работала», пока
+    её не меняли (A-16).
+    """
     from vbboot import layout
     from vbboot.runner import shell_version
 
     from . import __version__
-    from .update import AutoUpdater, bundled_public_key
+    from . import update as _update
     from .web import _bundle_resources
 
-    updater = AutoUpdater(
+    updater = _update.AutoUpdater(
         root=layout.payload_root(), audit=audit, state=state,
-        pubkey=bundled_public_key(_bundle_resources()),
+        pubkey=_update.bundled_public_key(_bundle_resources()),
         shell_version=shell_version(),
-        current=lambda: __version__)
+        current=lambda: __version__,
+        interval_s=getattr(settings, "update_interval_s", None),
+        settings=settings)
     updater.start()
     return updater
 
@@ -180,7 +188,7 @@ def run() -> None:  # pragma: no cover - requires a GUI session
                  f"на странице ошибки",
             detail="wait_for_server timeout")
 
-    start_autoupdate(state, audit)
+    start_autoupdate(state, audit, settings)
 
     from .desktop import MainWindow, MascotWindow
 

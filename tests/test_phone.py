@@ -190,3 +190,57 @@ def test_the_copy_button_does_not_leak_its_handler_into_the_label():
     assert "JSON.stringify(p.phone_link)" not in page
     assert 'data-link="${esc(p.phone_link)}"' in page
     assert "onclick=\"copyLink(this)\"" in page
+
+
+def test_every_surface_names_the_port_the_bridge_actually_listens_on(tmp_path):
+    """A-16/A-21: карточка телефона, визард и ответ `/pair` печатали
+    КОНСТАНТУ 48620 вместо действующего порта. При смене порта команда
+    `tailscale serve` вела не туда, проверка «HTTPS уже включён» смотрела на
+    чужой порт, а `mcp_url` в кредах робота указывал в пустоту."""
+    from starlette.testclient import TestClient
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    port = 51234
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings(mode="gateway", port=port))
+    with TestClient(app) as c:
+        c.get("/?token=pt")
+        phone = c.get("/api/phone").json()
+        assert str(port) in phone["setup_command"]
+        assert "48620" not in phone["setup_command"]
+
+        start = c.post("/api/wizard/pairing/start").json()
+        assert "48620" not in start["bridge_url"]
+
+        paired = c.post("/pair", json={"token": start["token"],
+                                       "name": "Вася",
+                                       "base_url": "http://10.0.0.2:8630"})
+        assert paired.status_code == 200
+        mcp_url = paired.json()["mcp_url"]
+        assert "48620" not in mcp_url, mcp_url
+        if mcp_url.startswith("http://127.0.0.1"):
+            assert str(port) in mcp_url
+
+
+def test_the_web_layer_holds_no_port_constant_of_its_own():
+    """Класс, а не случай: константа порта уже утекала в три места сразу
+    (A-16, A-21). Действующий порт живёт в настройках, и веб-слой обязан
+    брать его оттуда — иначе следующая утечка снова найдётся аудитом, а не
+    набором."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    src = (Path(vibebridge.__file__).parent / "web.py").read_text()
+    code = re.sub(r"^\s*#.*$", "", src, flags=re.M)
+    code = re.sub(r'"""(?:.|\n)*?"""', "", code)
+    assert "BRIDGE_PORT" not in code, "веб-слой снова взял порт из константы"
+    assert "48620" not in code, "веб-слой снова зашил номер порта"
