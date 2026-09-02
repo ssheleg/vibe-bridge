@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f6feb">
 <link rel="stylesheet" href="/tokens.css">
+<script src="/theme.js"></script>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-180.png">
 <title>vibe-bridge</title>
@@ -73,6 +74,12 @@ max-width:1180px;margin:0 auto;padding:16px 24px 48px}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
 .btn.ghost{background:transparent;border-color:var(--border-strong);color:var(--ink)}
 .btn.ghost:hover{background:var(--panel-2)}
+/* Две кнопки из трёх в карточке согласия молчали под курсором при
+   ОБЪЯВЛЕННОМ `transition` — то есть переход был написан и нечего было
+   переходить (V-11). `color-mix` держит оттенок в одной точке правды: свой
+   хекс здесь был бы пятой копией палитры. */
+.btn.primary:hover{background:color-mix(in srgb, var(--accent) 86%, black)}
+.btn.dangerous:hover{background:var(--danger-weak)}
 .btn.dangerous{background:transparent;border-color:var(--danger);color:var(--danger)}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
 .chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-data);font-size:var(--t-note);border:1px solid var(--border);border-radius:var(--r-pill);padding:2px 8px;color:var(--ink)}
@@ -271,6 +278,16 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
   <div class="card">
     <div class="cap">Доступ и настройки</div>
     <div id="accessCard"><p class="empty">Загружаю…</p></div>
+  </div>
+  <div class="card">
+    <div class="cap">Тема</div>
+    <p class="note" style="margin-bottom:8px">Свойство этого устройства, а не
+    моста: телефон и компьютер вправе быть разными.</p>
+    <div id="themePick" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn ghost" data-theme-pick="system">Как в системе</button>
+      <button class="btn ghost" data-theme-pick="light">Светлая</button>
+      <button class="btn ghost" data-theme-pick="dark">Тёмная</button>
+    </div>
   </div>
   </div>
 </section>
@@ -473,6 +490,21 @@ async function togglePause(){
   refresh();
 }
 /* tabs */
+// Тема: выбор рисуется как выбор — нажатая кнопка отмечена, а не угадывается.
+function paintTheme(){
+  const now = window.vbTheme ? window.vbTheme.get() : "system";
+  document.querySelectorAll("[data-theme-pick]").forEach(b=>{
+    const on = b.dataset.themePick === now;
+    b.className = "btn " + (on ? "primary" : "ghost");
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+document.querySelectorAll("[data-theme-pick]").forEach(b=>b.addEventListener("click", ()=>{
+  if (window.vbTheme) window.vbTheme.set(b.dataset.themePick);
+  paintTheme();
+}));
+paintTheme();
+
 document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("click", ()=>{
   document.querySelectorAll(".tab[data-view]").forEach(x=>x.setAttribute("aria-selected", x===b));
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));

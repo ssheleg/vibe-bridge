@@ -478,3 +478,72 @@ def test_a_status_colour_never_carries_the_words_of_a_banner():
                 assert f"var({status})" not in painted.replace(" ", ""), (
                     f"{name}: «{head.strip()}» красит слово статусом "
                     f"{status} — на тёмной теме это уходит ниже AA")
+
+
+# --------------------------------------------------------------------------
+# V-10 и V-11: тема переключается руками, и кнопки отвечают на курсор.
+# --------------------------------------------------------------------------
+
+
+def test_both_dark_blocks_say_the_same_thing():
+    """Тёмная палитра объявлена ДВАЖДЫ — «система решила» и «владелец выбрал»
+    — потому что CSS не умеет переиспользовать блок объявлений. Копия,
+    которую никто не сверяет, расходится молча: сверяем."""
+    from contrast import palette
+
+    css = re.sub(r"/\*.*?\*/", "", (WEBUI / "tokens.css").read_text(encoding="utf-8"),
+                 flags=re.S)
+
+    def block(marker: str) -> dict[str, str]:
+        body = css.split(marker, 1)[1].split("}", 1)[0]
+        return dict(re.findall(r"(--[\w-]+)\s*:\s*([^;]+)", body))
+
+    system = block(':root:not([data-theme="light"]){')
+    manual = block(':root[data-theme="dark"]{')
+    assert system and manual, "одного из тёмных блоков нет"
+    assert system == manual, (
+        "тёмная тема «по системе» и «руками» разошлись: "
+        f"{ {k: (system.get(k), manual.get(k)) for k in set(system) ^ set(manual) | {k for k in system if system.get(k) != manual.get(k)}} }")
+    # И обе половины — та же палитра, что читает контрастный гейт.
+    assert palette()[1]["--bg"] == system["--bg"].strip()
+
+
+def test_an_explicit_light_choice_survives_a_dark_system():
+    """Без `:not([data-theme="light"])` системный блок перебивал бы явный
+    выбор — переключатель врал бы ровно в одном положении из трёх."""
+    css = (WEBUI / "tokens.css").read_text(encoding="utf-8")
+    media = css.split("prefers-color-scheme: dark", 1)[1].split("}", 1)[0]
+    assert ':not([data-theme="light"])' in media, (
+        "системная тёмная тема перебьёт явный выбор «светлая»")
+
+
+def test_the_theme_is_decided_before_the_first_paint():
+    """Выбор, применённый после отрисовки, — это вспышка светлой темы на
+    каждой загрузке. Значит скрипт грузится СИНХРОННО и из `<head>`."""
+    for name in SURFACES:
+        page = code_of(name)
+        head = page.split("</head>", 1)[0]
+        assert '<script src="/theme.js">' in head, (
+            f"{name}: тема решается не до отрисовки")
+        tag = re.search(r'<script src="/theme\.js"[^>]*>', head).group(0)
+        for lazy in ("defer", "async", "type=\"module\""):
+            assert lazy not in tag, f"{name}: {lazy} возвращает вспышку"
+
+
+def test_the_offline_page_can_still_pick_its_theme():
+    """Страница «нет связи» ссылается на скрипт — значит воркер обязан его
+    закэшировать, ровно как токены."""
+    sw = code_of("sw.js")
+    assert '"/theme.js"' in sw, "воркер не кэширует theme.js"
+
+
+def test_every_decision_button_answers_the_cursor():
+    """`transition` был объявлен на `.btn`, а переходить нечему: две кнопки
+    из трёх в карточке согласия молчали под курсором (V-11)."""
+    css = _css("index.html")
+    for kind in ("primary", "ghost", "dangerous"):
+        rule = css.split(f".btn.{kind}:hover{{", 1)
+        assert len(rule) == 2, f"кнопка «{kind}» не отвечает на наведение"
+        body = rule[1].split("}", 1)[0]
+        assert declared(body, "background"), (
+            f"«{kind}»: правило наведения есть, а менять нечего: {body}")

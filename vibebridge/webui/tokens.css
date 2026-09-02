@@ -40,8 +40,16 @@
   color-scheme:light;
 }
 
+/* Тёмная тема живёт ДВАЖДЫ и это не копия по недосмотру: CSS не умеет
+   переиспользовать блок объявлений, а случая два — «система решила» и
+   «владелец выбрал руками». Расхождение между ними ловит гейт
+   `test_both_dark_blocks_say_the_same_thing`: он сравнивает имена и значения.
+
+   `:not([data-theme="light"])` в системном блоке обязателен — иначе явный
+   выбор «светлая» под тёмной ОС не работал бы, то есть переключатель врал бы
+   ровно в одном из трёх положений (V-10). */
 @media (prefers-color-scheme: dark){
-  :root{
+  :root:not([data-theme="light"]){
     color-scheme:dark;
     --bg:#0f1218; --panel:#161b24; --panel-2:#1b212c;
     --ink:#e8ecf3; --muted:#8a93a6;
@@ -51,6 +59,17 @@
     --warn:#d9a93f; --warn-weak:#2b2210;
     --danger:#e5534b; --danger-weak:#2d1517;
   }
+}
+
+:root[data-theme="dark"]{
+    color-scheme:dark;
+    --bg:#0f1218; --panel:#161b24; --panel-2:#1b212c;
+    --ink:#e8ecf3; --muted:#8a93a6;
+    --border:#232a36; --border-strong:#2c3441;
+    --accent:#4b8bff; --accent-weak:#1b2740; --accent-ink:#0f1218;
+    --ok:#3fb960; --ok-weak:#12281a;
+    --warn:#d9a93f; --warn-weak:#2b2210;
+    --danger:#e5534b; --danger-weak:#2d1517;
 }
 
 /* The pack ends every motion at rest under this query, so it lives with the

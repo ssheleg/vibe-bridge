@@ -5,8 +5,8 @@ const OFFLINE_URL = "/offline.html";
 // (V-1), и страница, которая ссылается на него, без сети осталась бы голой
 // ровно в тот момент, ради которого существует. Имя кэша поднято, иначе
 // установленный воркер продолжил бы отдавать старый набор.
-const SHELL = [OFFLINE_URL, "/tokens.css"];
-const CACHE = "vb-shell-v2";
+const SHELL = [OFFLINE_URL, "/tokens.css", "/theme.js"];
+const CACHE = "vb-shell-v3";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));

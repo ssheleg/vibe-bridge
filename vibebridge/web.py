@@ -168,7 +168,7 @@ PUBLIC_PATHS = frozenset({
     "/mascot",                # вторая дверь, тот же обмен
     "/pair",                  # дверь РОБОТА, своя аутентификация
     "/sw.js", "/manifest.webmanifest", "/offline.html",
-    "/mascot.js", "/tokens.css",
+    "/mascot.js", "/tokens.css", "/theme.js",
 })
 #: Префиксы того же смысла — путь с параметром.
 PUBLIC_PREFIXES = ("/icon-", "/mcp")
@@ -1616,6 +1616,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/mascot", mascot_page),
             Route("/mascot.js", _static("mascot.js", "application/javascript")),
             Route("/tokens.css", _static("tokens.css", "text/css")),
+            Route("/theme.js", _static("theme.js", "text/javascript")),
             Route("/api/settings", api_settings),
             Route("/api/settings", api_settings_save, methods=["POST"]),
             Route("/api/journal", api_journal),
