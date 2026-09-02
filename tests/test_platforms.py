@@ -338,3 +338,21 @@ def test_a_missing_icon_never_stops_a_notification(monkeypatch):
     monkeypatch.setattr(vbboot, "__file__", "/nowhere/vbboot/__init__.py")
     monkeypatch.setattr(tray.sys, "platform", "darwin")
     assert tray._bundled_icon() is None
+
+
+def test_no_pack_encodes_a_screenshot_on_its_own():
+    """A-17 был найден в macOS-паке, но потолок нужен ВСЕМ трём: FastMCP
+    сериализует ответ в text content на любой платформе. Три собственных
+    `b64encode` — это три копии одной правды, тот же класс, что A-15 и F-6."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    root = Path(vibebridge.__file__).parent
+    for name in ("capabilities.py", "platforms/windows.py",
+                 "platforms/linux.py"):
+        src = (root / name).read_text()
+        code = re.sub(r"^\s*#.*$", "", src, flags=re.M)
+        hits = re.findall(r'data:image/[a-z]+;base64,\{', code)
+        assert not hits, f"{name} кодирует снимок мимо общего потолка: {hits}"

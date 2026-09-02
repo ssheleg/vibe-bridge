@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import os
 
-from ..capabilities import _STR, Capability, CapabilityError, Runner
+from ..capabilities import (
+    _STR,
+    Capability,
+    CapabilityError,
+    Runner,
+    encode_screenshot,
+)
 from ..consent import ToolClass
 
 # Спавн шеллов и доступ к хранилищам кредов заблокированы на мосту —
@@ -33,11 +39,10 @@ def _screenshot(r: Runner, args: dict) -> str:
         raise CapabilityError(
             "пакет mss не установлен (pip install 'vibe-bridge[windows]')"
         ) from exc
-    import base64
     with mss.mss() as sct:
         shot = sct.grab(sct.monitors[1])
         png = mss.tools.to_png(shot.rgb, shot.size)
-    return f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
+    return encode_screenshot(png, "image/png")
 
 
 def _list_apps(r: Runner, args: dict) -> str:

@@ -126,17 +126,68 @@ class Runner:
 # ── handlers ────────────────────────────────────────────────────────────────
 
 
-def _screenshot(r: Runner, args: dict) -> str:
+#: Ширина, до которой снимок ужимается по умолчанию. Мозгу нужно понять, ЧТО
+#: на экране, а не прочитать десятый пункт меню: 1280 px хватает на первое и
+#: экономит на порядок против ретины 5К.
+SCREENSHOT_MAX_WIDTH = 1280
+#: Жёсткий потолок того, что уезжает в контекст. FastMCP сериализует ответ
+#: инструмента в text content и НИКОГДА в `ImageContent`, поэтому полноэкранный
+#: PNG приезжал мозгу как 3–11 МБ текста — на плате с 4 ГБ это не «медленно»,
+#: это конец хода (A-17).
+SCREENSHOT_MAX_BYTES = 1_500_000
+
+
+def clamp_width(raw: object) -> int:
+    """Ширина приходит от МОЗГА, а не от владельца: «20000» не должно
+    обходить потолок, «0» — ронять масштабатор."""
+    try:
+        want = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return SCREENSHOT_MAX_WIDTH
+    if want <= 0:
+        return 320
+    return min(want, SCREENSHOT_MAX_WIDTH)
+
+
+def encode_screenshot(data: bytes, mime: str) -> str:
+    """Data-URL под потолком — или говоримый отказ.
+
+    Отдать мозгу гигантскую строку хуже, чем не отдать ничего: он не может
+    её ни отбросить, ни укоротить, а ход после неё уже не состоится.
+    """
     import base64
+    url = f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+    if len(url) > SCREENSHOT_MAX_BYTES:
+        raise CapabilityError(
+            f"снимок слишком велик даже после сжатия "
+            f"({len(url) // 1_000_000} МБ) — попросите меньшую ширину")
+    return url
+
+
+def _screenshot(r: Runner, args: dict) -> str:
+    import os
     import tempfile
 
-    path = tempfile.mktemp(suffix=".png")
+    width = clamp_width(args.get("max_width", ""))
+    raw = tempfile.mktemp(suffix=".png")
+    small = tempfile.mktemp(suffix=".jpg")
     # -x: no sound. -C: capture cursor off by default. Whole screen unless a
     # window id is given later; V1 keeps it to the main display.
-    r.run(["screencapture", "-x", path])
+    r.run(["screencapture", "-x", raw])
     try:
-        with open(path, "rb") as fh:
-            b = fh.read()
+        try:
+            # `sips` — системный инструмент macOS: масштаб и формат одним
+            # вызовом, без единой сторонней зависимости в подписанном бандле.
+            r.run(["sips", "-Z", str(width), raw, "--out", small,
+                   "-s", "format", "jpeg", "-s", "formatOptions", "70"],
+                  timeout=20.0)
+            with open(small, "rb") as fh:
+                data, mime = fh.read(), "image/jpeg"
+        except (CapabilityError, OSError):
+            # Честная деградация: снимок нужнее, чем идеальный размер. Потолок
+            # ниже всё равно устоит — просто откажет громко, если не влезло.
+            with open(raw, "rb") as fh:
+                data, mime = fh.read(), "image/png"
     except OSError as exc:
         raise CapabilityError(f"screenshot unreadable: {exc}") from exc
     finally:
@@ -144,13 +195,13 @@ def _screenshot(r: Runner, args: dict) -> str:
         # It did: this path used `mktemp` and never unlinked, so every
         # screenshot the robot ever took stayed in /var/folders forever — while
         # the Linux pack next door deletes correctly. The owner allowed a look,
-        # not a collection.
-        try:
-            import os
-            os.unlink(path)
-        except OSError:
-            pass
-    return f"data:image/png;base64,{base64.b64encode(b).decode('ascii')}"
+        # not a collection. Файлов теперь двое — уйти обязаны оба.
+        for path in (raw, small):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+    return encode_screenshot(data, mime)
 
 
 # System Events calls need Accessibility (TCC) — granted to the packaged .app,
@@ -272,7 +323,8 @@ def build_capabilities() -> dict[str, Capability]:
 def _build_darwin() -> dict[str, Capability]:
     caps = [
         Capability("screenshot", ToolClass.READ,
-                   "смотрю на экран Мака", _screenshot, {},
+                   "смотрю на экран Мака", _screenshot,
+                   {"max_width": _STR},
                    binaries=("screencapture",)),
         Capability("list_apps", ToolClass.READ,
                    "смотрю список запущенных приложений", _list_apps, {},

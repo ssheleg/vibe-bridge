@@ -13,7 +13,13 @@ from __future__ import annotations
 import os
 import shutil
 
-from ..capabilities import _STR, Capability, CapabilityError, Runner
+from ..capabilities import (
+    _STR,
+    Capability,
+    CapabilityError,
+    Runner,
+    encode_screenshot,
+)
 from ..consent import ToolClass
 
 
@@ -31,7 +37,6 @@ def _session() -> str:
 
 
 def _screenshot(r: Runner, args: dict) -> str:
-    import base64
     ses = _session()
     if ses == "x11":
         try:
@@ -44,7 +49,7 @@ def _screenshot(r: Runner, args: dict) -> str:
         with mss.mss() as sct:
             shot = sct.grab(sct.monitors[1])
             png = mss.tools.to_png(shot.rgb, shot.size)
-        return f"data:image/png;base64,{base64.b64encode(png).decode('ascii')}"
+        return encode_screenshot(png, "image/png")
     if ses == "wayland":
         import tempfile
         path = tempfile.mktemp(suffix=".png")
@@ -59,7 +64,7 @@ def _screenshot(r: Runner, args: dict) -> str:
         with open(path, "rb") as fh:
             data = fh.read()
         os.unlink(path)
-        return f"data:image/png;base64,{base64.b64encode(data).decode('ascii')}"
+        return encode_screenshot(data, "image/png")
     raise CapabilityError("нет графической сессии")
 
 

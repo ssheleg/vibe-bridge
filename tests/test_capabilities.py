@@ -4,6 +4,7 @@ A FakeRunner records argv and returns canned output — no screen, no osascript.
 """
 from __future__ import annotations
 
+import pathlib
 import sys
 from pathlib import Path
 
@@ -167,12 +168,12 @@ def test_a_screenshot_does_not_outlive_the_call(tmp_path, monkeypatch):
 
     import vibebridge.capabilities as caps
 
-    made = {}
+    made = []
 
     def fake_mktemp(suffix=""):
         path = tmp_path / f"shot{suffix}"
         path.write_bytes(b"\x89PNG fake")
-        made["path"] = path
+        made.append(path)
         return str(path)
 
     monkeypatch.setattr(tempfile, "mktemp", fake_mktemp)
@@ -182,8 +183,11 @@ def test_a_screenshot_does_not_outlive_the_call(tmp_path, monkeypatch):
             return ""
 
     out = caps._screenshot(_R(), {})
-    assert out.startswith("data:image/png;base64,")
-    assert not made["path"].exists(), "снимок экрана остался на диске"
+    assert out.startswith("data:image/")
+    # Файлов стало ДВА (исходник и ужатая копия) — уйти обязаны оба.
+    assert len(made) == 2, made
+    left = [p for p in made if p.exists()]
+    assert not left, f"снимок экрана остался на диске: {left}"
 
 
 
@@ -246,3 +250,92 @@ def test_a_forced_refresh_does_not_wait_for_the_ttl():
     m.get("a")
     m.refresh()
     assert seen["n"] == 2
+
+
+# ── A-17: снимок экрана не должен сносить контекст мозга ───────────────────
+
+def test_a_screenshot_is_bounded_before_it_reaches_the_brain():
+    """A-17: `screenshot` отдавал полноэкранный PNG в base64 без масштаба и
+    без потолка. FastMCP сериализует ответ в text content, никогда в
+    `ImageContent`, — то есть 3–11 МБ текста уезжали в контекст мозга,
+    который живёт на плате с 4 ГБ."""
+    from vibebridge.capabilities import CapabilityError, encode_screenshot
+
+    small = encode_screenshot(b"\x89PNG" + b"x" * 100, "image/png")
+    assert small.startswith("data:image/png;base64,")
+
+    with pytest.raises(CapabilityError) as err:
+        encode_screenshot(b"x" * 10_000_000, "image/png")
+    assert "велик" in str(err.value)
+    # Отказ обязан быть ГОВОРИМЫМ: робот произносит его вслух.
+    assert "МБ" in str(err.value)
+
+
+def test_the_width_argument_is_clamped_not_trusted():
+    """Аргумент приходит от мозга, а не от владельца: «сделай 20000» не
+    должно обходить потолок, «сделай 0» — ронять `sips`."""
+    from vibebridge.capabilities import SCREENSHOT_MAX_WIDTH, clamp_width
+
+    assert clamp_width("") == SCREENSHOT_MAX_WIDTH
+    assert clamp_width("640") == 640
+    assert clamp_width("20000") == SCREENSHOT_MAX_WIDTH
+    assert clamp_width("0") == 320
+    assert clamp_width("не число") == SCREENSHOT_MAX_WIDTH
+
+
+def test_the_mac_screenshot_scales_and_falls_back_honestly(monkeypatch,
+                                                           tmp_path):
+    """Масштабирует системный `sips`. Если он не сработал — отдаём исходник,
+    а не молчим: снимок нужнее, чем идеальный размер."""
+    import vibebridge.capabilities as capmod
+
+    calls: list[list[str]] = []
+
+    class _R:
+        def run(self, argv, **kw):
+            calls.append(argv)
+            if argv[0] == "screencapture":
+                pathlib.Path(argv[-1]).write_bytes(b"\x89PNG" + b"raw")
+            elif argv[0] == "sips":
+                pathlib.Path(argv[argv.index("--out") + 1]).write_bytes(
+                    b"\xff\xd8small")
+            return ""
+
+    out = capmod._screenshot(_R(), {"max_width": "800"})
+    assert out.startswith("data:image/jpeg;base64,")
+    sips = next(c for c in calls if c[0] == "sips")
+    assert "-Z" in sips and "800" in sips
+
+    # ...а теперь sips ломается
+    class _NoSips(_R):
+        def run(self, argv, **kw):
+            if argv[0] == "sips":
+                raise capmod.CapabilityError("sips сломан")
+            return super().run(argv, **kw)
+
+    out2 = capmod._screenshot(_NoSips(), {})
+    assert out2.startswith("data:image/png;base64,")
+
+
+def test_the_screenshot_leaves_no_file_behind(monkeypatch):
+    """Регрессия A-3: снимок экрана владельца не переживает вызов — теперь
+    файлов двое, и уйти обязаны оба."""
+    import vibebridge.capabilities as capmod
+
+    made: list[pathlib.Path] = []
+
+    class _R:
+        def run(self, argv, **kw):
+            if argv[0] == "screencapture":
+                p = pathlib.Path(argv[-1])
+                p.write_bytes(b"\x89PNG")
+                made.append(p)
+            elif argv[0] == "sips":
+                p = pathlib.Path(argv[argv.index("--out") + 1])
+                p.write_bytes(b"\xff\xd8")
+                made.append(p)
+            return ""
+
+    capmod._screenshot(_R(), {})
+    assert made and not [p for p in made if p.exists()], \
+        f"остались файлы: {[str(p) for p in made if p.exists()]}"
