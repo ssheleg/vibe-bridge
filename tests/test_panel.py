@@ -306,3 +306,23 @@ def test_the_robot_card_does_not_scare_or_lie_when_nothing_is_paired():
     assert "goConnectRobot" in code
     fn = code.split("function goConnectRobot(", 1)[1].split("\n}", 1)[0]
     assert 'data-view="settings"' in fn and "attachCard" in fn
+
+
+def test_switching_the_security_boundary_explains_itself_first():
+    """A-24: граница безопасности переключалась ОДНИМ кликом, а последствие
+    владелец узнавал после перезапуска — предупреждение считалось от ЖИВОГО
+    режима, то есть от того, который он уже покинул."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    fn = code.split("async function switchMode(", 1)[1].split("\n}", 1)[0]
+    assert "armed" in fn, "переключение всё ещё с первого клика"
+    assert "alert(" not in fn, "alert блокирует страницу и не объясняет"
+    assert "Мост не ответил" in fn, "провал переключения снова беззвучен"
+    assert "switch_effect" in code, "последствие не показывается ДО клика"
+    assert "s.listens" in code, "панель не говорит, что мост слушает"

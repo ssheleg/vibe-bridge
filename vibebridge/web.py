@@ -384,6 +384,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
               push_sender: PushSender | None = None,
               settings=None,
               feed: EventFeed | None = None,
+              bind_host: str = "127.0.0.1",
               peer_guard: bool = False) -> Starlette:
     from .config import load as _load_settings
     from .net import allowed_hosts as _net_allowed_hosts
@@ -1148,6 +1149,22 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             "mcp_url": (f"http://127.0.0.1:{live.port}/mcp"
                         if live.mode == "gateway"
                         else f"http://<адрес в tailnet>:{live.port}/mcp"),
+            # Панель не говорила, какие интерфейсы мост СЛУШАЕТ, — а это и
+            # есть граница, которую переключает одна кнопка (A-24).
+            "bind_host": bind_host,
+            "listens": ("только этот компьютер (loopback)"
+                        if bind_host in ("127.0.0.1", "localhost", "::1")
+                        else f"все интерфейсы этой машины ({bind_host})"),
+            # Что случится, если нажать «Переключить» — ДО нажатия, а не
+            # после перезапуска.
+            "switch_to": ("standalone" if live.mode == "gateway"
+                          else "gateway"),
+            "switch_effect": (
+                "standalone: мост начнёт слушать сеть, и дверью станет "
+                "bearer-токен робота — сам мост, а не шлюз."
+                if live.mode == "gateway" else
+                "gateway: мост уйдёт на loopback, а границей станет "
+                "agentgateway — БЕЗ него /mcp останется без проверки токена."),
         }
         if live.mode == "gateway":
             ok = await asyncio.to_thread(gateway_reachable)

@@ -493,6 +493,9 @@ async function loadAccess(){
     const MODE = {standalone:"standalone — робот приходит по сети tailnet, вход по токену",
                   gateway:"gateway — только loopback, границей служит agentgateway"};
     let rows = `<div class="kv"><span class="k">Режим</span><span class="v" style="font-family:var(--font-ui)">${esc(MODE[s.mode]||s.mode)}</span></div>`+
+      // Какие интерфейсы мост СЛУШАЕТ — это и есть граница, которую
+      // переключает одна кнопка, и панель о ней молчала (A-24).
+      `<div class="kv"><span class="k">Слушает</span><span class="v" style="font-family:var(--font-ui)">${esc(s.listens||"")}</span></div>`+
       `<div class="kv"><span class="k">MCP-адрес</span><span class="v">${esc(s.mcp_url)}</span></div>`+
       `<div class="kv"><span class="k">Защита MCP</span><span class="v" style="font-family:var(--font-ui)">${esc(s.mcp_auth)}</span></div>`+
       `<div class="kv"><span class="k">Файл настроек</span><span class="v" style="user-select:all">${esc(s.path)}</span></div>`;
@@ -502,7 +505,11 @@ async function loadAccess(){
     rows += `<div class="kv"><span class="k">Питомец на экране</span><span class="v" style="font-family:var(--font-ui)">${s.mascot_window?"показан отдельным окном":"только в панели"}</span></div>`;
     rows += `<div class="kv"><span class="k">Спрашивать перед чтением экрана</span><span class="v" style="font-family:var(--font-ui)">${s.ask_for_read?"да — скриншот и список окон спросят согласия":"нет — исполняются сразу, видны в журнале"}</span></div>`;
     rows += `<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">`+
-      `<button class="btn ghost" onclick="switchMode('${s.mode==="gateway"?"standalone":"gateway"}')">Переключить в ${s.mode==="gateway"?"standalone":"gateway"}</button>`+
+      // Кнопка сначала ОБЪЯСНЯЕТ, потом переключает: это граница
+      // безопасности, а не настройка вида. Прежде она срабатывала с первого
+      // клика, и последствие владелец узнавал после перезапуска (A-24).
+      `<button class="btn ghost" id="modeBtn" data-to="${esc(s.switch_to||"")}" onclick="switchMode(this)">Переключить в ${esc(s.switch_to||"")}</button>`+
+      `<p class="note" id="modeNote" style="margin-top:6px">${esc(s.switch_effect||"")}</p>`+
       `<button class="btn ghost" onclick="setSetting('ask_for_read',${s.ask_for_read?"false":"true"})">${s.ask_for_read?"Не спрашивать перед чтением":"Спрашивать перед чтением"}</button>`+
       `<button class="btn ghost" onclick="setSetting('mascot_window',${s.mascot_window?"false":"true"})">${s.mascot_window?"Убрать питомца с экрана":"Показать питомца на экране"}</button>`+
       `</div>`;
@@ -516,11 +523,33 @@ async function setSetting(key, value){
   } catch(e){}
   loadAccess();
 }
-async function switchMode(to){
+async function switchMode(btn){
+  const to = btn.dataset.to;
+  const note = document.getElementById("modeNote");
+  // Взвод: первый клик показывает последствие, второй его принимает. Тот же
+  // жест, что у «Обновить робота», — и по той же причине.
+  if (btn.dataset.armed !== "1"){
+    btn.dataset.armed = "1";
+    btn.textContent = `Точно переключить в ${to}?`;
+    btn.classList.add("dangerous");
+    return;
+  }
   try{
     const r = await fetch("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:to})});
-    if(!r.ok){ const d = await r.json(); alert(d.error||"Не получилось"); return; }
-  } catch(e){}
+    if(!r.ok){
+      const d = await r.json();
+      // Молчащая кнопка и alert — оба плохи: первая обманывает, второй
+      // блокирует страницу. Причина уходит туда же, где стоит объяснение.
+      note.textContent = d.error || "Не получилось переключить режим.";
+      btn.dataset.armed = ""; btn.classList.remove("dangerous");
+      btn.textContent = `Переключить в ${to}`;
+      return;
+    }
+  } catch(e){
+    note.textContent = "Мост не ответил — режим не изменён.";
+    btn.dataset.armed = ""; btn.classList.remove("dangerous");
+    return;
+  }
   loadAccess();
 }
 async function loadWizard(){

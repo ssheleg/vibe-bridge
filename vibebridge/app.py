@@ -44,6 +44,7 @@ def start_server(consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     # allowlist по `Host` присылает клиент.
     web_app = build_app(consent=consent, audit=audit, state=state,
                         notify=notify, settings=settings,
+                        bind_host=bind_host,
                         peer_guard=bind_host != BRIDGE_HOST)
     threading.Thread(target=_serve, args=(web_app, bind_host, settings.port),
                      name="vibe-bridge-web", daemon=True).start()

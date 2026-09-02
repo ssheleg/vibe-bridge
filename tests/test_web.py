@@ -660,3 +660,25 @@ def test_the_media_endpoint_names_which_failure_happened(tmp_path):
         r = c.get("/api/robot/media/a.jpg")
         assert r.status_code == 502 and r.json()["kind"] == "unauthorized"
         assert "ключ" in r.json()["error"]
+
+
+def test_the_settings_say_what_the_bridge_listens_on_and_what_a_switch_costs(
+        tmp_path):
+    """A-24: панель молчала о том, какие интерфейсы слушает мост, — а это и
+    есть граница, которую переключает одна кнопка."""
+    from vibebridge.config import Settings
+
+    for host, expect in (("127.0.0.1", "только этот компьютер"),
+                         ("0.0.0.0", "все интерфейсы")):
+        app = build_app(consent=ConsentEngine(),
+                        audit=AuditLog(tmp_path / "a.log"),
+                        state=BridgeState(path=tmp_path / f"s{host}.json",
+                                          panel_token="pt"),
+                        settings=Settings(mode="gateway"), bind_host=host)
+        with TestClient(app) as c:
+            c.get("/?token=pt")
+            body = c.get("/api/settings").json()
+        assert expect in body["listens"], body["listens"]
+        assert body["bind_host"] == host
+        assert body["switch_to"] == "standalone"
+        assert "bearer" in body["switch_effect"]
