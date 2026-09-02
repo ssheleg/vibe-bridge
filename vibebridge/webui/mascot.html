@@ -57,6 +57,14 @@ box-shadow:0 6px 20px rgba(0,0,0,.18);word-break:break-word;cursor:pointer}
 background:var(--panel-2);padding:.1em .35em;border-radius:4px}
 .bubble .dismiss{display:block;margin-top:6px;font-size:var(--t-note);color:var(--muted)}
 .actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:flex-end}
+/* Таймер-бар согласия (пак: 4px, --warn, дренаж слева направо, линейно).
+   У питомца те же три кнопки, и молчание у них тоже значит отказ. */
+.deadline{display:flex;align-items:center;gap:6px;margin-top:6px}
+.drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);overflow:hidden}
+.drain>i{display:block;height:100%;background:var(--warn);width:var(--left,100%);
+  transition:width 1s linear}
+.secs{font-size:var(--t-cap);color:var(--muted);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){ .drain{display:none} }
 .btn{font:600 var(--t-cap) var(--font-ui);border-radius:var(--r-control);padding:6px 10px;
 border:1px solid transparent;cursor:pointer;white-space:nowrap}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
@@ -440,8 +448,9 @@ function paint(snap, force){
       `</div>` : "") +
     ((snap.actionable && !dialogOpen()) ? `<div class="actions">`+
       `<button class="btn primary" data-d="allow">Разрешить</button>`+
-      `<button class="btn ghost" data-d="allow_grant">На 15 мин</button>`+
-      `<button class="btn dangerous" data-d="deny">Отклонить</button></div>` : "");
+      `<button class="btn ghost" data-d="allow_grant">Такие — 15 мин</button>`+
+      `<button class="btn dangerous" data-d="deny">Отклонить</button></div>`+
+      deadlineHtml(snap) : "");
 
   el.querySelectorAll("[data-d]").forEach(b => {
     b.onclick = () => decide(snap.request_id, b.dataset.d);
@@ -450,6 +459,18 @@ function paint(snap, force){
   // A consent summary must not be dismissable — it is a question, not news.
   if (bubble && !snap.actionable) bubble.onclick = dismiss;
   syncSide();
+}
+
+function deadlineHtml(snap){
+  // Молчание — отказ по умолчанию, и до 2026-09-02 об этом не говорила ни
+  // одна поверхность: владелец видел три кнопки без единого признака, что
+  // бездействие — тоже ответ (A-9).
+  const full = snap.ask_timeout_s || 0, left = snap.asks_left_s;
+  if (!full || left == null) return "";
+  const pct = Math.max(0, Math.min(100, 100 * left / full));
+  return `<div class="deadline"><div class="drain" aria-hidden="true">`+
+    `<i style="--left:${pct}%"></i></div>`+
+    `<span class="secs">${left > 0 ? Math.ceil(left) + " с" : "истекло"}</span></div>`;
 }
 
 async function tick(){

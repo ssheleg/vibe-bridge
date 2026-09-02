@@ -31,6 +31,21 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .cap{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
 .consent{border-color:var(--warn)}
 .consent .line{font-size:var(--t-page);font-weight:600;margin-bottom:12px}
+/* Таймер-бар согласия (пак: 4px, заливка --warn, дренаж слева направо,
+   линейно). Молчание = отказ, и это единственная поверхность, где владелец
+   может это УВИДЕТЬ, а не прочитать в документации. */
+.consent .deadline{margin-top:12px;display:flex;align-items:center;gap:8px}
+.consent .drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);
+  overflow:hidden}
+.consent .drain>i{display:block;height:100%;background:var(--warn);
+  width:var(--left,100%);transition:width 1s linear}
+.consent .secs{font-size:var(--t-cap);color:var(--muted);
+  font-variant-numeric:tabular-nums;min-width:5ch;text-align:right}
+@media (prefers-reduced-motion: reduce){
+  /* Пак: при reduced-motion — цифра секунд вместо ползущей полосы. */
+  .consent .drain{display:none}
+  .consent .secs{min-width:auto}
+}
 .btn{font:600 var(--t-body) var(--font-ui);border-radius:var(--r-control);padding:7px 14px;border:1px solid transparent;cursor:pointer;transition:background var(--dur-h) var(--ease),border-color var(--dur-h) var(--ease)}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
 .btn.ghost{background:transparent;border-color:var(--border-strong);color:var(--ink)}
@@ -70,6 +85,11 @@ th{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.08em;color:va
 td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 .view{display:none}.view.on{display:block}
 .note{font-size:var(--t-note);color:var(--muted)}
+.mascot-deadline{display:flex;align-items:center;gap:6px;margin-top:6px}
+.mascot-drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);overflow:hidden}
+.mascot-drain>i{display:block;height:100%;background:var(--warn);width:var(--left,100%);transition:width 1s linear}
+.mascot-secs{font-size:var(--t-cap);color:var(--muted);font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){ .mascot-drain{display:none} }
 .mascot-bubble{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-card);padding:7px 11px;margin-bottom:8px;max-width:100%;word-break:break-word;font-size:var(--t-cap)}
 .mascot-body{line-height:0}
 </style>
@@ -97,6 +117,10 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
     <button class="btn primary" onclick="decide('allow')">Разрешить</button>
     <button class="btn ghost" onclick="decide('allow_grant')">Разрешить такие на 15 мин</button>
     <button class="btn dangerous" onclick="decide('deny')">Отклонить</button>
+  </div>
+  <div class="deadline">
+    <div class="drain" aria-hidden="true"><i id="consentDrain"></i></div>
+    <span class="secs" id="consentSecs" role="timer" aria-live="off"></span>
   </div>
 </div>
 
@@ -254,6 +278,12 @@ function render(s){
   if (s.pending){
     const extra = s.pending_count > 1 ? ` (в очереди ещё ${s.pending_count-1})` : "";
     document.getElementById("consentLine").textContent = "Робот хочет: " + s.pending.summary + extra;
+    // Молчание — отказ по умолчанию. Показываем это, а не только три кнопки.
+    const left = Math.max(0, s.pending.left_s), full = s.pending.timeout_s || 60;
+    document.getElementById("consentDrain").style.setProperty(
+      "--left", (100 * left / full) + "%");
+    document.getElementById("consentSecs").textContent =
+      left > 0 ? Math.ceil(left) + " с" : "истекло";
   }
   const feed = document.getElementById("feed");
   const evRows = (s.robot_events||[]).map(e =>

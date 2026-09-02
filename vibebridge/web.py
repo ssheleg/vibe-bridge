@@ -268,9 +268,14 @@ def _snapshot(consent: ConsentEngine, audit: AuditLog,
     req = reqs[0] if reqs else None
     return {
         "paused": consent.paused,
+        # Молчание — тоже решение, и поверхность обязана это показать:
+        # три кнопки без отсчёта не говорят владельцу, что он уже отвечает
+        # (A-9). `timeout_s` — настоящая настройка, не зашитые 60.
         "pending": ({"id": req.id, "tool": req.tool,
                      "class": req.tool_class.value,
-                     "summary": req.summary} if req else None),
+                     "summary": req.summary,
+                     "left_s": round(consent.remaining(req), 1),
+                     "timeout_s": consent.ask_timeout_s} if req else None),
         "pending_count": len(reqs),
         # Гранты называются ПОИМЁННО: счётчик минут не отвечает на вопрос
         # «что мне сейчас разрешено без вопроса» (A-8, визия §1).

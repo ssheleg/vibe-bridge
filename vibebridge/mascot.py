@@ -112,6 +112,12 @@ class Mascot:
             # going rather than have it vanish under the reader.
             "says_left_s": self._left(says, pending),
             "actionable": pending is not None,
+            # Сколько осталось у ВОПРОСА (не у реплики): у питомца те же три
+            # кнопки, и молчание у них значит отказ (A-9).
+            "asks_left_s": (round(self._consent.remaining(pending), 1)
+                            if pending is not None else None),
+            "ask_timeout_s": (self._consent.ask_timeout_s
+                              if pending is not None else None),
             "request_id": pending.id if pending is not None else None,
             "tool": pending.tool if pending is not None else None,
         }

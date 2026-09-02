@@ -108,7 +108,8 @@ def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
         audit.record(tool=cap.name, tool_class=cap.tool_class.value,
                      decision=decision.value, ok=False, line=line)
         return {"ok": False, "refused": True,
-                "reason": refusal_text(decision)}
+                "reason": refusal_text(decision,
+                                       consent.ask_timeout_s)}
     try:
         out = cap.handler(runner, args)
     except CapabilityError as exc:

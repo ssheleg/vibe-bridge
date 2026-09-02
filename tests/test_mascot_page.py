@@ -614,3 +614,22 @@ def test_pause_has_no_motion_in_the_shared_stylesheet():
     assert ".vb-paused,.vb-offline{animation:none}" in rules
     assert ".vb-paused*,.vb-offline*{animation:none}" in rules
 
+
+
+def test_the_pet_also_shows_the_deadline():
+    """У питомца те же три кнопки — значит и то же умолчание: молчание есть
+    отказ. Поверхность, которая об этом молчит, обманывает владельца ровно
+    так же, как панель до A-9."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    webui = Path(vibebridge.__file__).parent / "webui"
+    for name in ("mascot.html", "mascot.js"):
+        text = (webui / name).read_text()
+        code = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+        assert "asks_left_s" in code, f"{name}: срок вопроса не читается"
+        assert "ask_timeout_s" in code, f"{name}: окно ожидания не читается"
+        assert "истекло" in code, f"{name}: истёкший вопрос не назван словом"

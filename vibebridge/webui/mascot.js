@@ -166,12 +166,19 @@ function renderMascot(el, snap, opts){
   // inserted as text — a reply containing markup must stay a reply.
   const bubble = snap.says
     ? `<div class="mascot-bubble">${esc(snap.says)}</div>` : "";
+  // Молчание — отказ по умолчанию; полоса и цифра говорят это вслух (A-9).
+  const full = snap.ask_timeout_s || 0, left = snap.asks_left_s;
+  const deadline = (snap.actionable && full && left != null)
+    ? `<div class="mascot-deadline"><div class="mascot-drain" aria-hidden="true">` +
+      `<i style="--left:${Math.max(0, Math.min(100, 100 * left / full))}%"></i></div>` +
+      `<span class="mascot-secs">${left > 0 ? Math.ceil(left) + " с" : "истекло"}</span></div>`
+    : "";
   const buttons = (snap.actionable && opts.answerable)
     ? `<div class="mascot-actions">
          <button class="btn primary" data-decide="allow">Разрешить</button>
          <button class="btn ghost" data-decide="allow_grant">Такие — 15 мин</button>
          <button class="btn dangerous" data-decide="deny">Отклонить</button>
-       </div>` : "";
+       </div>${deadline}` : "";
 
   el.innerHTML =
     `${bubble}<div class="mascot-body" title="${esc(s.label)}">` +

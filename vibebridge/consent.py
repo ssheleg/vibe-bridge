@@ -104,7 +104,7 @@ class ConsentEngine:
             if self._clock() < until:
                 return Decision.AUTO
             req = ConsentRequest(tool=tool, tool_class=tool_class,
-                                 summary=summary)
+                                 summary=summary, created=self._clock())
             self._pending.append(req)
         answered = req._event.wait(timeout=self._ask_timeout_s)
         with self._lock:
@@ -119,6 +119,19 @@ class ConsentEngine:
         return decision
 
     # -- called from the menu-bar main loop -----------------------------------
+
+    @property
+    def ask_timeout_s(self) -> float:
+        """Сколько живёт вопрос. Поверхности показывают ЭТО число, а не
+        зашитую константу: молчание — тоже решение, и владелец должен
+        видеть, сколько у него осталось (A-9)."""
+        return self._ask_timeout_s
+
+    def remaining(self, req: ConsentRequest | None) -> float:
+        """Сколько секунд у запроса осталось (0 — уже нисколько)."""
+        if req is None:
+            return 0.0
+        return max(0.0, req.created + self._ask_timeout_s - self._clock())
 
     def pending(self) -> ConsentRequest | None:
         with self._lock:
@@ -163,12 +176,18 @@ def allowed(decision: Decision) -> bool:
     return decision in (Decision.ALLOW, Decision.ALLOW_GRANT, Decision.AUTO)
 
 
-def refusal_text(decision: Decision) -> str:
-    """The words the ROBOT receives — honest, and phrased for a voice reply."""
+def refusal_text(decision: Decision, timeout_s: float | None = None) -> str:
+    """The words the ROBOT receives — honest, and phrased for a voice reply.
+
+    Окно ожидания называется НАСТОЯЩЕЕ: строка говорила «(60 секунд)»
+    независимо от `ask_timeout_s`, и робот повторял владельцу число,
+    которого в этой установке не было (A-16).
+    """
+    window = f" ({int(timeout_s)} секунд)" if timeout_s else ""
     return {
         Decision.DENY: "Владелец отклонил действие.",
-        Decision.TIMEOUT: "Владелец не ответил на запрос подтверждения "
-                          "(60 секунд) — действие не выполнено.",
+        Decision.TIMEOUT: "Владелец не ответил на запрос подтверждения"
+                          f"{window} — действие не выполнено.",
         Decision.PAUSED: "Мост поставлен владельцем на паузу — Мак сейчас "
                          "недоступен для действий.",
     }.get(decision, "Действие не разрешено.")

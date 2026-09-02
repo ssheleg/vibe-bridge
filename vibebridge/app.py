@@ -262,9 +262,13 @@ def run() -> None:  # pragma: no cover - requires a GUI session
             req = consent.pending()
             if req is None:
                 return
+            # Модальный лист не умеет тикать, поэтому окно называется
+            # словом: молчание здесь — отказ, и владелец должен прочитать
+            # это до того, как отойдёт от экрана (A-9).
+            left = int(consent.remaining(req)) or int(consent.ask_timeout_s)
             resp = rumps.alert(
                 title="Робот просит разрешение",
-                message=req.summary,
+                message=f"{req.summary}\n\nБез ответа за {left} с — отказ.",
                 ok="Разрешить",
                 cancel="Отклонить",
                 other="Такие 15 мин",

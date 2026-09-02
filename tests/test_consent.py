@@ -153,3 +153,58 @@ def test_revoke_grants():
     eng.revoke_grants()
     assert eng.grant_active("mac_open_app") == 0
     assert eng.grants() == {}
+
+
+# ── A-9: запрос истекает, и об этом надо сказать ───────────────────────────
+
+def test_a_pending_request_reports_how_long_it_has_left():
+    """Отказ по молчанию — политика по умолчанию, и ни одна поверхность об
+    этом не говорила: владелец видел три кнопки без единого признака, что
+    бездействие тоже решение."""
+    clk = FakeClock()
+    eng = ConsentEngine(ask_timeout_s=60.0, clock=clk)
+    t = threading.Thread(target=lambda:
+                         eng.request("open_url", ToolClass.ACT, "ссылка"),
+                         daemon=True)
+    t.start()
+    for _ in range(200):
+        if eng.pending() is not None:
+            break
+        threading.Event().wait(0.01)
+    req = eng.pending()
+    assert eng.ask_timeout_s == 60.0
+    assert eng.remaining(req) == 60.0
+    clk.advance(45.0)
+    assert eng.remaining(req) == 15.0
+    clk.advance(100.0)
+    assert eng.remaining(req) == 0.0          # не уходит в минус
+    eng.resolve_by_id(req.id, Decision.DENY)
+    t.join(timeout=5)
+
+
+def test_the_refusal_names_the_real_timeout_not_a_hardcoded_sixty():
+    """Строка отказа говорила «(60 секунд)» независимо от настройки —
+    робот повторял владельцу число, которого не было (A-16, половина)."""
+    assert "60 секунд" in refusal_text(Decision.TIMEOUT, timeout_s=60.0)
+    assert "20 секунд" in refusal_text(Decision.TIMEOUT, timeout_s=20.0)
+    assert "секунд" not in refusal_text(Decision.DENY, timeout_s=20.0)
+    # без аргумента — по-прежнему говорит правду, но без числа
+    assert "не ответил" in refusal_text(Decision.TIMEOUT)
+
+
+def test_the_system_dialog_names_the_deadline_in_words():
+    """Модальный лист не умеет тикать — значит обязан сказать словом.
+    Проверяем ИСХОДНИК ветки диалога: GUI в наборе не поднимается, но
+    отсутствие срока в единственной строке, которую видит владелец у
+    экрана, — та же дыра A-9, что и в панели."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    src = (Path(vibebridge.__file__).parent / "app.py").read_text()
+    src = re.sub(r"^\s*#.*$", "", src, flags=re.M)      # без комментариев
+    call = src.split("rumps.alert(", 1)[1].split(")", 1)[0]
+    assert "message=" in call and "отказ" in call, \
+        "системный диалог не говорит, что молчание — это отказ"
+    assert "consent.remaining(req)" in src or "remaining(req)" in src

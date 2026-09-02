@@ -175,11 +175,17 @@ def test_the_pet_breathes_but_stops_when_asked():
         text = (webui / name).read_text()
         code = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
         code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
-        block = re.search(
+        # ВСЕ блоки, а не первый: 2026-09-02 у страницы появился второй
+        # (таймер-бар согласия), и версия, читавшая только первый,
+        # покраснела на файле, где гашение анимации никуда не делось —
+        # то есть сообщила бы о регрессии там, где её нет, и промолчала бы
+        # там, где она есть, стоило блокам поменяться местами.
+        blocks = re.findall(
             r"@media\s*\(prefers-reduced-motion[^)]*\)\s*\{(.*?)\}\s*\}",
             code, flags=re.S)
-        assert block, f"{name}: правила reduced-motion нет (не в комментарии)"
-        assert "animation:none" in block.group(1).replace(" ", ""), (
+        assert blocks, f"{name}: правила reduced-motion нет (не в комментарии)"
+        joined = "".join(blocks).replace(" ", "")
+        assert "animation:none" in joined, (
             f"{name}: reduced-motion не гасит анимацию")
 
 

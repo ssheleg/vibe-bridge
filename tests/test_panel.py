@@ -199,3 +199,29 @@ def test_the_system_card_tolerates_both_shapes_of_uptime():
     assert "d.uptime.pretty" not in code, "снова читаем .pretty у возможной строки"
     assert "d.uptime.load1" not in code and "d.uptime.cpu_pct" not in code
 
+
+
+def test_the_consent_card_shows_that_silence_is_an_answer():
+    """A-9/V-3: отказ по молчанию — политика по умолчанию, но три кнопки об
+    этом не говорили. Пак задал таймер-бар до пикселя (4px, `--warn`, дренаж
+    слева направо), и он не был построен. Смотрим на ПРАВИЛА — комментарии
+    вырезаны, иначе тест зачтёт объяснение вместо кода."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+
+    rule = code.split(".consent .drain>i{", 1)
+    assert len(rule) == 2, "таймер-бара согласия нет"
+    body = rule[1].split("}", 1)[0].replace(" ", "")
+    assert "background:var(--warn)" in body        # цвет из пака, не свой
+    assert "width:var(--left" in body              # дренаж управляется данными
+    bar = code.split(".consent .drain{", 1)[1].split("}", 1)[0].replace(" ", "")
+    assert "height:4px" in bar                     # пак: ровно 4px
+    # ...и разметка, и данные, которыми она живёт
+    assert 'id="consentDrain"' in page and 'id="consentSecs"' in page
+    assert "s.pending.left_s" in page and "s.pending.timeout_s" in page
