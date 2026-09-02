@@ -225,3 +225,22 @@ def test_the_consent_card_shows_that_silence_is_an_answer():
     # ...и разметка, и данные, которыми она живёт
     assert 'id="consentDrain"' in page and 'id="consentSecs"' in page
     assert "s.pending.left_s" in page and "s.pending.timeout_s" in page
+
+
+def test_a_capability_that_needs_permission_offers_the_way_to_grant_it():
+    """A-11 / SCN-020 шаг 2: статус «требует прав» был диагнозом без
+    лечения. Панель обязана давать путь, не выходя из панели."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text()
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    assert 'needs-permission' in code and 'data-grant' in code, \
+        "кнопки выдачи прав нет"
+    fn = code.split("async function grantCap(", 1)[1].split("\n}", 1)[0]
+    assert "/grant" in fn, "кнопка никуда не ходит"
+    assert "capNote" in fn, "результат запроса прав не показывается"
+    assert "Мост не ответил" in fn, "молчащая кнопка — тот же обман"

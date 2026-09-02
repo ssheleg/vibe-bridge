@@ -203,3 +203,75 @@ def test_a_tailnet_no_longer_narrows_the_bind(monkeypatch):
     monkeypatch.setattr(net, "tailscale_ips", lambda: ["100.72.246.104"])
     assert net.standalone_bind_host() == "0.0.0.0"
 
+
+
+def test_a_permission_refusal_tells_the_owner_not_just_the_robot():
+    """SCN-020 шаг 1: робот получает честный отказ мгновенно — но права
+    выдаёт ВЛАДЕЛЕЦ, и до 2026-09-02 он не узнавал об этом ничего, пока сам
+    не открывал панель (A-11)."""
+    import tempfile
+    from pathlib import Path
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.capabilities import Capability, Runner
+    from vibebridge.consent import ConsentEngine, ToolClass
+    from vibebridge.server import dispatch
+
+    told: list[tuple[str, str]] = []
+    cap = Capability("screenshot", ToolClass.READ, "смотрю на экран",
+                     lambda r, a: {"ok": True}, {})
+    with tempfile.TemporaryDirectory() as d:
+        audit = AuditLog(Path(d) / "a.log")
+        out = dispatch(
+            cap, {}, consent=ConsentEngine(), audit=audit, runner=Runner(),
+            availability={"screenshot": {"status": "needs-permission",
+                                         "reason": "нет прав записи экрана"}},
+            on_needs_permission=lambda n, r: told.append((n, r)))
+    assert out["unavailable"] is True
+    assert told == [("screenshot", "нет прав записи экрана")]
+
+
+def test_an_unavailable_capability_does_not_nag_about_permissions():
+    """«Нет команды» правами не лечится — уведомление тут было бы шумом."""
+    import tempfile
+    from pathlib import Path
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.capabilities import Capability, Runner
+    from vibebridge.consent import ConsentEngine, ToolClass
+    from vibebridge.server import dispatch
+
+    told: list = []
+    cap = Capability("shortcut_run", ToolClass.ACT, "запустить Shortcut",
+                     lambda r, a: {"ok": True}, {})
+    with tempfile.TemporaryDirectory() as d:
+        audit = AuditLog(Path(d) / "a.log")
+        dispatch(cap, {}, consent=ConsentEngine(), audit=audit, runner=Runner(),
+                 availability={"shortcut_run": {"status": "unavailable",
+                                                "reason": "нет команды"}},
+                 on_needs_permission=lambda n, r: told.append(n))
+    assert told == []
+
+
+def test_a_broken_notifier_never_costs_the_robot_its_answer():
+    """Уведомление владельцу — вежливость, а не условие ответа."""
+    import tempfile
+    from pathlib import Path
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.capabilities import Capability, Runner
+    from vibebridge.consent import ConsentEngine, ToolClass
+    from vibebridge.server import dispatch
+
+    def boom(name, reason):
+        raise RuntimeError("нотифаер лежит")
+
+    cap = Capability("screenshot", ToolClass.READ, "смотрю", lambda r, a: {}, {})
+    with tempfile.TemporaryDirectory() as d:
+        out = dispatch(
+            cap, {}, consent=ConsentEngine(),
+            audit=AuditLog(Path(d) / "a.log"), runner=Runner(),
+            availability={"screenshot": {"status": "needs-permission",
+                                         "reason": "нет прав"}},
+            on_needs_permission=boom)
+    assert out["unavailable"] is True and "нет прав" in out["error"]

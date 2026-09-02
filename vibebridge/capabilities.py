@@ -15,6 +15,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -344,6 +346,96 @@ def probe_availability(caps: dict[str, Capability], *,
             continue
         out[name] = {"status": "available", "reason": ""}
     return out
+
+
+class AvailabilityMap:
+    """Карта способностей, которая пере-опрашивает себя сама.
+
+    Раньше это был обычный dict, снятый ОДИН раз при регистрации, и он
+    служил источником сразу для двух вещей: таблицы в панели и мгновенного
+    отказа роботу. Владелец выдавал «Запись экрана» в системных настройках —
+    и до перезапуска моста не менялось ничего: панель продолжала писать
+    «требует прав», а робот продолжал получать отказ на способность, которая
+    уже работает (A-11).
+
+    TTL нужен по существу: опрос дёргает `shutil.which` и preflight TCC, а
+    робот может вызвать двадцать инструментов подряд. Пять секунд — это
+    «владелец не заметит задержки» и «система не опрашивается в цикле».
+
+    Ведёт себя как dict для обоих читателей (`get`, `items`), поэтому
+    подмена на настоящий dict в тестах остаётся возможной.
+    """
+
+    TTL_S = 5.0
+
+    def __init__(self, caps: dict[str, Capability], *,
+                 clock=time.monotonic, probe=None) -> None:
+        self._caps = caps
+        self._clock = clock
+        self._probe = probe or probe_availability
+        self._lock = threading.Lock()
+        self._at = 0.0
+        self._map: dict[str, dict] = {}
+        self.refresh()
+
+    def refresh(self) -> dict[str, dict]:
+        """Опросить систему прямо сейчас. После «Выдать права» владелец не
+        должен ждать TTL."""
+        fresh = self._probe(self._caps)
+        with self._lock:
+            self._map = fresh
+            self._at = self._clock()
+            return dict(self._map)
+
+    def snapshot(self) -> dict[str, dict]:
+        with self._lock:
+            fresh_enough = self._clock() - self._at < self.TTL_S
+            if fresh_enough:
+                return dict(self._map)
+        return self.refresh()
+
+    def get(self, name: str, default=None):
+        return self.snapshot().get(name, default)
+
+    def items(self):
+        return self.snapshot().items()
+
+    def __contains__(self, name: str) -> bool:
+        return name in self.snapshot()
+
+    def __iter__(self):
+        return iter(self.snapshot())
+
+
+def request_permission(name: str) -> tuple[bool, str]:
+    """Провести владельца к системному диалогу прав (SCN-020 шаг 2).
+
+    Сценарий обещал «уведомление с кнопкой в системные настройки», и в коде
+    не было ни того ни другого: карта просто говорила «требует прав» без
+    единого пути её изменить.
+
+    macOS показывает свой запрос ОДИН раз за жизнь бандла. Поэтому сначала
+    просим систему (`CGRequestScreenCaptureAccess` — он и есть тот диалог), а
+    если она молча отказала, открываем нужную панель настроек: второго
+    системного окна уже не будет, и без этой ветки кнопка была бы кнопкой,
+    которая иногда ничего не делает.
+    """
+    if sys.platform != "darwin" or name != "screenshot":
+        return False, "у этой способности нет системного диалога прав"
+    try:  # pragma: no cover - зависит от pyobjc и живой ОС
+        import Quartz
+        if bool(Quartz.CGRequestScreenCaptureAccess()):
+            return True, "права записи экрана выданы"
+    except Exception as exc:  # noqa: BLE001 - причина уходит владельцу
+        return False, f"системный диалог недоступен: {exc}"
+    pane = ("x-apple.systempreferences:com.apple.preference.security"
+            "?Privacy_ScreenCapture")
+    try:  # pragma: no cover - открывает окно на живой машине
+        subprocess.run(["open", pane], check=False, timeout=5)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, f"не удалось открыть настройки прав: {exc}"
+    return False, ("открыл «Конфиденциальность и безопасность → Запись "
+                   "экрана» — включите там vibe-bridge")
 
 
 def _platform_probe_extras(name: str) -> tuple[str, str] | None:

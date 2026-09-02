@@ -458,3 +458,34 @@ def test_a_late_answer_is_told_which_of_two_things_happened(tmp_path):
                     json={"decision": "allow", "id": req2.id})
         assert r2.status_code == 404 and r2.json()["expired"] is False
         assert "другой поверхности" in r2.json()["error"]
+
+
+def test_granting_a_permission_refreshes_the_map_without_a_restart(tmp_path):
+    """A-11: карта пере-опрашивается, и кнопка «Выдать права» не заставляет
+    владельца ждать TTL. Системный диалог тут не поднимается — проверяется
+    шов: запрос прав → принудительное обновление → свежая карта в ответе."""
+    from vibebridge import web as webmod
+
+    app, *_ = _mk(tmp_path)
+    seen: list[str] = []
+    original = webmod.AvailabilityMap
+
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        r = c.post("/api/capabilities/нет-такой/grant")
+        assert r.status_code == 404
+
+        import vibebridge.capabilities as capmod
+        real = capmod.request_permission
+        capmod.request_permission = lambda name: (seen.append(name),
+                                                  (False, "открыл настройки"))[1]
+        try:
+            r = c.post("/api/capabilities/mac_do/grant")
+        finally:
+            capmod.request_permission = real
+    assert r.status_code == 200
+    body = r.json()
+    assert seen == ["mac_do"]
+    assert body["ok"] is False and "настройк" in body["why"]
+    assert "mac_do" in body["capabilities"]      # свежая карта пришла сразу
+    assert original is webmod.AvailabilityMap

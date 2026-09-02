@@ -191,7 +191,8 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
     <div class="cap">Способности этого компьютера</div>
     <table aria-label="Карта способностей"><thead><tr><th>Способность</th><th>Класс</th><th>Статус</th></tr></thead>
     <tbody id="capTable"></tbody></table>
-    <p class="note" style="margin-top:8px">Недоступная способность отвечает роботу честной причиной мгновенно — она не ждёт таймаута и не спрашивает вас.</p>
+    <p class="note" style="margin-top:8px">Недоступная способность отвечает роботу честной причиной мгновенно — она не ждёт таймаута и не спрашивает вас. Карта пере-проверяется сама: выданные права видны здесь без перезапуска моста.</p>
+    <p class="note" id="capNote" style="margin-top:4px"></p>
   </div>
   <div class="card wide">
     <div class="cap">Подключить робота</div>
@@ -629,16 +630,40 @@ async function enablePush(){
 }
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 /* capabilities */
-async function loadCaps(){
-  const caps = await (await fetch("/api/capabilities")).json();
+function paintCaps(caps){
   document.getElementById("capTable").innerHTML = Object.entries(caps)
     .sort((a,b)=>a[0].localeCompare(b[0]))
     .map(([name, i])=>{
       const [cls, word] = CAPW[i.status] || ["mut", i.status];
       const reason = i.reason ? ` <span class="note">${esc(i.reason)}</span>` : "";
+      // Путь от «требует прав» к правам, не выходя из панели: без него
+      // статус был диагнозом без лечения (A-11, SCN-020 шаг 2).
+      const grant = i.status === "needs-permission"
+        ? ` <button class="btn ghost" data-grant="${esc(name)}">Выдать права</button>`
+        : "";
       return `<tr><td class="mono">${esc(name)}</td><td class="mono">${i.class.toUpperCase()}</td>`+
-        `<td><span class="chip"><span class="dot ${cls}"></span>${word}</span>${reason}</td></tr>`;
+        `<td><span class="chip"><span class="dot ${cls}"></span>${word}</span>${reason}${grant}</td></tr>`;
     }).join("");
+  document.getElementById("capTable").querySelectorAll("[data-grant]")
+    .forEach(b => { b.onclick = () => grantCap(b.dataset.grant, b); });
+}
+async function loadCaps(){
+  paintCaps(await (await fetch("/api/capabilities")).json());
+}
+async function grantCap(name, btn){
+  btn.disabled = true; btn.textContent = "спрашиваю систему…";
+  try{
+    const r = await fetch(`/api/capabilities/${encodeURIComponent(name)}/grant`,
+                          {method:"POST"});
+    const d = await r.json();
+    document.getElementById("capNote").textContent = d.why || "";
+    if (d.capabilities) paintCaps(d.capabilities); else loadCaps();
+  } catch(e){
+    // Молчащая кнопка — тот же обман, что и врущая карта.
+    document.getElementById("capNote").textContent =
+      "Мост не ответил — права не запрошены.";
+    btn.disabled = false; btn.textContent = "Выдать права";
+  }
 }
 /* live */
 const es = new EventSource("/events");

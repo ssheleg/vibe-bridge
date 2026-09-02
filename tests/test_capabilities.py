@@ -185,3 +185,64 @@ def test_a_screenshot_does_not_outlive_the_call(tmp_path, monkeypatch):
     assert out.startswith("data:image/png;base64,")
     assert not made["path"].exists(), "снимок экрана остался на диске"
 
+
+
+# ── A-11: карта способностей не должна врать до перезапуска ────────────────
+
+def test_the_map_reprobes_instead_of_freezing_at_startup():
+    """A-11: `probe_availability` снималась один раз при регистрации и
+    служила источником И для панели, И для мгновенного отказа роботу.
+    Владелец выдавал «Запись экрана» — и до перезапуска моста ничего не
+    менялось ни там, ни там."""
+    from vibebridge.capabilities import AvailabilityMap
+
+    calls = {"n": 0}
+    now = {"t": 0.0}
+    state = {"status": "needs-permission"}
+
+    def probe(caps, **kw):
+        calls["n"] += 1
+        return {"screenshot": {"status": state["status"], "reason": "r"}}
+
+    m = AvailabilityMap({}, clock=lambda: now["t"], probe=probe)
+    assert m.get("screenshot")["status"] == "needs-permission"
+    assert calls["n"] == 1
+
+    # Владелец выдал права...
+    state["status"] = "available"
+    # ...в пределах TTL повтор опроса не делается: burst вызовов не должен
+    # дёргать систему двадцать раз подряд
+    assert m.get("screenshot")["status"] == "needs-permission"
+    assert calls["n"] == 1
+    # ...а как только TTL истёк — карта говорит правду БЕЗ перезапуска
+    now["t"] += AvailabilityMap.TTL_S + 0.01
+    assert m.get("screenshot")["status"] == "available"
+    assert calls["n"] == 2
+
+
+def test_the_map_answers_like_a_dict_so_both_readers_keep_working():
+    """Читателей двое — панель (`items`) и мгновенный отказ (`get`)."""
+    from vibebridge.capabilities import AvailabilityMap
+
+    m = AvailabilityMap({}, clock=lambda: 0.0,
+                        probe=lambda caps, **kw: {"a": {"status": "available",
+                                                        "reason": ""}})
+    assert m.get("a")["status"] == "available"
+    assert m.get("нет такого") is None
+    assert dict(m.items()) == {"a": {"status": "available", "reason": ""}}
+
+
+def test_a_forced_refresh_does_not_wait_for_the_ttl():
+    """После нажатия «Выдать права» ждать пять секунд владелец не должен."""
+    from vibebridge.capabilities import AvailabilityMap
+
+    seen = {"n": 0}
+
+    def probe(caps, **kw):
+        seen["n"] += 1
+        return {"a": {"status": "available", "reason": ""}}
+
+    m = AvailabilityMap({}, clock=lambda: 0.0, probe=probe)
+    m.get("a")
+    m.refresh()
+    assert seen["n"] == 2

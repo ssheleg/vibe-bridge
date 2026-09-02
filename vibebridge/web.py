@@ -36,10 +36,10 @@ from starlette.routing import Mount, Route
 
 from .audit import AuditLog
 from .capabilities import (
+    AvailabilityMap,
     Capability,
     Runner,
     build_capabilities,
-    probe_availability,
 )
 from .consent import ConsentEngine, Decision
 from .mascot import Mascot
@@ -439,14 +439,35 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     from .capabilities import set_notifier
     set_notifier(notify)
     caps = capabilities or build_capabilities()
-    availability = probe_availability(caps)
+    # Живая карта: она пере-опрашивает себя, поэтому выданные права
+    # видны и в панели, и в мгновенном отказе роботу без перезапуска
+    # моста (A-11).
+    availability = AvailabilityMap(caps)
     _refusals = _RefusalJournal(audit)
 
     if mcp_allowed_hosts is None:
         mcp_allowed_hosts = _net_allowed_hosts(state)
+    # SCN-020 шаг 1. Права выдаёт владелец — значит сказать надо ему, и в тот
+    # момент, когда это понадобилось. Раз в десять минут на способность:
+    # робот может звать инструмент в цикле, а уведомление, которое приходит
+    # двадцать раз подряд, выключают вместе со всеми остальными.
+    _asked_at: dict[str, float] = {}
+    ASK_AGAIN_S = 600.0
+
+    def _needs_permission(name: str, reason: str) -> None:
+        import time as _t
+        now = _t.monotonic()
+        if now - _asked_at.get(name, -1e9) < ASK_AGAIN_S:
+            return
+        _asked_at[name] = now
+        notify("vibe-bridge",
+               f"Роботу нужны права: {reason}. Откройте «Доступ и настройки» "
+               f"— там кнопка «Выдать права».")
+
     mcp = build_server(consent=consent, audit=audit, runner=runner,
                        capabilities=caps, availability=availability,
-                       allowed_hosts=mcp_allowed_hosts)
+                       allowed_hosts=mcp_allowed_hosts,
+                       on_needs_permission=_needs_permission)
 
     def _full_snapshot() -> dict[str, Any]:
         snap = _snapshot(consent, audit, caps)
@@ -524,13 +545,34 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         consent.revoke_grants()
         return JSONResponse({"ok": True})
 
+    def _cap_map() -> dict[str, dict]:
+        return {name: {"class": caps[name].tool_class.value, **info}
+                for name, info in availability.items() if name in caps}
+
     async def api_capabilities(request: Request) -> Response:
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return JSONResponse({
-            name: {"class": caps[name].tool_class.value, **info}
-            for name, info in availability.items()
-        })
+        return JSONResponse(_cap_map())
+
+    async def api_capability_grant(request: Request) -> Response:
+        """Кнопка «Выдать права» — то, что SCN-020 обещал и чего не было:
+        путь от «требует прав» к правам, не выходя из панели."""
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        name = request.path_params["name"]
+        if name not in caps:
+            return JSONResponse({"error": "нет такой способности"},
+                                status_code=404)
+        from .capabilities import request_permission
+        ok, why = await asyncio.to_thread(request_permission, name)
+        # Права могли появиться прямо сейчас — не заставляем ждать TTL.
+        if hasattr(availability, "refresh"):
+            await asyncio.to_thread(availability.refresh)
+        audit.record(tool=name, tool_class=caps[name].tool_class.value,
+                     decision="allow" if ok else "unavailable", ok=ok,
+                     line=f"запрошены права для «{name}»: {why}")
+        return JSONResponse({"ok": ok, "why": why,
+                             "capabilities": _cap_map()})
 
     async def api_robot_status(request: Request) -> Response:
         if not _authed(request):
@@ -1257,6 +1299,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/consent/decide", consent_decide, methods=["POST"]),
             Route("/api/pause", api_pause, methods=["POST"]),
             Route("/api/grants/revoke", api_revoke_grants, methods=["POST"]),
+            Route("/api/capabilities/{name}/grant",
+                  api_capability_grant, methods=["POST"]),
             Route("/api/capabilities", api_capabilities),
             Route("/api/version", api_version),
             Route("/api/update/check", api_update_check, methods=["POST"]),

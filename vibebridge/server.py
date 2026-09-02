@@ -11,6 +11,7 @@ only shared state, and it is internally locked.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -49,6 +50,7 @@ def build_server(
     capabilities: dict[str, Capability] | None = None,
     availability: dict[str, dict] | None = None,
     allowed_hosts: list[str] | None = None,
+    on_needs_permission=None,
 ) -> FastMCP:
     from .capabilities import probe_availability
 
@@ -75,18 +77,21 @@ def build_server(
 
     for cap in caps.values():
         _register(mcp, cap, consent=consent, audit=audit, runner=runner,
-                  availability=availability)
+                  availability=availability,
+                  on_needs_permission=on_needs_permission)
     for alias, target in ALIASES.items():
         if target in caps:
             _register(mcp, caps[target], consent=consent, audit=audit,
-                      runner=runner, availability=availability, alias=alias)
+                      runner=runner, availability=availability, alias=alias,
+                      on_needs_permission=on_needs_permission)
 
     return mcp
 
 
 def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
              audit: AuditLog, runner: Runner,
-             availability: dict[str, dict] | None = None) -> dict[str, Any]:
+             availability: dict[str, dict] | None = None,
+             on_needs_permission=None) -> dict[str, Any]:
     """Pure-ish core: availability → consent → handler → audit.
 
     Availability is checked BEFORE consent: an impossible action must not
@@ -101,6 +106,13 @@ def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
         audit.record(tool=cap.name, tool_class=cap.tool_class.value,
                      decision="unavailable", ok=False, line=line,
                      detail=reason)
+        # SCN-020 шаг 1: робот получил честный отказ — но владелец узнаёт об
+        # этом, только если открыл панель. Права выдаёт он, значит сказать
+        # надо ему, и в тот момент, когда это понадобилось.
+        if (info.get("status") == "needs-permission"
+                and on_needs_permission is not None):
+            with contextlib.suppress(Exception):
+                on_needs_permission(cap.name, reason)
         return {"ok": False, "unavailable": True,
                 "error": f"На этом компьютере действие недоступно: {reason}"}
     decision = consent.request(cap.name, cap.tool_class, line)
@@ -130,7 +142,8 @@ def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
 
 
 def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
-              availability=None, alias: str | None = None) -> None:
+              availability=None, alias: str | None = None,
+              on_needs_permission=None) -> None:
     # FastMCP derives the tool schema from the function SIGNATURE, so every
     # capability is generated as a real async def with its declared args as
     # explicit `str = ''` parameters (a no-arg tool gets a zero-parameter
@@ -153,6 +166,7 @@ def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
 
     ns: dict = {"_dispatch": dispatch, "cap": cap, "consent": consent,
                 "audit": audit, "runner": runner, "availability": availability,
+                "_needs": on_needs_permission,
                 "_to_thread": anyio.to_thread.run_sync,
                 "_partial": functools.partial}
     # dispatch() BLOCKS (consent waits up to 60s, handlers shell out) — it
@@ -164,7 +178,7 @@ def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
         f"async def {fn_name}({params}) -> dict:\n"
         f"    return await _to_thread(_partial(_dispatch, cap, {{{forward}}}, "
         f"consent=consent, audit=audit, runner=runner, "
-        f"availability=availability))\n"
+        f"availability=availability, on_needs_permission=_needs))\n"
     )
     exec(src, ns)  # noqa: S102 - names are our own capability keys, not input
     fn = ns[fn_name]
