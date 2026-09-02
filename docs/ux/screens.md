@@ -12,7 +12,7 @@
 | SCR-04 | Панель · Журнал | FLW-02, FLW-03 | — | designed | none yet |
 | SCR-05 | Запрос согласия | FLW-02 | — | designed | none yet |
 | SCR-06 | Визард подключения | FLW-01 | — | designed | none yet |
-| SCR-07 | Пейринг | FLW-01 | — | designed | none yet |
+| SCR-07 | Пейринг | FLW-01 | — | built | vibebridge/web.py:689 (`pairing_state`), vibebridge/webui/index.html (`loadPairing`) |
 | SCR-08 | Панель · Настройки | FLW-02 | — | designed | none yet |
 | SCR-09 | PWA-оболочка | FLW-03, FLW-04 | — | designed | none yet |
 
@@ -172,8 +172,17 @@
   | green | все проверки прошли | — | CTA «скажите роботу привет» → Чат |
   | diagnostic | таймаут ожидания | — | что проверить; «ждать» / «начать заново» |
   | failed | пункт чеклиста красный | — | пункт, причина, действие, перезапуск пункта |
-- **Wireframe:** wireframes/SCR-07.md
-- **Coverage:** none yet
+- **Wireframe:** —  *(каталога `wireframes/` в проекте нет; канон состояний —
+  таблица выше)*
+- **Coverage:** `vibebridge/web.py` → `pairing_state()` (фазы и четыре
+  проверки, без HTTP-стека) и маршруты `/api/pairing/state`,
+  `/api/pairing/consent-test`; `vibebridge/webui/index.html` → `loadPairing()`,
+  `pairConsentTest()`. Тесты — `tests/test_pairing_screen.py`.
+  **Состояния `code-entry` и `failed` пока НЕ построены** и это сказано вслух:
+  первое — путь «робот уже работает», у которого нет источника короткого кода;
+  второе сливается с `checklist`, где провалившийся пункт красный и называет
+  причину. Обещать их построенными значило бы вернуть ровно тот дефект, из-за
+  которого этот экран и попал в аудит.
 - **Scenarios:** SCN-015, SCN-016
 - **Resources:** mDNS/tailnet-поиск; одноразовый токен → постоянные ключи;
   тестовый ACT как последняя проверка

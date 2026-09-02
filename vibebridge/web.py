@@ -41,6 +41,7 @@ from .capabilities import (
     AvailabilityMap,
     Capability,
     Runner,
+    ToolClass,
     build_capabilities,
 )
 from .consent import ConsentEngine, Decision
@@ -680,6 +681,58 @@ def manifest_body(raw: str, css: str) -> bytes:
     return json.dumps(data, ensure_ascii=False, indent=2).encode()
 
 
+#: Четыре проверки связки — по канону SCR-07: «найден → связан → проверен →
+#: согласие работает». Четвёртая единственная проверяет ОСНОВНОЕ обещание
+#: продукта, и до 2026-09-02 её не было ни в каком виде, как и трёх остальных
+#: (U-7): владелец записывал карту и оставался с фразой «когда робот
+#: свяжется, карточка оживёт» — без единого факта.
+PAIRING_CHECKS = ("найден", "связан", "проверен", "согласие")
+
+
+def pairing_state(*, armed: bool, robot_url: str | None, robot_name: str | None,
+                  probe: dict | None, consent_ok: bool | None) -> dict:
+    """Фаза экрана и состояние четырёх проверок — БЕЗ HTTP-стека.
+
+    `probe` — ответ `RobotClient.probe()` или None, если не спрашивали.
+    `consent_ok` — прошёл ли тестовый ACT: None значит «не запускали», и
+    выдумывать за владельца ответ нельзя.
+    """
+    found = bool(robot_url)
+    reached = bool(probe and probe.get("ok"))
+    # «Проверен» — это НЕ второй раз «связан»: отвечает именно наш робот, а
+    # не любой HTTP по этому адресу. Признак — его карточка статуса.
+    identified = bool(probe and probe.get("ok") and probe.get("version"))
+    # Порядок и состав берутся из `PAIRING_CHECKS`: список имён рядом с
+    # функцией, которая повторяет их литералами, — две копии одной правды, и
+    # разойдутся они молча. Поймано собственным гейтом сирот.
+    факты = {
+        "найден": (found, "робот предъявил токен связки",
+                   "робот ещё не постучался в мост"),
+        "связан": (reached, "мост дозвонился до робота",
+                   (probe or {}).get("error", "не проверяли")),
+        "проверен": (identified, "по адресу отвечает именно робот",
+                     "нет карточки статуса — по адресу отвечает не робот"
+                     if reached else "сначала нужно дозвониться"),
+        "согласие": (bool(consent_ok),
+                     "согласие работает: запрос дошёл и решение вернулось",
+                     "не запускали" if consent_ok is None else
+                     "запрос не подтверждён — молчание считается отказом"),
+    }
+    checks = [{"id": name, "ok": факты[name][0], "text": факты[name][1],
+               "why": "" if факты[name][0] else факты[name][2]}
+              for name in PAIRING_CHECKS]
+    if all(c["ok"] for c in checks):
+        phase = "green"
+    elif found:
+        phase = "checklist"
+    elif armed:
+        phase = "waiting"
+    else:
+        phase = "idle"
+    return {"phase": phase, "robot_name": robot_name, "checks": checks,
+            "done": sum(1 for c in checks if c["ok"]), "total": len(checks)}
+
+
 def _code_file(path, media: str | None = None, *,
                status_code: int = 200) -> Response:
     """A page or script of ours, served so the browser cannot keep it."""
@@ -910,6 +963,40 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                      line=f"HTTPS для телефона: {why}")
         return JSONResponse({"ok": ok, "why": why}, status_code=200 if ok
                             else 502)
+
+    #: Прошёл ли тестовый ACT в этой сессии. В состояние на диск НЕ пишется
+    #: намеренно: «согласие работало вчера» ничего не говорит про сегодня, а
+    #: галочка, пережившая перезапуск, — это обещание без проверки.
+    pairing_consent_ok: dict[str, bool | None] = {"value": None}
+
+    async def api_pairing_state(request: Request) -> Response:
+        """Состояние экрана связки: фаза и четыре проверки (SCR-07, U-7)."""
+        probe = await robot.probe() if robot.configured else None
+        return JSONResponse(pairing_state(
+            armed=bool(state.pending_pair_token),
+            robot_url=state.robot_base_url, robot_name=state.robot_name,
+            probe=probe, consent_ok=pairing_consent_ok["value"]))
+
+    async def api_pairing_consent_test(request: Request) -> Response:
+        """Четвёртая проверка: НАСТОЯЩИЙ запрос согласия через живой движок.
+
+        Не имитация: карточка появляется на всех поверхностях, молчание
+        считается отказом ровно как всегда, и решение ложится в журнал. Это
+        единственная проверка основного обещания продукта — «руки агенту,
+        вето владельцу», — и подделывать её значило бы проверять заглушку.
+        """
+        decision = await asyncio.to_thread(
+            consent.request, "pairing_test", ToolClass.ACT,
+            "Проверка связки: подтвердите, что видите этот запрос")
+        ok = decision in (Decision.ALLOW, Decision.ALLOW_GRANT, Decision.AUTO)
+        pairing_consent_ok["value"] = ok
+        audit.record(tool="pairing_test", tool_class="ACT",
+                     decision=decision.value if hasattr(decision, "value")
+                     else str(decision), ok=ok,
+                     line=("проверка связки: согласие работает" if ok else
+                           "проверка связки: подтверждения не было"),
+                     detail="")
+        return JSONResponse({"ok": ok, "decision": str(decision)})
 
     async def api_robot_status(request: Request) -> Response:
         st = await robot.status()
@@ -1663,6 +1750,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/wizard/pairing/start", api_wizard_pairing_start,
                   methods=["POST"]),
             Route("/api/wizard/disks", api_wizard_disks),
+            Route("/api/pairing/state", api_pairing_state),
+            Route("/api/pairing/consent-test", api_pairing_consent_test,
+                  methods=["POST"]),
             Route("/api/wizard/prepare", api_wizard_prepare,
                   methods=["POST"]),
             Route("/events", events),

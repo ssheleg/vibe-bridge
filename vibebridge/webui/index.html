@@ -100,6 +100,15 @@ max-width:1180px;margin:0 auto;padding:16px 24px 48px}
    `anywhere`, а не `break-word`: перенос обязан случиться и внутри слова,
    иначе неразрывный URL всё равно шире колонки. */
 .row>*{min-width:0}
+/* Чеклист связки: четыре факта, каждый со своим состоянием (SCR-07, U-7).
+   Пункт, который ещё не проверяли, отличается от провалившегося — иначе
+   «ещё не знаем» читается как «не работает». */
+.check{display:flex;gap:8px;align-items:flex-start;padding:5px 0}
+.check .mark{flex:none;width:var(--dot);height:var(--dot);border-radius:50%;
+  margin-top:5px;background:var(--muted)}
+.check.ok .mark{background:var(--ok)}
+.check.bad .mark{background:var(--danger)}
+.check .why{display:block;color:var(--muted);font-size:var(--t-note)}
 .row>span:not(.t):not(.dot){overflow-wrap:anywhere}
 .row:hover{background:var(--panel-2)}
 .row:last-child{border-bottom:0}
@@ -277,6 +286,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
       <p class="note" id="atNote" style="margin-top:6px"></p>
     </div>
     <div id="wizardCard" style="display:none"><p class="empty">Загружаю…</p></div>
+    <div id="pairCard" style="display:none;margin-top:12px"></div>
   </div>
   <div class="card">
     <div class="cap">Разрешения</div>
@@ -537,7 +547,7 @@ function selectTab(b){
   });
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));
   if (b.dataset.view==="journal") loadJournal(true);
-  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); loadVersion(); loadAccess(); }
+  if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); loadVersion(); loadAccess(); loadPairing(); }
 }
 document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("click", ()=>selectTab(b)));
 document.querySelector(".tabs").addEventListener("keydown", (e)=>{
@@ -733,6 +743,67 @@ async function loadWizard(){
     el.innerHTML = html;
   } catch(e){ el.innerHTML = '<p class="empty">Не удалось опросить диски.</p>'; }
 }
+/* Экран связки (SCR-07). Семь состояний канона, из которых до 2026-09-02 не
+   было построено ни одного: владелец записывал карту и оставался с фразой
+   «когда робот свяжется, карточка оживёт» — без единого факта (U-7). */
+const PAIR_PHASE = {
+  idle:      "",
+  waiting:   "Робот устанавливается — обычно пять–десять минут. Мост ждёт, когда он постучится.",
+  checklist: "Робот нашёлся. Проверяем связку фактами.",
+  green:     "Связка проверена. Скажите роботу привет.",
+};
+let pairTimer = null;
+async function loadPairing(){
+  const el = document.getElementById("pairCard");
+  let d;
+  try{ d = await (await fetch("/api/pairing/state")).json(); }
+  catch(e){ el.style.display=""; el.innerHTML = '<p class="empty">Мост не ответил — состояние связки неизвестно.</p>'; return; }
+  if (d.phase === "idle"){ el.style.display = "none"; return; }
+  el.style.display = "";
+  const списком = d.checks.map(c=>{
+    // «Не проверяли» и «провалилось» — разные новости: первое не красное.
+    const bad = !c.ok && c.why && c.why !== "не запускали";
+    return `<div class="check ${c.ok?"ok":(bad?"bad":"")}"><span class="mark"></span>`+
+      `<span>${esc(c.text)}${c.why?`<span class="why">${esc(c.why)}</span>`:""}</span></div>`;
+  }).join("");
+  const шапка = d.robot_name && d.phase !== "waiting"
+    ? `<div class="kv"><span class="k">Робот</span><span class="v">${esc(d.robot_name)}</span></div>` : "";
+  let действия = "";
+  if (d.phase === "checklist"){
+    действия = `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">`+
+      `<button class="btn primary" onclick="pairConsentTest(this)">Проверить согласие</button>`+
+      `<button class="btn ghost" onclick="loadPairing()">Проверить снова</button></div>`+
+      `<p class="note" id="pairNote" style="margin-top:6px"></p>`;
+  } else if (d.phase === "green"){
+    действия = `<div style="margin-top:10px"><button class="btn primary" onclick="document.querySelector('.tab[data-view=&quot;chat&quot;]').click()">Скажите роботу привет</button></div>`;
+  } else if (d.phase === "waiting"){
+    действия = `<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">`+
+      `<button class="btn ghost" onclick="loadPairing()">Проверить сейчас</button></div>`+
+      `<p class="note" style="margin-top:6px">Не дождались? Проверьте питание робота, его Wi-Fi и что карта вставлена до щелчка. Связку можно взвести заново, записав карту ещё раз.</p>`;
+  }
+  el.innerHTML = `<div class="card"><div class="cap">Связка · ${d.done} из ${d.total}</div>`+
+    `<p class="note" style="margin-bottom:8px">${esc(PAIR_PHASE[d.phase]||"")}</p>`+
+    шапка + списком + действия + `</div>`;
+  // Живой опрос только пока ждём: экран, который сам не обновляется, требует
+  // от владельца жать «обновить» ровно в тот момент, когда он волнуется.
+  clearTimeout(pairTimer);
+  if (d.phase === "waiting" || d.phase === "checklist")
+    pairTimer = setTimeout(loadPairing, 5000);
+}
+async function pairConsentTest(btn){
+  const note = document.getElementById("pairNote");
+  btn.disabled = true;
+  note.textContent = "Отправил запрос — подтвердите его на экране или в виджете.";
+  try{
+    const r = await (await fetch("/api/pairing/consent-test",{method:"POST"})).json();
+    note.textContent = r.ok
+      ? "Согласие работает ✓"
+      : "Подтверждения не было — молчание считается отказом. Попробуйте ещё раз.";
+  } catch(e){ note.textContent = "Мост не ответил."; }
+  btn.disabled = false;
+  loadPairing();
+}
+
 async function wizardPrepare(){
   const note = document.getElementById("wzNote");
   note.textContent = "Записываю…";
@@ -744,8 +815,9 @@ async function wizardPrepare(){
     headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
   const d = await r.json();
   note.textContent = r.ok
-    ? "Готово ✓ Извлеките карту, вставьте в робота и включите питание. Когда робот свяжется, мост скажет — и карточка «Робот» оживёт."
+    ? "Готово ✓ Извлеките карту, вставьте в робота и включите питание."
     : ("Не вышло: " + (d.error||r.status));
+  if (r.ok) loadPairing();          // экран ожидания, а не обещание словами
 }
 /* phone / push */
 function b64ToU8(b64){
