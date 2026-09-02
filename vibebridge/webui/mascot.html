@@ -158,6 +158,17 @@ const IS_PET = document.documentElement.dataset.surface === "pet";
    классы `vb-*`, включая `.vb-paused{animation:none}`. */
 mascotStyles();
 
+// «Я на экране» — чтобы мост не слал тост поверх открытой поверхности
+// (SCN-010 шаг 3, U-12). Только когда вкладка ВИДИМА: свёрнутое окно смотрит
+// не больше, чем закрытое.
+function vbPresence(){
+  if (document.visibilityState !== "visible") return;
+  fetch("/api/presence", {method:"POST"}).catch(()=>{});
+}
+vbPresence();
+setInterval(vbPresence, 10000);
+document.addEventListener("visibilitychange", vbPresence);
+
 /* The id comes from the bridge, not from here. A page-local one was
    regenerated on every reload while the feed — which is server-side —
    survived, so the owner kept their visible history and the robot answered

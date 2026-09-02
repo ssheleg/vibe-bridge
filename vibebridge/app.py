@@ -219,7 +219,17 @@ def run(chosen=None) -> None:  # pragma: no cover - requires a GUI session
     consent = ConsentEngine(ask_timeout_s=settings.ask_timeout_s,
                             grant_ttl_s=settings.grant_ttl_s,
                             ask_for_read=settings.ask_for_read)
-    notify = make_notifier()
+    # Клик по уведомлению открывает панель на ленте — SCN-010 шаг 2. Раньше
+    # обработчик не задавался вовсе, и нажатие не делало ничего (U-12).
+    def _open_panel_feed() -> None:
+        try:
+            webbrowser.open(_panel_url(state) + "#feed")
+        except Exception:                      # noqa: BLE001
+            # молчим: это реакция на клик по тосту, и уронить из-за неё
+            # процесс моста нельзя. Панель всегда открывается из трея.
+            pass
+
+    notify = make_notifier(on_click=_open_panel_feed)
     backend = getattr(notify, "backend", "неизвестно")
     audit.record(tool="notify", tool_class="SYS", decision="auto", ok=True,
                  line=f"канал уведомлений: {backend}", detail="")

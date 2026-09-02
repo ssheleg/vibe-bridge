@@ -796,6 +796,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             # украшение. Робот не должен терять уведомление владельцу из-за
             # того, что не нарисовалась вторая поверхность.
             pass
+        # SCN-010 шаг 3: тост нужен тому, кто НЕ смотрит. Поверх открытой
+        # панели он дублирует уже видимое и приучает закрывать уведомления не
+        # читая. Лента и питомец при этом обновились ВЫШЕ — новость не
+        # пропадает, она просто не стучится второй раз (U-12).
+        if time.time() - presence["seen"] < PRESENCE_FRESH_S:
+            return True, "поверхность на экране — тост не нужен"
         return _base_notify(title, text)
     robot_state: dict = {"configured": robot.configured, "online": False,
                          "reason": "робот не подключён к панели"
@@ -804,6 +810,13 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     # всё сказанное роботом, пока мост был выключен или перезапускался,
     # исчезало молча (A-19). Файл ложится рядом с журналом — тот же каталог,
     # та же судьба при переезде.
+    #: Когда поверхность в последний раз сказала «я на экране». SCN-010 шаг 3:
+    #: тост нужен тому, кто НЕ смотрит; поверх открытой панели он дублирует
+    #: то, что уже видно, и приучает закрывать уведомления не читая (U-12).
+    #: Мост сам знать этого не может — знает только браузер, и он говорит.
+    presence: dict[str, float] = {"seen": 0.0}
+    PRESENCE_FRESH_S = 20.0
+
     robot_events = feed or EventFeed(audit.path.parent / "robot-feed.jsonl")
     if robot_events.last_error:
         audit.record(tool="feed", tool_class="SYS", decision="error",
@@ -973,6 +986,11 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     #: галочка, пережившая перезапуск, — это обещание без проверки.
     pairing_consent_ok: dict[str, bool | None] = {"value": None}
 
+    async def api_presence(request: Request) -> Response:
+        """Поверхность сообщает, что она на экране (SCN-010 шаг 3)."""
+        presence["seen"] = time.time()
+        return JSONResponse({"ok": True, "quiet_for_s": PRESENCE_FRESH_S})
+
     async def api_pairing_state(request: Request) -> Response:
         """Состояние экрана связки: фаза и четыре проверки (SCR-07, U-7)."""
         probe = await robot.probe() if robot.configured else None
@@ -1047,11 +1065,19 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         # reading `text` here meant the mascot silently never spoke a single
         # chat answer (caught live 2026-08-31: it went to "thinking" and then
         # said nothing, while the chat itself was working).
+        # Обе поверхности видят ОДИН разговор. Ответ из панели не попадал в
+        # ленту виджета, а разговор виджета — во вкладку «Чат»: две половины
+        # одного диалога жили порознь, и владелец не мог понять, почему робот
+        # «забыл» то, что ему только что сказали в другом окне (U-11).
+        robot_events.add({"ts": _now_iso(), "kind": "chat",
+                          "text": text, "by": "owner"})
         if answer.get("ok") and answer.get("reply"):
             thread.append({"role": "user", "content": text})
             thread.append({"role": "assistant",
                            "content": str(answer["reply"])})
             mascot.say(str(answer["reply"]), kind="chat")
+            robot_events.add({"ts": _now_iso(), "kind": "chat",
+                              "text": str(answer["reply"]), "by": "robot"})
         return JSONResponse(answer)
 
     async def api_robot_media(request: Request) -> Response:
@@ -1406,6 +1432,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """
         import secrets as _s
         if request.method == "POST" or not state.pet_session:
+            старая_сессия = state.pet_session
             state.pet_session = "pet-" + _s.token_hex(5)
             await asyncio.to_thread(state.save)
             if request.method == "POST":
@@ -1417,7 +1444,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                 # чтобы владелец видел, где начался новый разговор.
                 robot_events.add({"ts": _now_iso(), "kind": "session",
                                   "text": "— новый разговор —"})
-                chat_history.clear()
+                # ТОЛЬКО свою нить. `clear()` стирал ВСЕ сессии, включая
+                # панельную: владелец нажимал «Новый» в виджете и молча терял
+                # контекст разговора, который вёл на панели (U-11).
+                chat_history.pop(старая_сессия, None)
         return JSONResponse({"session": state.pet_session})
 
     async def api_mascot_stream(request: Request) -> Response:
@@ -1785,6 +1815,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/wizard/pairing/start", api_wizard_pairing_start,
                   methods=["POST"]),
             Route("/api/wizard/disks", api_wizard_disks),
+            Route("/api/presence", api_presence, methods=["POST"]),
             Route("/api/pairing/state", api_pairing_state),
             Route("/api/pairing/consent-test", api_pairing_consent_test,
                   methods=["POST"]),

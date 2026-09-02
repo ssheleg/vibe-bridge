@@ -58,7 +58,16 @@ def _bundled_icon():
     return None
 
 
-def make_notifier():
+def make_notifier(on_click=None):
+    """`on_click` — что сделать по нажатию на уведомление.
+
+    SCN-010 шаг 2 обещает, что клик открывает панель на ленте. `on_clicked`
+    не задавался вовсе: уведомление выглядело кликабельным и не делало
+    ничего — хуже, чем некликабельное, потому что учит не нажимать (U-12).
+    Бэкенд `osascript` клик не поддерживает по построению, и это сказано
+    вслух, а не обойдено молчанием.
+    """
+
     """One notifier for all three OSes, and it says which one it is.
 
     Prefers desktop-notifier (native UNUserNotificationCenter / WinRT / DBus)
@@ -83,7 +92,8 @@ def make_notifier():
         def _native(title: str, text: str) -> tuple[bool, str]:
             try:
                 notifier.send(title=str(title)[:60], message=str(text)[:180],
-                              **({"icon": icon} if icon else {}))
+                              **({"icon": icon} if icon else {}),
+                              **({"on_clicked": on_click} if on_click else {}))
                 return True, ""
             except Exception as exc:          # noqa: BLE001 - reported
                 return False, f"уведомление не показано: {exc}"
@@ -108,7 +118,11 @@ def make_notifier():
             if p.returncode != 0:
                 return False, (p.stderr or "osascript отказал").strip()[:160]
             return True, ""
-        _osa.backend = f"osascript (без имени приложения: {why[:60]})"  # type: ignore[attr-defined]
+        # Клик здесь не работает и работать не может: `display notification`
+        # не умеет обработчика. Backend это НАЗЫВАЕТ — панель показывает
+        # строку владельцу, а не притворяется, что нажатие что-то сделает.
+        _osa.backend = (f"osascript (без имени приложения и без нажатия: "
+                        f"{why[:50]})")  # type: ignore[attr-defined]
         return _osa
 
     def _none(title: str, text: str) -> tuple[bool, str]:

@@ -59,8 +59,13 @@ def test_the_thread_never_reaches_the_disk():
 def test_the_owner_can_cut_the_thread():
     """«Новый» обязан обрывать нить, иначе стереть её нечем."""
     source = _web_source()
-    assert "chat_history.clear()" in source, (
+    # Свойство: нить обрывается — и ТОЛЬКО своя. `clear()` стирал все сессии,
+    # включая панельную (U-11), поэтому ассерт на него теперь означал бы
+    # «верните дефект».
+    assert "chat_history.pop(" in source, (
         "нить нечем оборвать — обещание владельцу не выполняется")
+    assert "chat_history.clear()" not in source, (
+        "«Новый» снова стирает чужую сессию вместе со своей")
 
 
 def test_no_surface_claims_the_bridge_keeps_no_context():

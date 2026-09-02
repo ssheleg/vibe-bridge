@@ -435,7 +435,14 @@ def test_the_thread_is_bounded_and_dropped_with_the_session(tmp_path):
 
     web = (Path(__import__("vibebridge").__file__).parent / "web.py").read_text()
     assert "deque(maxlen=20)" in web            # bounded
-    assert "chat_history.clear()" in web        # forgotten on a new session
+    # Свойство, а не механизм: новая сессия забывает СВОЮ нить — и только
+    # свою. Ассерт стоял на `chat_history.clear()`, то есть закреплял ровно
+    # тот вызов, который и был дефектом: он стирал ВСЕ сессии, включая
+    # панельную, и владелец, нажав «Новый» в виджете, молча терял разговор,
+    # который вёл на панели (U-11, класс A-43).
+    assert "chat_history.clear()" not in web, (
+        "«Новый» снова стирает все сессии, а не только свою")
+    assert "chat_history.pop(" in web, "новая сессия не забывает свою нить"
 
     state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
     app = build_app(consent=ConsentEngine(),

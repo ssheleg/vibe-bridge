@@ -488,6 +488,23 @@ function chatRow(who, text, cls){
   return `<div class="row"><span class="dot ${cls||"mut"}"></span>`+
     `<span><b>${who}:</b> ${esc(text)}</span></div>`;
 }
+// Вкладка «Чат» показывает ОДИН разговор на обе поверхности: то, что
+// сказано питомцу, видно здесь, и наоборот. Раньше панель рисовала только
+// собственный DOM, и разговор виджета для неё не существовал (U-11).
+async function loadChat(){
+  const feed = document.getElementById("chatFeed");
+  let items;
+  try{ items = (await (await fetch("/api/mascot/stream")).json()).items || []; }
+  catch(e){ return; }                      // молча: DOM уже показывает своё
+  const реплики = items.filter(i => i.kind === "chat" || i.kind === "session");
+  if (!реплики.length) return;             // пустое состояние уже на месте
+  feed.innerHTML = реплики.map(i => i.kind === "session"
+    ? `<p class="note" style="margin:6px 0">— новый разговор —</p>`
+    : chatRow(i.by === "owner" ? "Вы" : "Робот", i.text || "",
+              i.by === "owner" ? "info" : "ok")).join("");
+  feed.scrollTop = feed.scrollHeight;
+}
+
 async function sendChat(){
   if (chatBusy) return;
   const inp = document.getElementById("chatInput");
@@ -502,9 +519,11 @@ async function sendChat(){
     const r = await (await fetch("/api/robot/chat", {method:"POST",
       headers:{"Content-Type":"application/json"}, body:JSON.stringify({text})})).json();
     if (r.ok){
-      feed.insertAdjacentHTML("beforeend", chatRow("Робот", r.reply, "ok"));
       inp.value = "";
       document.getElementById("chatNote").textContent = "";
+      // Перечитываем ОБЩИЙ поток, а не дорисовываем свой: иначе панель снова
+      // покажет половину разговора.
+      await loadChat();
     } else {
       feed.insertAdjacentHTML("beforeend",
         chatRow("—", (r.undelivered?"не доставлено: ":"")+(r.error||""), "danger"));
@@ -560,6 +579,17 @@ document.querySelectorAll("[data-theme-pick]").forEach(b=>b.addEventListener("cl
 }));
 paintTheme();
 
+// «Я на экране» — чтобы мост не слал тост поверх открытой поверхности
+// (SCN-010 шаг 3, U-12). Только когда вкладка ВИДИМА: свёрнутое окно смотрит
+// не больше, чем закрытое.
+function vbPresence(){
+  if (document.visibilityState !== "visible") return;
+  fetch("/api/presence", {method:"POST"}).catch(()=>{});
+}
+vbPresence();
+setInterval(vbPresence, 10000);
+document.addEventListener("visibilitychange", vbPresence);
+
 function selectTab(b){
   document.querySelectorAll(".tab[data-view]").forEach(x=>{
     const on = x===b;
@@ -570,6 +600,7 @@ function selectTab(b){
     x.tabIndex = on ? 0 : -1;
   });
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));
+  if (b.dataset.view==="chat") loadChat();
   if (b.dataset.view==="journal") loadJournal(true);
   if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); loadVersion(); loadAccess(); loadPairing(); }
 }
