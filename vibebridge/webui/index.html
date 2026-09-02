@@ -89,6 +89,14 @@ max-width:1180px;margin:0 auto;padding:16px 24px 48px}
 .kv:last-child{border-bottom:0}
 .kv .k{color:var(--muted);flex:none} .kv .v{font-family:var(--font-data);min-width:0;text-align:right;word-break:break-word}
 .row{display:flex;gap:12px;align-items:center;min-height:34px;padding:0 4px;border-bottom:1px solid var(--border);transition:background var(--dur-h) var(--ease)}
+/* Флекс-элемент по умолчанию не сжимается уже своего содержимого: одна
+   длинная строка события (URL, путь, токен) распирала журнал и тянула
+   горизонтальный скролл на всю панель. Соседний `.kv .v` это правило уже
+   имел — знали и применили в одном месте из двух (V-12).
+   `anywhere`, а не `break-word`: перенос обязан случиться и внутри слова,
+   иначе неразрывный URL всё равно шире колонки. */
+.row>*{min-width:0}
+.row>span:not(.t):not(.dot){overflow-wrap:anywhere}
 .row:hover{background:var(--panel-2)}
 .row:last-child{border-bottom:0}
 .row .t{margin-left:auto;color:var(--muted);font-family:var(--font-data);font-size:var(--t-note);white-space:nowrap}
@@ -139,7 +147,11 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 .mascot-drain>i{display:block;height:100%;width:100%;background:var(--warn);transform-origin:left;transform:scaleX(var(--left,1));transition:transform 1s linear}
 .mascot-secs{font-size:var(--t-cap);color:var(--muted);font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion: reduce){ .mascot-drain{display:none} }
-.mascot-bubble{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-card);padding:7px 11px;margin-bottom:8px;max-width:100%;word-break:break-word;font-size:var(--t-cap)}
+/* Речь робота — `--t-body`: `--t-cap` документирован как «подписи карточек»,
+   и то, что робот СКАЗАЛ, подписью не является. Потолок высоты — как в
+   виджете: длинный ответ был ограничен там и не ограничен здесь, то есть
+   одна и та же реплика вела себя на двух поверхностях по-разному (V-13). */
+.mascot-bubble{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-card);padding:7px 11px;margin-bottom:8px;max-width:100%;overflow-wrap:anywhere;font-size:var(--t-body);max-height:230px;overflow-y:auto}
 .mascot-body{line-height:0}
 </style>
 </head>

@@ -88,9 +88,22 @@ def test_the_character_is_one_implementation_for_both_surfaces(client):
 def test_the_bubble_escapes_what_the_robot_said():
     """A reply containing markup must stay a reply. `mascot.say` stores text
     verbatim on purpose, so the escaping has to be here."""
-    js = (WEBUI / "mascot.js").read_text()
-    assert "textContent" in js                     # escape helper present
-    assert "esc(snap.says)" in js
+    # Свойство, а не механизм: ассерт стоял на `esc(snap.says)` и покраснел,
+    # когда разметка ответа переехала в общий `vbFormat` (который экранирует
+    # первым делом). Проверяем ПОВЕДЕНИЕ настоящим движком — класс A-43.
+    from js_runner import extract, run
+
+    # `vbEsc` экранирует ЧЕРЕЗ документ (`textContent` → `innerHTML`), а в
+    # node документа нет. Ставим минимальную заглушку с тем же контрактом —
+    # так проверяется настоящая функция, а не её пересказ.
+    DOM = ('const document={createElement:()=>({set textContent(v){'
+           'this.innerHTML=String(v).replace(/&/g,"&amp;")'
+           '.replace(/</g,"&lt;").replace(/>/g,"&gt;")}, innerHTML:""})};')
+    got = run([DOM, extract("mascot.js", "vbEsc"),
+               extract("mascot.js", "vbFormat")],
+              'console.log(JSON.stringify(vbFormat("<img src=x onerror=alert(1)>")))')
+    assert "<img" not in got, got
+    assert "&lt;img" in got, got
 
 
 def test_the_window_page_is_transparent_for_a_borderless_panel():
@@ -199,13 +212,34 @@ def test_the_mascot_speaks_the_reply_under_the_key_the_client_returns(tmp_path):
 
 
 def test_the_robots_markdown_is_rendered_not_shown_raw():
-    """A reply arrived as `**Система:** работает 63+ часа` and the asterisks
-    were on screen."""
-    html = (WEBUI / "mascot.html").read_text()
-    assert "<b>$1</b>" in html
-    # …and escaping happens FIRST, so markup in a reply stays a reply.
-    fmt = html.split("function fmt(", 1)[1].split("}", 1)[0]
-    assert fmt.index("esc(text)") < fmt.index("replace")
+    """Одна реплика — одна картина на обеих поверхностях.
+
+    `fmt()` жила только в `mascot.html`, поэтому панель показывала сырые `**`
+    и обратные кавычки, а виджет — оформленный текст (V-13). Проверяется
+    поведение общей функции, а не наличие строки `<b>$1</b>` в файле: такой
+    ассерт закрепляет РЕАЛИЗАЦИЮ и краснеет от переезда кода (класс A-43).
+    """
+    from js_runner import extract, run
+
+    DOM = ('const document={createElement:()=>({set textContent(v){'
+           'this.innerHTML=String(v).replace(/&/g,"&amp;")'
+           '.replace(/</g,"&lt;").replace(/>/g,"&gt;")}, innerHTML:""})};')
+    got = run([DOM, extract("mascot.js", "vbEsc"),
+               extract("mascot.js", "vbFormat")],
+              'console.log(JSON.stringify(vbFormat("**жирно** и `код`\\nвторая")))')
+    assert "<b>жирно</b>" in got, got
+    assert "<code>код</code>" in got, got
+    assert "<br>" in got, got
+    assert "**" not in got and "`" not in got, f"сырая разметка осталась: {got}"
+
+
+def test_both_surfaces_format_the_reply_with_the_same_function():
+    """Панель и виджет обязаны звать ОДНУ функцию — иначе они снова разойдутся."""
+    js = code_of("mascot.js")
+    assert "vbFormat(snap.says)" in js, "панель не форматирует ответ"
+    window = code_of("mascot.html")
+    assert "const fmt = vbFormat" in window, (
+        "виджет снова держит свою копию разметки ответа")
 
 
 def test_the_dialogue_keeps_no_history_beyond_the_session():

@@ -181,12 +181,8 @@ function esc(x){
 /* The robot answers in Markdown and the bubble showed `**Система:**` raw.
    Escape FIRST, then format the escaped text — so a reply containing markup
    stays a reply and can never become script. */
-function fmt(text){
-  return esc(text)
-    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
-    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
-    .replace(/\n/g, "<br>");
-}
+// Разметка ответа живёт в `mascot.js` — одна на обе поверхности (V-13).
+const fmt = vbFormat;
 
 /* The COMPANION window hugs what is drawn: a fixed frame clipped the dialogue,
    and every empty pixel of an oversized transparent window swallows a click

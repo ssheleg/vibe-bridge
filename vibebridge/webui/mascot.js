@@ -176,6 +176,18 @@ function mascotStyles(){
 
 /* Render into `el`. `snap` is exactly what /api/mascot returns — no local
  * state, so the character can never disagree with the bridge. */
+/** Разметка того, что сказал робот: экранируем, потом разрешаем РОВНО три
+    вещи — жирное, код и перенос строки. Жила только в `mascot.html`, поэтому
+    панель показывала сырые `**` и обратные кавычки, а виджет — оформленный
+    текст. Одна реплика, две разные картины (V-13). */
+function vbFormat(text){
+  return vbEsc(text)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+    .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+    .replace(/\n/g, "<br>");
+}
+
+
 function renderMascot(el, snap, opts){
   opts = opts || {};
   mascotStyles();
@@ -186,7 +198,7 @@ function renderMascot(el, snap, opts){
   // The bubble renders whatever the robot said, so it is escaped here and
   // inserted as text — a reply containing markup must stay a reply.
   const bubble = snap.says
-    ? `<div class="mascot-bubble">${esc(snap.says)}</div>` : "";
+    ? `<div class="mascot-bubble">${vbFormat(snap.says)}</div>` : "";
   // Молчание — отказ по умолчанию; полоса и цифра говорят это вслух (A-9).
   const full = snap.ask_timeout_s || 0, left = snap.asks_left_s;
   const deadline = (snap.actionable && full && left != null)
