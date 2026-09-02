@@ -98,10 +98,17 @@ echo "иконка в бандле: наша ($(wc -c < packaging/vibe-bridge.ic
 say "Зависимости внутрь бандла"
 # Every Mach-O the process loads must live here and be signed by us — that is
 # what lets the app run with library validation ON (ADR-0006).
+#
+# Пин mcp ЧИТАЕТСЯ, а не повторяется: второй литерал здесь был второй правдой,
+# которая расходится молча — pyproject бампают, скрипт забывают, и в DMG
+# уезжает не та генерация протокола (A-15).
+MCP_PIN="$(python3 -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["tool"]["vibebridge"]["wire"]["mcp"])')"
+[ -n "$MCP_PIN" ] || { echo "не прочитал пин mcp из pyproject" >&2; exit 1; }
+echo "wire: mcp==$MCP_PIN"
 rm -rf "$APP/Contents/Resources/app_packages"
 uv pip install --quiet --target "$APP/Contents/Resources/app_packages" \
   --python-platform macos --python-version 3.12 \
-  "mcp==1.26.0" "pywebpush>=2.4.0" "rumps>=0.4" \
+  "mcp==$MCP_PIN" "pywebpush>=2.4.0" "rumps>=0.4" \
   "pyobjc-framework-ServiceManagement>=12" "pyobjc-framework-Quartz>=12" \
   "pyobjc-framework-WebKit>=12" "desktop-notifier>=6" \
   "std-nslog>=1.0"

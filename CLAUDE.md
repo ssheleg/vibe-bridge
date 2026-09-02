@@ -5,7 +5,10 @@
 `docs/ux/` (vision → foundation → scenarios → flows); архитектура —
 `docs/spec/architecture.md`; решения — `docs/adr/`.
 
-- Wire-парность: `mcp` SDK бампается только вместе с `HERMES_VERSION` робота.
+- Wire-парность: `mcp` SDK бампается только вместе с `HERMES_VERSION`
+  робота. Это **гейт**, а не пожелание: пара объявлена в
+  `[tool.vibebridge.wire]`, сцеплена с зависимостью и сверяется с
+  `orchestrators.env` робота — `tests/test_wire_parity.py`.
 - Fleet-канон робота: **никакого SSH** к Pi — бутстрап только через SD-образ
   (ADR-0001), обновления робота — его собственный GitHub-таймер.
 - Тесты: `uv run python -m pytest tests/ -q`. Линт: `ruff check` (E/F/I/B).

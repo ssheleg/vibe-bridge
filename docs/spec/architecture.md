@@ -234,6 +234,8 @@ Dev-режим остаётся: `uv run python -m vibebridge.app`. Уведом
 5. Решения согласия принимает только ConsentEngine; поверхности — вьюхи.
 6. Пейринг-токены одноразовы и самоудаляемы с FAT.
 7. Wire-парность: `mcp` бампается только с `HERMES_VERSION` (retro §1).
+   Пара объявлена в `[tool.vibebridge.wire]` и гейтится
+   `tests/test_wire_parity.py`; скрипт сборки читает пин оттуда же.
 8. DNS-rebinding-защита включена с явными allowed_hosts (замена M4-обхода).
 9. Мозг не в мосте: никакие LLM-вызовы из bridge не делаются (vision §5.5).
 

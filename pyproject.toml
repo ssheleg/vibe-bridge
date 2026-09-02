@@ -8,14 +8,29 @@ description = "vibe-bridge: пульт и руки робота на компь�
 license = "LicenseRef-Proprietary"
 requires-python = ">=3.12"
 dependencies = [
-    # Wire parity with the robot: Hermes 0.19 ships mcp==1.26.0 as its MCP
-    # client (its authors' own pin). Speaking the same SDK generation on the
-    # server side removes a whole class of protocol-revision surprises —
-    # 2026-08-28 the robot lost first HTTP transport, then the call path, to
-    # exactly such a mismatch. Bump TOGETHER with the robot's HERMES_VERSION.
+    # Wire parity with the robot — ОДНА пара, объявленная в
+    # [tool.vibebridge.wire] ниже и гейтящаяся tests/test_wire_parity.py.
+    # Hermes 0.19 ships mcp==1.26.0 as its MCP client (its authors' own pin).
+    # Speaking the same SDK generation on the server side removes a whole
+    # class of protocol-revision surprises — 2026-08-28 the robot lost first
+    # HTTP transport, then the call path, to exactly such a mismatch.
     "mcp==1.26.0",
     "pywebpush>=2.4.0",
 ]
+
+[tool.vibebridge.wire]
+# ПАРА, а не два числа. `mcp` — генерация SDK, на которой говорит мост;
+# `hermes` — версия мозга, ПОД которую она выбрана. Бампаются вместе, и
+# tests/test_wire_parity.py это проверяет: пин сцеплен с зависимостью выше,
+# скрипт сборки читает его отсюда, а `hermes` сверяется с
+# `requirements/orchestrators.env` робота, когда его дерево доступно.
+#
+# Осторожно с соседом: у робота ЕЩЁ ОДИН MCP — периферийный сервер
+# (`requirements/periphery.txt`, `mcp>=1.27,<2`). Он контрагентом моста НЕ
+# является: мост разговаривает с мозгом, а не с датчиками, и сверять пин с
+# ним значит бампать протокол ради процесса, который к мосту не обращается.
+mcp = "1.26.0"
+hermes = "0.19.0"
 
 [project.optional-dependencies]
 # Per-OS capability packs. The core installs on any OS; a capability that
