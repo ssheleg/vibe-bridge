@@ -275,3 +275,27 @@ def test_a_broken_notifier_never_costs_the_robot_its_answer():
                                          "reason": "нет прав"}},
             on_needs_permission=boom)
     assert out["unavailable"] is True and "нет прав" in out["error"]
+
+
+def test_a_call_by_the_deprecated_name_is_visible_in_the_journal(tmp_path):
+    """A-31/B-7: алиасы — 54% определений инструментов (измерено), но снять
+    их вслепую нельзя: скил робота называет ТОЛЬКО устаревшую половину, и
+    неизвестно, чем он пользуется на самом деле. Журнал даёт условие."""
+    from vibebridge.audit import AuditLog
+    from vibebridge.capabilities import Capability, Runner
+    from vibebridge.consent import ConsentEngine, ToolClass
+    from vibebridge.server import dispatch
+
+    audit = AuditLog(tmp_path / "a.log")
+    cap = Capability("notify", ToolClass.READ, "показываю", lambda r, a: "ok",
+                     {})
+    dispatch(cap, {}, consent=ConsentEngine(), audit=audit, runner=Runner(),
+             called_as="mac_notify")
+    lines = [e["line"] for e in audit.recent(5)]
+    assert any("устаревшим именем «mac_notify»" in ln for ln in lines), lines
+
+    # ...а канонический вызов лишней строки не пишет
+    audit2 = AuditLog(tmp_path / "b.log")
+    dispatch(cap, {}, consent=ConsentEngine(), audit=audit2, runner=Runner(),
+             called_as="notify")
+    assert not [e for e in audit2.recent(5) if e.get("detail") == "alias"]

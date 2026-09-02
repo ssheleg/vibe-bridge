@@ -91,7 +91,8 @@ def build_server(
 def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
              audit: AuditLog, runner: Runner,
              availability: dict[str, dict] | None = None,
-             on_needs_permission=None) -> dict[str, Any]:
+             on_needs_permission=None,
+             called_as: str | None = None) -> dict[str, Any]:
     """Pure-ish core: availability → consent → handler → audit.
 
     Availability is checked BEFORE consent: an impossible action must not
@@ -100,6 +101,15 @@ def dispatch(cap: Capability, args: dict, *, consent: ConsentEngine,
     test_core_v2.py) without standing up the HTTP layer.
     """
     line = cap.summary(args)
+    if called_as and called_as != cap.name:
+        # Робота никто не спрашивал, каким именем он зовёт. Пока это не в
+        # журнале, «снять алиасы» — решение вслепую: неизвестно, останется
+        # ли мозг без рук (A-31/B-7). Теперь видно.
+        audit.record(tool=cap.name, tool_class=cap.tool_class.value,
+                     decision="auto", ok=True,
+                     line=f"вызов устаревшим именем «{called_as}» → "
+                          f"{cap.name}",
+                     detail="alias")
     info = (availability or {}).get(cap.name)
     if info is not None and info.get("status") != "available":
         reason = info.get("reason") or "недоступно на этой системе"
@@ -166,7 +176,7 @@ def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
 
     ns: dict = {"_dispatch": dispatch, "cap": cap, "consent": consent,
                 "audit": audit, "runner": runner, "availability": availability,
-                "_needs": on_needs_permission,
+                "_needs": on_needs_permission, "_called_as": fn_name,
                 "_to_thread": anyio.to_thread.run_sync,
                 "_partial": functools.partial}
     # dispatch() BLOCKS (consent waits up to 60s, handlers shell out) — it
@@ -178,7 +188,8 @@ def _register(mcp: FastMCP, cap: Capability, *, consent, audit, runner,
         f"async def {fn_name}({params}) -> dict:\n"
         f"    return await _to_thread(_partial(_dispatch, cap, {{{forward}}}, "
         f"consent=consent, audit=audit, runner=runner, "
-        f"availability=availability, on_needs_permission=_needs))\n"
+        f"availability=availability, on_needs_permission=_needs, "
+        f"called_as=_called_as))\n"
     )
     exec(src, ns)  # noqa: S102 - names are our own capability keys, not input
     fn = ns[fn_name]
