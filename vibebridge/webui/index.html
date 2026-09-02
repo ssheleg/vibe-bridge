@@ -355,8 +355,15 @@ function rowHtml(e){
   // Поле в API называется `class`, а не `tool_class`: первая версия читала
   // второе и молча рисовала пустоту. Поймано запросом к живому мосту.
   const кл = e["class"] ? `<span class="chip">${esc(e["class"])}</span> ` : "";
+  // Записи класса SYS решает не человек: это граница, обновление, канал
+  // уведомлений. `DW.deny` подписывал их «отказ владельца» — то есть
+  // приписывал владельцу отказ, которого тот не видел (найдено живой
+  // проверкой 2026-09-02, B-47). Строка SYS самодостаточна: она уже говорит,
+  // что произошло, и вторая половина нужна только там, где решение
+  // ПРИНИМАЛОСЬ.
+  const слово = e["class"] === "SYS" ? "" : ` — ${DW[e.decision]||esc(e.decision)}`;
   return `<div class="row"><span class="dot ${cls}"></span>`+
-    `<span>${кл}${esc(e.line||e.tool)} — ${DW[e.decision]||esc(e.decision)}${e.ok?"":" ✗"}</span>`+
+    `<span>${кл}${esc(e.line||e.tool)}${слово}${e.ok?"":" ✗"}</span>`+
     `<span class="t">${esc(localTs(e.ts))}</span></div>`;
 }
 function render(s){

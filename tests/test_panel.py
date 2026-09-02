@@ -452,3 +452,26 @@ def test_a_closed_request_is_not_guessed_at():
     assert "уже решён с другой поверхности" not in запасная, (
         f"виджет угадывает причину закрытия: {запасная}")
     assert "не сказал" in запасная, запасная
+
+
+def test_the_journal_does_not_blame_the_owner_for_the_boundary():
+    """Записи класса SYS решает не человек: это граница MCP, обновление,
+    канал уведомлений. `DW.deny` подписывал их «отказ владельца» — то есть
+    приписывал владельцу отказ, которого тот не видел.
+
+    Измерено на живом мосту 2026-09-02: 9 таких записей из последних 60
+    (B-47). Найдено живой проверкой, а не отчётом.
+    """
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text(
+        encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/", "", page, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    тело = code.split("function rowHtml", 1)[1].split("\n}", 1)[0]
+    assert '"SYS"' in тело, (
+        "строка журнала снова подписывает решением ВСЕ записи, включая те, "
+        "где решения человека не было")
