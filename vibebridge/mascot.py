@@ -10,8 +10,15 @@
   drowsy, not "back soon": nothing. The agent must find a computer that looks
   switched off, and the owner must not be invited to answer a request the
   bridge has already refused.
-* **«Не мессенджер».** One current line, and it expires. The journal is the
-  history; a mascot with a transcript is a chat app with a cartoon on it.
+* **«Не мессенджер».** One current line, and it expires — это про ПУЗЫРЬ
+  персонажа, и остаётся правдой: маскот с транскриптом это чат-приложение с
+  мультиком поверх.
+
+  Рядом с ним живёт лента виджета, и она НЕ пузырь: сессия на 200 записей и
+  1 МБ с ротацией, без загрузки файлов владельцем и с кнопкой «Новый»,
+  которая обрывает нить, а не архивирует её. Граница названа в визии §6 и
+  проверяется `tests/test_not_a_messenger.py` — доктрина в этом файле
+  говорила обратное отгруженному продукту (U-8).
 
 The state is derived, never stored: pause and pending come from the consent
 engine, online from the robot's own status. Two sources of truth for "is the

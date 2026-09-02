@@ -801,3 +801,34 @@ def test_every_state_has_a_word_to_say():
         assert len(chunk) == 2, f"нет состояния {state}"
         assert "label:" in chunk[1].split("},", 1)[0], (
             f"у состояния «{state}» нет слова")
+
+
+def test_the_scenario_describes_the_two_window_widget_that_shipped():
+    """SCN-026 шаг 4 описывал одно окно, которое «подрастает под виджет и
+    снова ужимается» — ровно ту конструкцию, чей провал вызвал переделку в
+    два окна: растущее прозрачное окно съедало клики по рабочему столу под
+    собой, а фигурка прыгала при каждом открытии (U-9).
+
+    Сценарий, описывающий отвергнутую конструкцию, — это инструкция вернуть
+    её обратно.
+    """
+    from pathlib import Path
+
+    import vibebridge
+
+    scenarios = (Path(vibebridge.__file__).parents[1] / "docs" / "ux"
+                 / "scenarios.md").read_text(encoding="utf-8")
+    шаг = [ln for ln in scenarios.splitlines()
+           if ln.strip().startswith("4.") and "питомц" in ln]
+    assert шаг, "шаг 4 SCN-026 пропал"
+    текст = шаг[0]
+    assert "ВТОРОЕ окно" in текст or "окно-компаньон" in текст, (
+        "сценарий снова описывает одно-оконный виджет")
+    assert "не меняет ни размера, ни места" in текст, (
+        "сценарий не говорит главного: окно питомца не двигается")
+
+    # ...и код действительно держит два окна, а не одно
+    desktop = (Path(vibebridge.__file__).parent / "desktop.py").read_text(
+        encoding="utf-8")
+    assert "PET_SIZE" in desktop and "side_frame" in desktop, (
+        "конструкция из двух окон исчезла — сценарий снова разойдётся с кодом")
