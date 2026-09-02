@@ -162,3 +162,91 @@ def test_a_shell_without_vbboot_at_all_is_still_a_sentence():
     with pytest.raises(shell_api.ShellTooOld) as err:
         shell_api.require_shell(importer=_absent)
     assert "нужен новый .app" in str(err.value)
+
+
+# --------------------------------------------------------------------------
+# Обратное направление: что оболочка ПЕРЕДАЁТ payload (B-45).
+#
+# Лечится оно иначе, и в этом весь смысл различения. Отсутствие ВЫЗОВА —
+# `AttributeError`, отказ уместен. Отсутствие ПЕРЕДАЧИ не роняет ничего, и
+# отказывать нельзя: пол ради косметики отсёк бы исправные оболочки от всего
+# payload. Значит единственная защита — сказать вслух, и проверять надо
+# именно то, что сказано.
+# --------------------------------------------------------------------------
+
+
+def test_the_shell_in_this_repo_passes_everything_it_declares():
+    """Оболочка репозитория реально передаёт объявленное. Верни кто-нибудь
+    `run()` вместо `run(chosen)` — и фича умрёт на всех будущих .app молча,
+    ровно как она мертва на 0.19.0 сейчас."""
+    import ast
+    source = (ROOT / "vbboot" / "__main__.py").read_text(encoding="utf-8")
+    calls = [n for n in ast.walk(ast.parse(source))
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+             and n.func.id == "run"]
+    assert calls, "оболочка вообще не зовёт payload"
+    passed = {a.id for call in calls for a in call.args
+              if isinstance(a, ast.Name)}
+    passed |= {kw.arg for call in calls for kw in call.keywords}
+    for name in shell_api.SHELL_PROVIDES:
+        assert name in passed, (
+            f"оболочка объявляет, что передаёт «{name}», а зовёт "
+            f"run({', '.join(sorted(passed)) or ''}) — фича payload умрёт "
+            f"молча")
+
+
+def test_the_payload_can_receive_everything_the_shell_passes():
+    """Вторая половина того же шва: `run` обязан ПРИНЯТЬ объявленное."""
+    import inspect
+
+    from vibebridge.app import run
+    parameters = inspect.signature(run).parameters
+    for name in shell_api.SHELL_PROVIDES:
+        assert name in parameters, f"`run` не принимает «{name}»"
+        assert parameters[name].default is None, (
+            f"«{name}» без умолчания — старая оболочка уронит мост TypeError'ом "
+            f"вместо деградации")
+
+
+def test_what_was_not_passed_is_named_with_its_consequence():
+    """Не «что-то не так», а ЧТО именно теперь неточно."""
+    gaps = shell_api.not_provided(chosen=None)
+    assert gaps == ["chosen"]
+    text = shell_api.degradation(gaps, "0.19.0")
+    assert "0.19.0" in text, text
+    assert "по догадке" in text, text
+    assert "мост работает" in text, "деградация — не отказ, это должно быть видно"
+    assert shell_api.not_provided(chosen=object()) == []
+
+
+def test_an_undeclared_name_is_refused_rather_than_ignored():
+    """Опечатка в имени не имеет права выглядеть как «всё передано»."""
+    with pytest.raises(KeyError):
+        shell_api.not_provided(chose=None)
+
+
+def test_the_panel_marks_a_guess_as_a_guess():
+    """Панель показывала догадку тем же шрифтом, что ответ (B-45)."""
+    from vibebridge import web
+    assert web.source_note() == "", "вне бандла источник ТОЧЕН — это не догадка"
+
+    class _Bundle:
+        pass
+    saved_res, saved_chosen = web._bundle_resources, web._chosen
+    try:
+        web._bundle_resources = lambda: _Bundle()
+        web._chosen = None
+        note = web.source_note()
+        assert "по догадке" in note, note
+        web._chosen = type("C", (), {"source": "seed"})()
+        assert web.source_note() == "", "ответ есть — оговорки быть не должно"
+    finally:
+        web._bundle_resources, web._chosen = saved_res, saved_chosen
+
+
+def test_the_panel_renders_the_note_when_there_is_one():
+    """Поле в JSON, которое не рисуется, — это молчание с лишним шагом."""
+    page = (ROOT / "vibebridge" / "webui" / "index.html").read_text(
+        encoding="utf-8")
+    assert "v.source_note" in page, "панель не читает source_note"
+    assert "esc(v.source_note)" in page, "оговорка вставляется без экранирования"

@@ -47,6 +47,38 @@ REQUIRED: dict[str, dict[str, str]] = {
 }
 
 
+#: ОБРАТНОЕ направление шва: что оболочка ПЕРЕДАЁТ payload, и во что
+#: превращается работа моста, если не передала. Версий здесь нет намеренно:
+#: релизов оболочки с тегом не было ни одного (`git tag -l 'shell-v*'` пуст),
+#: а знать наверняка можно и без версии — payload видит сам ФАКТ получения.
+#:
+#: Направление важно различать, потому что лечится оно иначе. Когда payload
+#: ЗОВЁТ отсутствующее — это `AttributeError`, и правильный ответ отказать
+#: (`SHELL_MIN`). Когда payload не ПОЛУЧИЛ переданное — ничего не падает, и
+#: отказывать нельзя: поднять пол ради косметики значит отсечь исправные
+#: оболочки от всего payload. Правильный ответ — сказать вслух (B-45).
+SHELL_PROVIDES: dict[str, str] = {
+    "chosen": ("источник кода и откат показываются по догадке, а не по "
+               "ответу оболочки"),
+}
+
+
+def not_provided(**received: object) -> list[str]:
+    """Что из `SHELL_PROVIDES` оболочка не передала. Ключи — имена оттуда."""
+    unknown = set(received) - set(SHELL_PROVIDES)
+    if unknown:
+        raise KeyError(f"не объявлено в SHELL_PROVIDES: {sorted(unknown)}")
+    return [name for name in SHELL_PROVIDES if received.get(name) is None]
+
+
+def degradation(names: list[str], have: str | None) -> str:
+    """Фраза про то, ЧТО именно теперь неточно, а не «что-то не так»."""
+    shell = f"оболочка {have}" if have else "оболочка"
+    effects = "; ".join(SHELL_PROVIDES[name] for name in names)
+    return (f"{shell} не передаёт: {', '.join(names)} — {effects}. "
+            f"Лечится новым .app; мост работает")
+
+
 def _parse(version: str) -> tuple[int, ...] | None:
     try:
         return tuple(int(part) for part in str(version).split("."))

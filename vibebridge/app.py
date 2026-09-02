@@ -28,6 +28,32 @@ def _serve(app, host: str, port: int) -> None:  # pragma: no cover - uvicorn
     )).run()   # signal handlers are skipped off the main thread
 
 
+def _say_shell_is_older_than_payload(audit: AuditLog) -> None:
+    """Оболочка не передала того, что payload умеет принять — сказать вслух.
+
+    Второе направление шва (B-45): когда payload ЗОВЁТ отсутствующее, это
+    `AttributeError` и правильный ответ отказать; когда payload не ПОЛУЧИЛ
+    переданное, не падает ничего — и молчание превращает догадку в «факт».
+    Измерено 2026-09-02: мост 0.25.0 на оболочке 0.19.0, строк `tool=boot`
+    в журнале ноль, панель показывала «обновлён автоматически», ничего про
+    источник не зная.
+
+    Вне бандла молчим: там оболочки нет вовсе, и жаловаться не на кого.
+    """
+    from vbboot.runner import shell_version
+
+    from .shell_api import degradation, not_provided
+
+    have = shell_version()
+    if have is None:
+        return                          # запуск из исходников: оболочки нет
+    gaps = not_provided(chosen=None)
+    if not gaps:
+        return
+    audit.record(tool="boot", tool_class="SYS", decision="auto", ok=True,
+                 line=degradation(gaps, have), detail="")
+
+
 def start_server(consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                  notify, settings=None) -> None:
     """Build the app and launch uvicorn in a worker thread (the tray owns
@@ -187,6 +213,8 @@ def run(chosen=None) -> None:  # pragma: no cover - requires a GUI session
                   + (" — откат: новая версия не запустилась"
                      if chosen.fell_back else "")),
             detail=str(chosen.path))
+    else:
+        _say_shell_is_older_than_payload(audit)
     settings = prepare_settings(state)
     consent = ConsentEngine(ask_timeout_s=settings.ask_timeout_s,
                             grant_ttl_s=settings.grant_ttl_s,

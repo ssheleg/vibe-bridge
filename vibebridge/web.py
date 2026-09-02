@@ -633,6 +633,24 @@ def _payload_source(root: Path, running: str) -> str:
     return "payload" if (root / running).is_dir() else "seed"
 
 
+def source_note() -> str:
+    """Пусто, когда источник ИЗВЕСТЕН; иначе — почему он догадка.
+
+    Второе направление шва (B-45): оболочка старше payload не роняет мост, а
+    молча лишает его ответа — и панель показывала догадку тем же шрифтом, что
+    факт. Измерено 2026-09-02: мост 0.25.0 на оболочке 0.19.0.
+
+    Вне бандла пусто: «запущен из исходников» — это и есть точный ответ.
+    """
+    if _chosen is not None or _bundle_resources() is None:
+        return ""
+    from vbboot.runner import shell_version
+
+    from .shell_api import degradation, not_provided
+    gaps = not_provided(chosen=None)
+    return degradation(gaps, shell_version()) if gaps else ""
+
+
 #: Our own code carries NO-STORE, and the reason is measured rather than
 #: theoretical. `FileResponse` sends only `etag` and `last-modified`; with no
 #: explicit freshness a client may fall back to a heuristic, and WKWebView
@@ -1140,6 +1158,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return JSONResponse({
             "running": __version__,
             "source": _payload_source(root, __version__),
+            # Догадка не имеет права выглядеть как ответ (B-45).
+            "source_note": source_note(),
             "pending": pending,
             "pending_note": ("обновление скачано и применится после "
                              "перезапуска моста" if pending else ""),
