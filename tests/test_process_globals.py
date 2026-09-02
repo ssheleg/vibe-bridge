@@ -73,3 +73,40 @@ def test_the_next_test_sees_a_clean_global():
     import vibebridge.capabilities as caps
 
     assert caps._notify_limit is None
+
+
+# ── A-42: набор не уходит в медленные внешние бинари ───────────────────────
+
+def test_the_suite_refuses_to_shell_into_slow_binaries():
+    """A-42: класс дважды стоил набору времени — десятисекундный прогон
+    становился четырёхминутным. Чинили его кэшем с TTL, то есть смягчали
+    симптом: вызовы оставались, просто реже.
+
+    Хуже скорости другое: ответ `tailscale` ЗАВИСИТ ОТ МАШИНЫ. На ноутбуке в
+    тейлнете `allowed_hosts` получает лишние адреса, в CI — не получает, и
+    тест проверяет разное в разных местах, не сообщая об этом.
+    """
+    from tests.conftest import SLOW_BINARIES
+
+    assert "tailscale" in SLOW_BINARIES
+    # Заглушка стоит на трёх функциях, а не на одной: каждая шеллится сама.
+    from vibebridge import net
+
+    assert net.tailscale_ips() == []
+    assert net.tailnet_dns_name() is None
+    assert net.serve_active(48620) is False
+
+
+def test_a_test_that_shells_out_is_named_at_teardown():
+    """Проверяется ФОРМА вердикта: он на teardown, а не бросок в момент
+    вызова. Бросок код под тестом ловит своим `except` и честно отвечает
+    «нет tailscale» — предохранитель промолчал бы (тот же вывод, что в
+    A-35)."""
+    import re
+    from pathlib import Path
+
+    src = (Path(__file__).parent / "conftest.py").read_text()
+    guard = src.split("if shelled:", 1)[1].split("if unguarded:", 1)[0]
+    assert "pytest.fail" in guard
+    assert re.search(r"CompletedProcess\(argv, 1", src), (
+        "заглушка обязана возвращать ОТКАЗ, а не выдуманный успех")

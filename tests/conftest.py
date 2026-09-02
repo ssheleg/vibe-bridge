@@ -22,6 +22,12 @@ def _isolated_config(tmp_path_factory, monkeypatch):
 #: Процессные глобалы, которые пишет РАБОТАЮЩИЙ мост. Список ведётся вручную
 #: и сверяется тестом `test_process_globals.py`: он ищет каждое `global` в
 #: отгружаемом коде и требует, чтобы оно было здесь.
+#: Бинари, которые НЕЛЬЗЯ звать из набора. Не потому что они опасны, а
+#: потому что медленны: `tailscale` отвечает ~1.3 с, и пара вызовов на
+#: `build_app` превращала десятисекундный прогон в четырёхминутный. Класс
+#: чинили дважды кэшем с TTL — то есть смягчали симптом (A-42).
+SLOW_BINARIES = ("tailscale",)
+
 _PROCESS_GLOBALS = (
     ("vibebridge.capabilities", "_notifier"),
     ("vibebridge.capabilities", "_notify_limit"),
@@ -71,6 +77,32 @@ class _Absent:
 _ABSENT = _Absent()
 
 
+@pytest.fixture(autouse=True)
+def _no_tailnet_lookups(request, monkeypatch):
+    """Набор не спрашивает у Tailscale ничего.
+
+    Дело не только в скорости, хотя и в ней: `tailscale` отвечает ~1.3 с, и
+    пара вызовов на `build_app` превращала десятисекундный прогон в
+    четырёхминутный. Дело в том, что ответ ЗАВИСИТ ОТ МАШИНЫ: на ноутбуке в
+    тейлнете `allowed_hosts` получает лишние адреса, а в CI — не получает, и
+    тест проверяет разное в разных местах, не сообщая об этом (A-42).
+
+    Тесты САМОГО кэша просят опт-аут маркером `tailnet_internals`: им нужны
+    настоящие функции, а `subprocess` они подменяют сами. Маркер, а не
+    догадка по имени файла: опт-аут должен быть виден в самом тесте.
+    """
+    from vibebridge import net
+
+    if request.node.get_closest_marker("tailnet_internals"):
+        monkeypatch.setattr(net, "_cache", {})
+        return
+
+    monkeypatch.setattr(net, "_cache", {})       # чужой TTL нам не судья
+    monkeypatch.setattr(net, "tailscale_ips", lambda **kw: [])
+    monkeypatch.setattr(net, "tailnet_dns_name", lambda **kw: None)
+    monkeypatch.setattr(net, "serve_active", lambda port: False)
+
+
 def _notifier_class_the_bridge_uses() -> str:
     """Как мост называет свой нотифаер — читаем у него, не помним у себя."""
     import re
@@ -107,6 +139,7 @@ def _no_real_notifications(monkeypatch):
     import subprocess
     real = subprocess.run
     caught: list[str] = []
+    shelled: list[str] = []
 
     def guarded(argv, *a, **kw):
         flat = " ".join(str(x) for x in (
@@ -114,6 +147,13 @@ def _no_real_notifications(monkeypatch):
         if "display notification" in flat:
             caught.append(flat[:140])
             return subprocess.CompletedProcess(argv, 0, "", "")
+        for binary in SLOW_BINARIES:
+            if binary in flat.lower():
+                # Возвращаем ЧЕСТНЫЙ отказ, а не выдуманный успех: код под
+                # тестом обязан уметь жить без этого бинаря, и пусть эту
+                # ветку он и пройдёт. Вердикт — на teardown (A-42).
+                shelled.append(f"{binary}: {flat[:120]}")
+                return subprocess.CompletedProcess(argv, 1, "", "")
         return real(argv, *a, **kw)
 
     monkeypatch.setattr(subprocess, "run", guarded)
@@ -147,6 +187,12 @@ def _no_real_notifications(monkeypatch):
             monkeypatch.setattr(cls, "send", guarded_send)
 
     yield caught
+    if shelled:
+        pytest.fail(
+            "тест ушёл в медленный внешний бинарь: " + shelled[0] +
+            " — подменяйте его в тесте; каждый такой вызов стоит секунды, "
+            "и дважды он уже превращал десятисекундный набор в четыре "
+            "минуты", pytrace=False)
     if unguarded:
         pytest.fail("канал уведомлений остался НЕ закрытым: " + unguarded[0],
                     pytrace=False)

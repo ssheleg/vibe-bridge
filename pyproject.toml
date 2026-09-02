@@ -117,5 +117,8 @@ select = ["E", "F", "I", "B"]
 ignore = ["E501"]  # long lines in generated exec-src / comments
 
 [tool.pytest.ini_options]
+markers = [
+    "tailnet_internals: тест проверяет САМ механизм опроса tailscale — ему нужны настоящие функции, а не заглушки",
+]
 testpaths = ["tests"]
 timeout = 60

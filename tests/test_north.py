@@ -8,6 +8,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from starlette.testclient import TestClient
@@ -222,6 +224,7 @@ def test_act_tool_does_not_block_event_loop(tmp_path):
     asyncio.run(scenario())
 
 
+@pytest.mark.tailnet_internals
 def test_tailnet_addresses_are_not_re_shelled_on_every_lookup(monkeypatch):
     """It runs the Tailscale CLI. Called per `build_app`, that was sixty
     subprocesses in one suite and an eighty-second run — the cost that makes
@@ -248,6 +251,7 @@ def test_tailnet_addresses_are_not_re_shelled_on_every_lookup(monkeypatch):
     assert len(calls) == 1
 
 
+@pytest.mark.tailnet_internals
 def test_a_forced_lookup_still_asks(monkeypatch):
     from vibebridge import net
 
@@ -268,6 +272,7 @@ def test_a_forced_lookup_still_asks(monkeypatch):
     assert len(calls) == 2
 
 
+@pytest.mark.tailnet_internals
 def test_the_cache_does_not_leak_between_callers(monkeypatch):
     """A caller mutating the returned list must not poison the next one."""
     from vibebridge import net
@@ -278,6 +283,7 @@ def test_the_cache_does_not_leak_between_callers(monkeypatch):
     assert net.tailscale_ips() == ["100.64.0.9"]
 
 
+@pytest.mark.tailnet_internals
 def test_the_magicdns_name_is_cached_too(monkeypatch):
     """It is the second subprocess `allowed_hosts` runs, and it runs on the
     same path as the first."""
