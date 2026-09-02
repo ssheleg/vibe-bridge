@@ -588,3 +588,78 @@ def test_the_reply_markup_has_one_implementation():
     window = code_of("mascot.html")
     assert "replace(/\\*\\*(" not in window, (
         "виджет снова держит свою копию разметки ответа")
+
+
+# --------------------------------------------------------------------------
+# V-14 и V-15: числа из пака живут токенами, а роли называются честно.
+# --------------------------------------------------------------------------
+
+
+def test_no_surface_writes_a_raw_shadow_colour():
+    """Три разных `rgba(0,0,0,…)` жили по месту вписывания — и в ТЁМНОЙ теме
+    чёрная тень под тёмной панелью не даёт ничего: правило написано и не
+    работает (V-14)."""
+    for name in SURFACES:
+        assert "rgba(0,0,0" not in _css(name).replace(" ", ""), (
+            f"{name}: тень вписана цветом, а не токеном — в тёмной теме она "
+            f"невидима, и это не будет заметно")
+
+
+def test_the_shadows_are_redefined_for_the_dark_theme():
+    """Токен — половина дела: чёрная тень остаётся чёрной, как её ни назови.
+    В тёмной теме глубину даёт светлое кольцо."""
+    css = re.sub(r"/\*.*?\*/", "",
+                 (WEBUI / "tokens.css").read_text(encoding="utf-8"), flags=re.S)
+    dark = css.split(':root[data-theme="dark"]{', 1)[1].split("}", 1)[0]
+    for token in ("--shadow-float", "--shadow-pop", "--shadow-panel"):
+        assert token in dark, f"{token} не переопределён для тёмной темы"
+        value = dark.split(token + ":", 1)[1].split(";", 1)[0]
+        assert "rgba(255,255,255" in value.replace(" ", ""), (
+            f"{token} в тёмной теме — снова только чёрное пятно: {value}")
+
+
+def test_the_status_dot_is_one_size_everywhere():
+    """Одна и та же точка была 8px в панели и 7px в виджете — потому что
+    писалась дважды."""
+    tokens = (WEBUI / "tokens.css").read_text(encoding="utf-8").replace(" ", "")
+    assert "--dot:" in tokens, "размер статус-точки не назван токеном"
+    for name in SURFACES:
+        for chunk in _css(name).split("}"):
+            head, sep, body = chunk.partition("{")
+            if sep and ".dot" in head:
+                width = declared(body.replace(" ", ""), "width")
+                if width:
+                    assert width == "var(--dot)", (
+                        f"{name}: «{head.strip()}» задаёт точку числом {width}")
+
+
+def test_aria_selected_is_only_used_inside_a_tablist():
+    """`aria-selected` вне tablist не говорит скринридеру ничего: выбранный
+    фильтр журнала для него НЕ был выбран (V-15)."""
+    page = code_of("index.html")
+    for match in re.finditer(r"<button[^>]*aria-selected[^>]*>", page):
+        assert 'role="tab"' in match.group(0), (
+            f"кнопка с `aria-selected` и без `role=\"tab\"`: {match.group(0)}")
+
+
+def test_every_tab_names_the_panel_it_opens():
+    """Вкладка без `aria-controls` и панель без `role=\"tabpanel\"` — это
+    четыре кнопки и четыре секции, между которыми связи нет."""
+    page = code_of("index.html")
+    tabs = re.findall(r'<button[^>]*role="tab"[^>]*>', page)
+    assert len(tabs) >= 4, f"вкладок найдено {len(tabs)}"
+    for tab in tabs:
+        found = re.search(r'aria-controls="([^"]+)"', tab)
+        assert found, f"вкладка не называет свою панель: {tab}"
+        panel = re.search(rf'<section[^>]*id="{found.group(1)}"[^>]*>', page)
+        assert panel and 'role="tabpanel"' in panel.group(0), (
+            f"панель «{found.group(1)}» не объявлена tabpanel")
+
+
+def test_the_arrow_keys_move_between_tabs():
+    """В tablist ведёт ОДИН Tab, дальше стрелки. Без этого клавиатура
+    обходит четыре кнопки подряд, а стрелки не делают ничего."""
+    page = code_of("index.html")
+    assert "ArrowRight" in page and "ArrowLeft" in page, "стрелки не обработаны"
+    assert "tabIndex" in page, "roving tabindex не выставляется"
+    assert 'Home' in page and 'End' in page, "Home/End в tablist не работают"

@@ -15,11 +15,15 @@ body{font:var(--t-body)/1.45 var(--font-ui);background:var(--bg);color:var(--ink
 max-width:1180px;margin:0 auto;padding:16px 24px 48px}
 .appbar{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:5}
 .appbar .name{font-size:var(--t-page);font-weight:600;display:flex;gap:8px;align-items:center}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.dot{width:var(--dot);height:var(--dot);border-radius:50%;display:inline-block;flex:none}
 .tabs{display:flex;gap:2px;margin-left:8px}
 .tab{padding:5px 10px;border-radius:var(--r-control);color:var(--muted);font-weight:600;background:none;border:none;font-size:var(--t-body);cursor:pointer;transition:background var(--dur-h) var(--ease)}
 .tab:hover{background:var(--panel-2)}
-.tab[aria-selected="true"]{background:var(--accent-weak);color:var(--ink);box-shadow:inset 2px 0 0 var(--accent)}
+/* Выбранная кнопка выглядит одинаково, а НАЗЫВАЕТСЯ по-разному: `tab` —
+   только настоящие вкладки, у остальных `aria-pressed`. Скринридеру
+   `aria-selected` вне tablist не говорит ничего, то есть выбранный фильтр
+   журнала для него не был выбран (V-15). */
+.tab[aria-selected="true"],.tab[aria-pressed="true"]{background:var(--accent-weak);color:var(--ink);box-shadow:inset 2px 0 0 var(--accent)}
 .tab[disabled]{opacity:.45;cursor:not-allowed}
 .pausewrap{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:var(--t-cap);color:var(--muted)}
 /* Пауза — НЕЙТРАЛЬ, а не амбер. Амбер в этом продукте занят одним значением
@@ -43,7 +47,7 @@ max-width:1180px;margin:0 auto;padding:16px 24px 48px}
    одиночку; слово — `--ink`, цвет несёт заливка»), его просто не применили
    к опасности. `--ink` по `--panel-2` даёт 13.63:1. */
 .banner.danger{border-color:var(--danger);color:var(--ink)}
-.banner.danger::before{content:"";display:inline-block;width:8px;height:8px;
+.banner.danger::before{content:"";display:inline-block;width:var(--dot);height:var(--dot);
   border-radius:50%;background:var(--danger);margin-right:8px;
   vertical-align:baseline}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;margin-top:16px}
@@ -54,7 +58,7 @@ max-width:1180px;margin:0 auto;padding:16px 24px 48px}
    линейно). Молчание = отказ, и это единственная поверхность, где владелец
    может это УВИДЕТЬ, а не прочитать в документации. */
 .consent .deadline{margin-top:12px;display:flex;align-items:center;gap:8px}
-.consent .drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);
+.consent .drain{flex:1;height:4px;border-radius:var(--r-bar);background:var(--panel-2);
   overflow:hidden}
 /* Дренаж едет `transform:scaleX`, а не `width`: ширина — это раскладка, и
    доктрина её анимировать запрещает. Для сплошной полосы результат тот же
@@ -131,7 +135,7 @@ grid-template-columns:repeat(auto-fill,minmax(288px,1fr))}
     padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
   .tab{flex:1;text-align:center;padding:10px 4px}
   /* Подчёркивание СВЕРХУ: в нижней панели полоса слева указывает в никуда. */
-  .tab[aria-selected="true"]{box-shadow:inset 0 2px 0 var(--accent)}
+  .tab[aria-selected="true"],.tab[aria-pressed="true"]{box-shadow:inset 0 2px 0 var(--accent)}
 }
 /* Bounded, with its own scroll. An unbounded feed is what made the column
    grow past everything beside it. */
@@ -143,7 +147,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 .view{display:none}.view.on{display:block}
 .note{font-size:var(--t-note);color:var(--muted)}
 .mascot-deadline{display:flex;align-items:center;gap:6px;margin-top:6px}
-.mascot-drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);overflow:hidden}
+.mascot-drain{flex:1;height:4px;border-radius:var(--r-bar);background:var(--panel-2);overflow:hidden}
 .mascot-drain>i{display:block;height:100%;width:100%;background:var(--warn);transform-origin:left;transform:scaleX(var(--left,1));transition:transform 1s linear}
 .mascot-secs{font-size:var(--t-cap);color:var(--muted);font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion: reduce){ .mascot-drain{display:none} }
@@ -159,10 +163,10 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 <header class="appbar">
   <span class="name"><span class="dot ok" id="statedot"></span>vibe-bridge</span>
   <nav class="tabs" role="tablist">
-    <button class="tab" role="tab" aria-selected="true" data-view="dash">Дашборд</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="chat" id="chatTab" disabled title="Чат станет доступен, когда робот подключён к панели">Чат</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="journal">Журнал</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="settings">Настройки</button>
+    <button class="tab" role="tab" aria-selected="true" aria-controls="view-dash" data-view="dash">Дашборд</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="view-chat" data-view="chat" id="chatTab" disabled title="Чат станет доступен, когда робот подключён к панели">Чат</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="view-journal" data-view="journal">Журнал</button>
+    <button class="tab" role="tab" aria-selected="false" aria-controls="view-settings" data-view="settings">Настройки</button>
   </nav>
   <span class="pausewrap">Пауза
     <span class="switch" id="pauseSw" role="switch" aria-checked="false" tabindex="0" title="Пауза: мост отвечает роботу как выключенный компьютер"></span>
@@ -188,7 +192,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 </div>
 
 <!-- Дашборд -->
-<section class="view on" id="view-dash">
+<section class="view on" id="view-dash" role="tabpanel" aria-label="dash">
   <div class="card" id="welcome" style="display:none;border-color:var(--accent)">
     <div class="cap">С чего начать</div>
     <div id="welcomeBody"></div>
@@ -220,7 +224,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 </section>
 
 <!-- Чат -->
-<section class="view" id="view-chat">
+<section class="view" id="view-chat" role="tabpanel" aria-label="chat">
   <div class="card">
     <div class="cap">Чат с роботом</div>
     <div id="chatFeed"><div class="empty">Скажите роботу привет — контекст разговора живёт у мозга робота, не на панели.</div></div>
@@ -233,13 +237,13 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 </section>
 
 <!-- Журнал -->
-<section class="view" id="view-journal">
+<section class="view" id="view-journal" role="tabpanel" aria-label="journal">
   <div class="card">
     <div class="filters" role="group" aria-label="Фильтр журнала">
-      <button class="tab" aria-selected="true" data-flt="all">Все</button>
-      <button class="tab" aria-selected="false" data-flt="refused">Отказы</button>
-      <button class="tab" aria-selected="false" data-flt="act">ACT</button>
-      <button class="tab" aria-selected="false" data-flt="read">READ</button>
+      <button class="tab" aria-pressed="true" data-flt="all">Все</button>
+      <button class="tab" aria-pressed="false" data-flt="refused">Отказы</button>
+      <button class="tab" aria-pressed="false" data-flt="act">ACT</button>
+      <button class="tab" aria-pressed="false" data-flt="read">READ</button>
       <span class="note" id="jTotal" style="margin-left:auto;align-self:center"></span>
     </div>
     <div id="journal"><div class="empty">— пусто —</div></div>
@@ -248,7 +252,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 </section>
 
 <!-- Настройки -->
-<section class="view" id="view-settings">
+<section class="view" id="view-settings" role="tabpanel" aria-label="settings">
   <div class="cards">
   <div class="card wide">
     <div class="cap">Способности этого компьютера</div>
@@ -260,8 +264,8 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
   <div class="card wide">
     <div class="cap">Подключить робота</div>
     <div class="filters" style="margin-bottom:12px">
-      <button class="tab" id="tabAttach" aria-selected="true" onclick="robotPath('attach')">У меня уже есть робот</button>
-      <button class="tab" id="tabWizard" aria-selected="false" onclick="robotPath('wizard')">Новая Raspberry Pi</button>
+      <button class="tab" id="tabAttach" aria-pressed="true" onclick="robotPath('attach')">У меня уже есть робот</button>
+      <button class="tab" id="tabWizard" aria-pressed="false" onclick="robotPath('wizard')">Новая Raspberry Pi</button>
     </div>
     <div id="attachCard">
       <p style="margin-bottom:8px">Укажите адрес bridge-API робота и его ключ. Мост выдаст токен, который нужно прописать роботу, и сразу проверит связь — «привязан» здесь значит «дозвонился».</p>
@@ -517,15 +521,39 @@ document.querySelectorAll("[data-theme-pick]").forEach(b=>b.addEventListener("cl
 }));
 paintTheme();
 
-document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("click", ()=>{
-  document.querySelectorAll(".tab[data-view]").forEach(x=>x.setAttribute("aria-selected", x===b));
+function selectTab(b){
+  document.querySelectorAll(".tab[data-view]").forEach(x=>{
+    const on = x===b;
+    x.setAttribute("aria-selected", on);
+    // Roving tabindex: из tablist ведёт ОДИН Tab, дальше — стрелки. Иначе
+    // клавиатура обходит четыре кнопки подряд, а стрелки не делают ничего
+    // (V-15).
+    x.tabIndex = on ? 0 : -1;
+  });
   document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on", v.id==="view-"+b.dataset.view));
   if (b.dataset.view==="journal") loadJournal(true);
   if (b.dataset.view==="settings"){ loadCaps(); loadPhone(); loadWizard(); loadVersion(); loadAccess(); }
-}));
+}
+document.querySelectorAll(".tab[data-view]").forEach(b=>b.addEventListener("click", ()=>selectTab(b)));
+document.querySelector(".tabs").addEventListener("keydown", (e)=>{
+  const step = {ArrowRight:1, ArrowLeft:-1, Home:"first", End:"last"}[e.key];
+  if (!step) return;
+  const all = [...document.querySelectorAll(".tab[data-view]:not([disabled])")];
+  const now = all.indexOf(document.activeElement);
+  if (now < 0) return;
+  e.preventDefault();
+  const next = step === "first" ? all[0]
+             : step === "last"  ? all[all.length-1]
+             : all[(now + step + all.length) % all.length];
+  next.focus();
+  selectTab(next);
+});
+// Стартовое состояние roving tabindex — иначе до первого клика в tablist
+// ведут четыре табстопа, а не один.
+selectTab(document.querySelector('.tab[data-view][aria-selected="true"]'));
 /* journal */
 document.querySelectorAll(".tab[data-flt]").forEach(b=>b.addEventListener("click", ()=>{
-  document.querySelectorAll(".tab[data-flt]").forEach(x=>x.setAttribute("aria-selected", x===b));
+  document.querySelectorAll(".tab[data-flt]").forEach(x=>x.setAttribute("aria-pressed", x===b));
   cur.flt = b.dataset.flt; loadJournal(true);
 }));
 async function loadJournal(reset){
@@ -547,8 +575,8 @@ function robotPath(which){
   const w = which==="wizard";
   document.getElementById("wizardCard").style.display = w?"":"none";
   document.getElementById("attachCard").style.display = w?"none":"";
-  document.getElementById("tabWizard").setAttribute("aria-selected", w);
-  document.getElementById("tabAttach").setAttribute("aria-selected", !w);
+  document.getElementById("tabWizard").setAttribute("aria-pressed", w);
+  document.getElementById("tabAttach").setAttribute("aria-pressed", !w);
   if (w) loadWizard();
 }
 async function attachRobot(){

@@ -34,7 +34,7 @@ html[data-surface="pet"] #dialog{display:none}
    as a plain block a 300px bubble made the column 300 wide and its children
    sat at the LEFT. */
 #mascot{display:flex;flex-direction:column;align-items:flex-end}
-.mascot-body{cursor:grab;filter:drop-shadow(0 3px 8px rgba(0,0,0,.28));touch-action:none}
+.mascot-body{cursor:grab;filter:drop-shadow(var(--shadow-float));touch-action:none}
 /* Слово о состоянии под фигуркой. Окно питомца прозрачное и лежит поверх
    ЧУЖОГО рабочего стола — без подложки текст читается через раз, поэтому
    пилюля на `--panel`. Ширина окна 104px (`desktop.PET_SIZE`), фигурка 72:
@@ -61,16 +61,16 @@ html[data-surface="pet"] #dialog{display:none}
 .bubble{background:var(--panel);border:1px solid var(--border-strong);
 border-radius:var(--r-card);padding:9px 12px;margin-bottom:8px;
 width:300px;max-height:230px;overflow-y:auto;text-align:left;
-box-shadow:0 6px 20px rgba(0,0,0,.18);word-break:break-word;cursor:pointer}
+box-shadow:var(--shadow-pop);word-break:break-word;cursor:pointer}
 .bubble b{font-weight:600}
 .bubble code{font-family:var(--font-data);font-size:var(--t-cap);
-background:var(--panel-2);padding:.1em .35em;border-radius:4px}
+background:var(--panel-2);padding:.1em .35em;border-radius:var(--r-control)}
 .bubble .dismiss{display:block;margin-top:6px;font-size:var(--t-note);color:var(--muted)}
 .actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;justify-content:flex-end}
 /* Таймер-бар согласия (пак: 4px, --warn, дренаж слева направо, линейно).
    У питомца те же три кнопки, и молчание у них тоже значит отказ. */
 .deadline{display:flex;align-items:center;gap:6px;margin-top:6px}
-.drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);overflow:hidden}
+.drain{flex:1;height:4px;border-radius:var(--r-bar);background:var(--panel-2);overflow:hidden}
 .drain>i{display:block;height:100%;width:100%;background:var(--warn);
   transform-origin:left;transform:scaleX(var(--left,1));
   transition:transform 1s linear}
@@ -87,14 +87,14 @@ border:1px solid transparent;cursor:pointer;white-space:nowrap}
    view — which is what keeps it a window onto the brain rather than the
    messenger the product refuses to become (vision, «Не мессенджер»). */
 .dialog{background:var(--panel);border:1px solid var(--border-strong);
-border-radius:var(--r-card);box-shadow:0 8px 26px rgba(0,0,0,.22);
+border-radius:var(--r-card);box-shadow:var(--shadow-panel);
 width:320px;margin-bottom:8px;display:none;overflow:hidden}
 .dialog.on{display:block}
 .dialog .head{display:flex;align-items:center;gap:8px;padding:8px 10px;
 border-bottom:1px solid var(--border);font-size:var(--t-cap);color:var(--muted)}
 .dialog .head .grow{margin-left:auto}
 .dialog .head .who{color:var(--ink);font-weight:600}
-.dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+.dot{width:var(--dot);height:var(--dot);border-radius:50%;display:inline-block;flex:none}
 .dot.on{background:var(--ok)} .dot.off{background:var(--muted)}
 .stat{display:flex;gap:10px;flex-wrap:wrap;padding:7px 10px;font-size:var(--t-note);
 color:var(--muted);border-bottom:1px solid var(--border);background:var(--panel-2)}
@@ -127,7 +127,7 @@ font-size:var(--t-note);padding-top:2px}
 .ask input{flex:1;padding:7px 9px;-webkit-user-select:text;user-select:text}
 .chips{display:flex;gap:5px;flex-wrap:wrap;padding:0 10px 8px}
 .chips button{font:var(--t-cap) var(--font-ui);color:var(--ink);background:var(--panel-2);
-border:1px solid var(--border);border-radius:999px;padding:4px 9px;cursor:pointer}
+border:1px solid var(--border);border-radius:var(--r-pill);padding:4px 9px;cursor:pointer}
 .chips button:hover{background:var(--accent-weak)}
 @media (prefers-reduced-motion: reduce){*{animation:none!important}}
 </style>
