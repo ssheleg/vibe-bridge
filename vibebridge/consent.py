@@ -194,6 +194,26 @@ class ConsentEngine:
         видеть, сколько у него осталось (A-9)."""
         return self._ask_timeout_s
 
+    @property
+    def grant_ttl_s(self) -> float:
+        """Сколько живёт грант. Поверхности показывают ЭТО, а не «15 мин»."""
+        return self._grant_ttl_s
+
+    def grant_label(self) -> str:
+        """«Такие — 15 мин» жило зашитым на ЧЕТЫРЁХ поверхностях, при том что
+        `grant_ttl_s` — настройка: поменяв её, владелец получал кнопку,
+        обещающую не то, что произойдёт (U-13).
+
+        Слово, а не число: «на 15 мин» и «на 1 ч» читаются по-разному, а
+        «на 900 с» не читается вовсе.
+        """
+        seconds = int(self._grant_ttl_s)
+        if seconds % 3600 == 0 and seconds >= 3600:
+            return f"{seconds // 3600} ч"
+        if seconds % 60 == 0 and seconds >= 60:
+            return f"{seconds // 60} мин"
+        return f"{seconds} с"
+
     def remaining(self, req: ConsentRequest | None) -> float:
         """Сколько секунд у запроса осталось (0 — уже нисколько)."""
         if req is None:

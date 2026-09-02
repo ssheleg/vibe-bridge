@@ -545,6 +545,10 @@ def _snapshot(consent: ConsentEngine, audit: AuditLog,
                     "left_s": int(left)}
                    for t, left in sorted(consent.grants().items())],
         "grant_left_s": int(max(consent.grants().values(), default=0)),
+        # Срок гранта — НАСТРОЙКА, а четыре поверхности говорили «15 мин».
+        # Поменяв её, владелец получал кнопку, обещающую не то, что
+        # произойдёт (U-13). Слово приходит из движка, одно на всех.
+        "grant_ttl_label": consent.grant_label(),
         # Мост, работающий БЕЗ журнала, — это не мост: «журналирует каждое
         # обращение» стоит в описании продукта. Если писать не выходит,
         # владелец узнаёт об этом здесь, а не никогда (A-36).
@@ -999,6 +1003,14 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return JSONResponse({"ok": ok, "decision": str(decision)})
 
     async def api_robot_status(request: Request) -> Response:
+        """Статус робота — из кэша на паузе, иначе спросив.
+
+        Третий путь наружу, которого находка не называла: панель дёргала
+        робота НАПРЯМУЮ при каждом открытии, то есть на паузе достаточно было
+        открыть панель, чтобы выключенный компьютер позвонил роботу (U-10).
+        """
+        if consent.paused:
+            return JSONResponse({**robot_state, "stale_paused": True})
         st = await robot.status()
         robot_state.clear()
         robot_state.update(st)
@@ -1616,29 +1628,52 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
 
     async def _robot_poller() -> None:
         """Refresh the cached robot status; announce the pause-summary on
-        the paused→active transition (SCN-010 alt)."""
+        the paused→active transition (SCN-010 alt).
+
+        На паузе НЕ стучится. Принцип 3 визии: «kill switch делает устройство
+        неотличимым от выключенного» — а выключенный компьютер не звонит
+        роботу каждые десять секунд. Пауза проверялась только перед `notify`,
+        то есть глушила эффект, но не присутствие (U-10).
+        """
         was_paused = consent.paused
         while True:
-            if robot.configured:
+            if robot.configured and not consent.paused:
                 st = await robot.status()
                 robot_state.clear()
                 robot_state.update(st)
+            elif consent.paused:
+                # Снимок НЕ обновляем и НЕ стираем: панель показывает
+                # последнее известное и честно подписывает, что на паузе
+                # мост не спрашивает. Стереть значило бы соврать «робот
+                # офлайн», хотя мы просто перестали спрашивать.
+                robot_state["stale_paused"] = True
             if was_paused and not consent.paused and missed_while_paused["n"]:
                 notify("vibe-bridge",
                        f"За время паузы: {missed_while_paused['n']} событий "
                        f"робота — они в ленте")
                 missed_while_paused["n"] = 0
+            if not consent.paused:
+                robot_state.pop("stale_paused", None)
             was_paused = consent.paused
             await asyncio.sleep(10.0)
 
     async def _robot_event_consumer() -> None:
         """Consume the robot's proactive events; OS-notify unless paused
-        (paused events collect silently — SCN-010). Reconnects calmly."""
+        (paused events collect silently — SCN-010). Reconnects calmly.
+
+        На паузе соединение НЕ держится: держать открытый поток к роботу —
+        это присутствие, и робот видит его так же ясно, как ответ на вызов
+        (U-10). Событий за время паузы мы тогда не получим вовсе — и это
+        правда о выключенном устройстве, а не потеря: робот их не отправлял
+        бы выключенному компьютеру и в реальности.
+        """
         while True:
-            if not robot.configured:
-                await asyncio.sleep(30.0)
+            if not robot.configured or consent.paused:
+                await asyncio.sleep(2.0 if consent.paused else 30.0)
                 continue
             async for raw in robot.events():
+                if consent.paused:
+                    break                      # пауза рвёт поток немедленно
                 ev = normalise_robot_event(raw, now_iso=_now_iso())
                 robot_events.add(ev)
                 if consent.paused:

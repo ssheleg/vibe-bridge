@@ -491,7 +491,7 @@ function paint(snap, force){
       `</div>` : "") +
     ((snap.actionable && !dialogOpen()) ? `<div class="actions">`+
       `<button class="btn primary" data-d="allow">Разрешить</button>`+
-      `<button class="btn ghost" data-d="allow_grant">Такие — 15 мин</button>`+
+      `<button class="btn ghost" data-d="allow_grant">Такие — ${esc(snap.grant_ttl_label || "на срок гранта")}</button>`+
       `<button class="btn dangerous" data-d="deny">Отклонить</button></div>`+
       deadlineHtml(snap) : "");
 
