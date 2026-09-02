@@ -339,3 +339,47 @@ def test_the_screenshot_leaves_no_file_behind(monkeypatch):
     capmod._screenshot(_R(), {})
     assert made and not [p for p in made if p.exists()], \
         f"остались файлы: {[str(p) for p in made if p.exists()]}"
+
+
+# ── A-25: у единственного READ с наружным эффектом должен быть тормоз ──────
+
+def test_notify_is_rate_limited_and_says_so():
+    """A-25: `notify` — единственная READ-возможность, которая пишет на
+    экран владельца, и класс READ исполняется БЕЗ вопроса. Тормоза не было
+    ни на одной стороне: единственным был kill switch, то есть «выключить
+    всё»."""
+    import vibebridge.capabilities as caps
+    from vibebridge.capabilities import CapabilityError, RateLimit
+
+    now = {"t": 0.0}
+    limit = RateLimit(per_window=3, window_s=60.0, clock=lambda: now["t"])
+    assert [limit.allow() for _ in range(3)] == [True, True, True]
+    assert limit.allow() is False
+    # ...окно уехало — снова можно
+    now["t"] += 61.0
+    assert limit.allow() is True
+
+    calls: list = []
+    r = type("R", (), {"run": lambda self, argv, **kw: calls.append(argv)})()
+    caps._set_notify_limit(RateLimit(per_window=2, window_s=60.0,
+                                     clock=lambda: now["t"]))
+    try:
+        caps._notify(r, {"text": "раз", "title": "Робот"})
+        caps._notify(r, {"text": "два", "title": "Робот"})
+        with pytest.raises(CapabilityError) as err:
+            caps._notify(r, {"text": "три", "title": "Робот"})
+    finally:
+        caps._set_notify_limit(None)
+    assert "часто" in str(err.value)
+    assert len(calls) == 2, "третье уведомление всё-таки показано"
+
+
+def test_without_a_limit_notify_behaves_as_before():
+    import vibebridge.capabilities as caps
+
+    calls: list = []
+    r = type("R", (), {"run": lambda self, argv, **kw: calls.append(argv)})()
+    caps._set_notify_limit(None)
+    for i in range(5):
+        caps._notify(r, {"text": str(i), "title": "Робот"})
+    assert len(calls) == 5

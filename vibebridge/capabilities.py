@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -239,9 +240,60 @@ def set_notifier(fn) -> None:
     _notifier = fn
 
 
+class RateLimit:
+    """Скользящее окно. Столько-то раз за столько-то секунд, и не больше.
+
+    Заведено ради `notify` (A-25), но намеренно общего вида: это первая
+    способность класса READ с наружным эффектом, и она вряд ли последняя.
+    """
+
+    def __init__(self, *, per_window: int, window_s: float,
+                 clock=time.monotonic) -> None:
+        self._n = per_window
+        self._window = window_s
+        self._clock = clock
+        self._hits: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def allow(self) -> bool:
+        with self._lock:
+            now = self._clock()
+            while self._hits and now - self._hits[0] >= self._window:
+                self._hits.popleft()
+            if len(self._hits) >= self._n:
+                return False
+            self._hits.append(now)
+            return True
+
+    def left_s(self) -> float:
+        """Через сколько освободится место — чтобы отказ был говоримым."""
+        with self._lock:
+            if not self._hits:
+                return 0.0
+            return max(0.0, self._window - (self._clock() - self._hits[0]))
+
+
+#: Тормоз для `notify`. Ставится приложением; в голом чекауте его нет, и
+#: поведение остаётся прежним.
+_notify_limit: RateLimit | None = None
+
+
+def _set_notify_limit(limit: RateLimit | None) -> None:
+    global _notify_limit
+    _notify_limit = limit
+
+
 def _notify(r: Runner, args: dict) -> str:
     text = str(args.get("text", ""))
     title = str(args.get("title", "Робот"))
+    # READ исполняется без вопроса — а это единственный READ, который пишет
+    # на экран владельца. Единственным тормозом был kill switch, то есть
+    # «выключить всё»: между «пусть показывает» и «пусть замолчит совсем» не
+    # было ничего (A-25).
+    if _notify_limit is not None and not _notify_limit.allow():
+        raise CapabilityError(
+            f"слишком часто: подождите {int(_notify_limit.left_s()) + 1} с — "
+            f"владелец не должен разгребать поток уведомлений")
     if _notifier is not None:
         got = _notifier(title, text)
         # The notifier reports; older callables returned None. A robot told

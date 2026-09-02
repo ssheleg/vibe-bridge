@@ -682,3 +682,23 @@ def test_the_settings_say_what_the_bridge_listens_on_and_what_a_switch_costs(
         assert body["bind_host"] == host
         assert body["switch_to"] == "standalone"
         assert "bearer" in body["switch_effect"]
+
+
+def test_the_app_arms_the_notify_brake_from_the_setting(tmp_path):
+    """A-25: число — настройка владельца, а не константа в модуле. Ноль
+    означает «без тормоза» и остаётся законным: у голого чекаута его нет."""
+    import vibebridge.capabilities as caps
+    from vibebridge.config import Settings
+
+    build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
+              state=BridgeState(path=tmp_path / "s.json", panel_token="pt"),
+              settings=Settings(notify_per_minute=3))
+    assert caps._notify_limit is not None
+    assert [caps._notify_limit.allow() for _ in range(4)] == \
+        [True, True, True, False]
+
+    build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "b.log"),
+              state=BridgeState(path=tmp_path / "s2.json", panel_token="pt"),
+              settings=Settings(notify_per_minute=0))
+    assert caps._notify_limit is None
+    caps._set_notify_limit(None)

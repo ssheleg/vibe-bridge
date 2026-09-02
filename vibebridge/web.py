@@ -448,8 +448,13 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
 
     # The robot's notifications go through the app's own notifier, so they
     # carry its name and icon instead of arriving unattributed.
-    from .capabilities import set_notifier
+    from .capabilities import RateLimit, _set_notify_limit, set_notifier
     set_notifier(notify)
+    # Тормоз для единственного READ с наружным эффектом. Ставится здесь, а не
+    # в модуле способностей: число — настройка владельца (A-25).
+    _set_notify_limit(
+        RateLimit(per_window=int(settings.notify_per_minute), window_s=60.0)
+        if int(getattr(settings, "notify_per_minute", 0)) > 0 else None)
     caps = capabilities or build_capabilities()
     # Живая карта: она пере-опрашивает себя, поэтому выданные права
     # видны и в панели, и в мгновенном отказе роботу без перезапуска
