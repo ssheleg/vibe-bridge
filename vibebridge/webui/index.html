@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f6feb">
 <link rel="stylesheet" href="/tokens.css">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -90,6 +90,25 @@ grid-template-columns:repeat(auto-fill,minmax(288px,1fr))}
 /* A card that is a stream, not a fact: it earns the extra column. */
 .cards>.wide{grid-column:span 2}
 @media (max-width:640px){.cards>.wide{grid-column:span 1}}
+/* Телефон. Панель — заявленный канал: манифест, service worker, пуши и
+   ссылка «Телефон» в настройках. Раскладки при этом не было ни одной, и на
+   390px страница ехала вбок на 96px: за край уходили ВКЛАДКИ и сам рубильник
+   паузы — то есть signature-элемент продукта (V-4).
+
+   Пак: до 900px одна колонка и вкладки СНИЗУ — большой палец не достаёт до
+   верха телефона. `viewport-fit=cover` в мете стоит ради `env(safe-area-*)`:
+   без него отступ под домашнюю полосу iPhone всегда ноль. */
+@media (max-width:900px){
+  body{padding:12px 16px calc(68px + env(safe-area-inset-bottom))}
+  .appbar{flex-wrap:wrap}
+  .cards{grid-template-columns:1fr}
+  .tabs{position:fixed;left:0;right:0;bottom:0;margin:0;gap:0;z-index:6;
+    background:var(--panel);border-top:1px solid var(--border);
+    padding:6px 8px calc(6px + env(safe-area-inset-bottom))}
+  .tab{flex:1;text-align:center;padding:10px 4px}
+  /* Подчёркивание СВЕРХУ: в нижней панели полоса слева указывает в никуда. */
+  .tab[aria-selected="true"]{box-shadow:inset 0 2px 0 var(--accent)}
+}
 /* Bounded, with its own scroll. An unbounded feed is what made the column
    grow past everything beside it. */
 #feed{max-height:420px;overflow-y:auto}

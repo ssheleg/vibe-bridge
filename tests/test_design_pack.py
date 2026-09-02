@@ -296,3 +296,72 @@ def test_no_transition_animates_layout_either():
                         f"через transition: {prop}")
     # Канарейка на разбор: молчаливый ноль выглядит как успех.
     assert seen >= 8, f"гейт увидел всего {seen} переходов — разбор сломан"
+
+
+# --------------------------------------------------------------------------
+# V-4: панель — заявленный канал для телефона, а раскладки не было ни одной.
+# --------------------------------------------------------------------------
+
+DOCTRINE = Path(vibebridge.__file__).parents[1] / "docs" / "design" / "ui.md"
+
+
+def _doctrine_breakpoint() -> int:
+    """Число берётся ИЗ ДОКТРИНЫ, а не пишется здесь второй раз.
+
+    Иначе тест закрепляет собственное мнение о продукте: доктрину поправят,
+    набор останется зелёным, и разойдутся они молча.
+    """
+    text = DOCTRINE.read_text(encoding="utf-8")
+    line = next(ln for ln in text.splitlines() if "**Responsive.**" in ln)
+    tail = text.split(line, 1)[1][:400]
+    found = re.search(r"<(\d{3,4})px", line + tail)
+    assert found, "в доктрине не найден брейкпоинт телефона"
+    return int(found.group(1))
+
+
+def test_the_panel_has_a_phone_layout_at_the_doctrine_breakpoint():
+    """Манифест, service worker, пуши и ссылка «Телефон» — канал заявлен.
+    Единственным `@media` про ширину был `640px` про широкие карточки."""
+    css = _css("index.html")
+    edge = _doctrine_breakpoint()
+    assert f"max-width:{edge}px" in css.replace(" ", ""), (
+        f"доктрина обещает раскладку до {edge}px, в панели её нет")
+
+
+def test_on_a_phone_the_tabs_are_within_thumb_reach():
+    """Пак: вкладки СНИЗУ. Большой палец не достаёт до верха телефона."""
+    css = _css("index.html").replace(" ", "")
+    block = css.split(f"@media(max-width:{_doctrine_breakpoint()}px){{", 1)
+    assert len(block) == 2, "нет блока телефонной раскладки"
+    body = block[1]
+    tabs = body.split(".tabs{", 1)[1].split("}", 1)[0]
+    assert "position:fixed" in tabs and "bottom:0" in tabs, (
+        f"вкладки не прижаты к низу: {tabs}")
+    page = body.split("body{", 1)[1].split("}", 1)[0]
+    assert "padding" in page and "env(safe-area-inset-bottom)" in page, (
+        "страница не резервирует место под полосу — контент уедет под неё")
+
+
+def test_the_safe_area_is_not_a_silent_zero():
+    """`env(safe-area-inset-*)` без `viewport-fit=cover` в мете всегда ноль.
+
+    Правило при этом выглядит написанным — то есть тихо не работает.
+    """
+    page = code_of("index.html")
+    if "safe-area-inset" in page:
+        assert "viewport-fit=cover" in page, (
+            "safe-area используется, а `viewport-fit=cover` в мете нет — "
+            "отступ всегда ноль, и это не видно")
+
+
+def test_nothing_in_the_header_is_pinned_wider_than_a_phone():
+    """Шапка `display:flex` без переноса выпирала и тянула боковой скролл:
+    измерено 2026-09-02 в браузере — на 390px страница ехала на 96px, за
+    краем оказывались вкладки и сам рубильник паузы."""
+    css = _css("index.html").replace(" ", "")
+    block = css.split(f"@media(max-width:{_doctrine_breakpoint()}px){{", 1)[1]
+    bar = block.split(".appbar{", 1)[1].split("}", 1)[0]
+    assert "flex-wrap:wrap" in bar, f"шапка не переносится: {bar}"
+    cards = block.split(".cards{", 1)[1].split("}", 1)[0]
+    assert "grid-template-columns:1fr" in cards, (
+        "на телефоне карточки не в одну колонку")
