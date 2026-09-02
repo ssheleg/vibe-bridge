@@ -273,6 +273,86 @@ class BearerGuard:
         await self.app(scope, receive, send)
 
 
+#: Сколько текста события доезжает до ленты. Робот шлёт человеческую фразу,
+#: а не документ; всё, что длиннее, — это чей-то лог, попавший не туда.
+EVENT_TEXT_MAX = 400
+
+
+def normalise_robot_event(raw: dict, *, now_iso: str) -> dict[str, Any]:
+    """Событие робота → строка ленты. Чистая функция (F-2).
+
+    Жила внутри консьюмера в замыкании, и обе находки о ленте случились
+    здесь: `channel` терялся при пересборке словаря (A-18), а вторая копия
+    события появлялась строкой ниже (A-13). Проверить это можно было только
+    подняв приложение и дождавшись SSE.
+    """
+    return {
+        "ts": raw.get("ts") or now_iso,
+        "kind": raw.get("kind", "event"),
+        "text": str(raw.get("text", ""))[:EVENT_TEXT_MAX],
+        # Канал робот кладёт ИМЕННО для ленты: показ на этом компьютере и
+        # зеркало телеграма — разные новости, и мост его выбрасывал (A-18).
+        "channel": raw.get("channel") or None,
+        # Optional, for when the robot starts sending media:
+        # {"url": …, "type": "image"|"audio"|"video"|"link"}.
+        "media": raw.get("media") or None,
+    }
+
+
+def bridge_base_url(*, dns: str | None, https_ok: bool, port: int) -> str:
+    """Адрес, по которому мост достижим ИЗВНЕ, — один расчёт на всех.
+
+    A-21 нашёл его в трёх местах с константой вместо действующего порта.
+    Здесь он один, и порт передаётся аргументом: забыть его нельзя, а
+    подставить чужой — видно в вызове.
+    """
+    if https_ok and dns:
+        return f"https://{dns}"
+    return f"http://{dns or '127.0.0.1'}:{port}"
+
+
+def mcp_url(*, dns: str | None, https_ok: bool, port: int) -> str:
+    """Куда роботу ходить за MCP. Loopback, пока нет HTTPS в тейлнете."""
+    if https_ok and dns:
+        return f"https://{dns}/mcp"
+    return f"http://127.0.0.1:{port}/mcp"
+
+
+def attach_request(body: dict) -> tuple[dict[str, str] | None, str]:
+    """Что владелец просит привязать — или почему это не адрес (F-2).
+
+    Валидация жила в обработчике, и A-12 нашёл её слишком слабой: проверялся
+    ОДИН префикс, после чего мост объявлял «привязан ✓». Отдельной функцией
+    видно, что именно она проверяет, а чего — нет.
+    """
+    base_url = str(body.get("base_url", "")).strip().rstrip("/")
+    if not base_url:
+        return None, ("нужен адрес робота (bridge-API), например "
+                      "https://robot.tailnet.ts.net")
+    if not base_url.startswith(("http://", "https://")):
+        return None, "адрес должен начинаться с http:// или https://"
+    return {
+        "base_url": base_url,
+        "chat_url": str(body.get("chat_url", "")).strip(),
+        "key": str(body.get("key", "")).strip(),
+        "name": str(body.get("name", "")).strip() or "робот",
+    }, ""
+
+
+def attach_words(name: str, probe: dict) -> tuple[str, str]:
+    """Что сказать в журнал и в уведомление после попытки дозвониться.
+
+    «Связан ✓» без ответа робота — обещание, которого мост не может
+    выполнить: панель рядом скажет «не подключён» (A-12).
+    """
+    if probe.get("ok"):
+        return (f"робот «{name}» привязан вручную и отвечает",
+                f"Робот «{name}» связан с мостом ✓")
+    return (f"робот «{name}» привязан вручную, но не отвечает: "
+            f"{probe.get('error', '')}",
+            f"Робот «{name}» записан, но пока не отвечает")
+
+
 class PairVerdict(Enum):
     """Решение о предъявленном токене пейринга — и слова для обеих сторон.
 
@@ -945,10 +1025,10 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         dns = await asyncio.to_thread(tailnet_dns_name)
         https_ok = (await asyncio.to_thread(serve_active, settings.port)
                     if dns else False)
-        mcp_url = (f"https://{dns}/mcp" if https_ok
-                   else f"http://127.0.0.1:{settings.port}/mcp")
         return JSONResponse({"robot_token": state.robot_token,
-                             "mcp_url": mcp_url})
+                             "mcp_url": mcp_url(
+                                 dns=dns, https_ok=https_ok,
+                                 port=settings.port)})
 
     async def api_wizard_pairing_start(request: Request) -> Response:
         """Arm pairing: mint the one-shot token and hand the wizard the
@@ -964,8 +1044,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         dns = await asyncio.to_thread(tailnet_dns_name)
         https_ok = (await asyncio.to_thread(serve_active, settings.port)
                     if dns else False)
-        bridge_url = (f"https://{dns}" if https_ok else
-                      f"http://{dns or '127.0.0.1'}:{settings.port}")
+        bridge_url = bridge_base_url(dns=dns, https_ok=https_ok,
+                                     port=settings.port)
         return JSONResponse({"token": token, "bridge_url": bridge_url})
 
     async def api_wizard_disks(request: Request) -> Response:
@@ -1101,26 +1181,19 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.json() if await request.body() else {}
-        base_url = str(body.get("base_url", "")).strip().rstrip("/")
-        if not base_url:
-            return JSONResponse(
-                {"error": "нужен адрес робота (bridge-API), например "
-                          "https://robot.tailnet.ts.net"}, status_code=400)
-        if not base_url.startswith(("http://", "https://")):
-            return JSONResponse(
-                {"error": "адрес должен начинаться с http:// или https://"},
-                status_code=400)
+        wanted, why = attach_request(body)
+        if wanted is None:
+            return JSONResponse({"error": why}, status_code=400)
 
-        key = str(body.get("key", "")).strip()
-        state.robot_base_url = base_url
-        state.robot_chat_url = (str(body.get("chat_url", "")).strip()
-                                or state.robot_chat_url)
+        key = wanted["key"]
+        state.robot_base_url = wanted["base_url"]
+        state.robot_chat_url = wanted["chat_url"] or state.robot_chat_url
         # standalone gates /mcp on this token, so it must exist the moment a
         # robot is attached — not later, when someone remembers.
         import secrets as _secrets
         state.robot_token = state.robot_token or _secrets.token_urlsafe(32)
         state.robot_chat_key = key or state.robot_token
-        name = str(body.get("name", "")).strip() or "робот"
+        name = wanted["name"]
         state.robot_name = name
         await asyncio.to_thread(state.save)
 
@@ -1137,13 +1210,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         got = await robot.probe()
         reached = bool(got.get("ok"))
         robot_state.update({"configured": robot.configured, "online": reached})
-        if reached:
-            line = f"робот «{name}» привязан вручную и отвечает"
-            toast = f"Робот «{name}» связан с мостом ✓"
-        else:
-            line = (f"робот «{name}» привязан вручную, но не отвечает: "
-                    f"{got.get('error', '')}")
-            toast = f"Робот «{name}» записан, но пока не отвечает"
+        line, toast = attach_words(name, got)
         audit.record(tool="pair", tool_class="act", decision="allow", ok=True,
                      line=line)
         notify("vibe-bridge", toast)
@@ -1428,17 +1495,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             if not robot.configured:
                 await asyncio.sleep(30.0)
                 continue
-            async for ev in robot.events():
-                ev = {"ts": ev.get("ts") or _now_iso(),
-                      "kind": ev.get("kind", "event"),
-                      "text": str(ev.get("text", ""))[:400],
-                      # Канал робот кладёт ИМЕННО для ленты: показ на этом
-                      # компьютере и зеркало телеграма — разные новости, и
-                      # мост его выбрасывал (A-18).
-                      "channel": ev.get("channel") or None,
-                      # Optional, for when the robot starts sending media:
-                      # {"url": …, "type": "image"|"audio"|"video"|"link"}.
-                      "media": ev.get("media") or None}
+            async for raw in robot.events():
+                ev = normalise_robot_event(raw, now_iso=_now_iso())
                 robot_events.add(ev)
                 if consent.paused:
                     missed_while_paused["n"] += 1
