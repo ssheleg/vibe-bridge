@@ -19,6 +19,58 @@ def _isolated_config(tmp_path_factory, monkeypatch):
     for var in ("VIBE_BRIDGE_PORT", "VIBE_BRIDGE_MODE"):
         monkeypatch.delenv(var, raising=False)
 
+#: Процессные глобалы, которые пишет РАБОТАЮЩИЙ мост. Список ведётся вручную
+#: и сверяется тестом `test_process_globals.py`: он ищет каждое `global` в
+#: отгружаемом коде и требует, чтобы оно было здесь.
+_PROCESS_GLOBALS = (
+    ("vibebridge.capabilities", "_notifier"),
+    ("vibebridge.capabilities", "_notify_limit"),
+    ("vibebridge.desktop", "_WEBVIEW_CLASS"),
+)
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_globals():
+    """Вернуть процессные глобалы на место после КАЖДОГО теста.
+
+    `build_app` пишет `_notifier` и `_notify_limit`, и никто их не
+    восстанавливал. Десятки тестов зовут `build_app`, часть затем дёргает
+    нотифаер напрямую — и полагается на то, ЧЬЁ приложение победило
+    последним (A-41). Порядок тестов при этом никто не фиксировал: `-p
+    no:randomly` тут ничего не гарантирует, потому что порядок задаёт сбор
+    файлов.
+
+    Снимок берётся до теста и кладётся обратно после — включая случай,
+    когда атрибута ещё нет вовсе.
+    """
+    import importlib
+
+    saved = []
+    for mod_name, attr in _PROCESS_GLOBALS:
+        try:
+            mod = importlib.import_module(mod_name)
+        except Exception:                      # noqa: BLE001
+            # молчим: модуль не импортируется на этой платформе (desktop —
+            # macOS-only). Восстанавливать нечего, и падать здесь значило бы
+            # ронять весь набор из-за фикстуры-уборщика.
+            continue
+        saved.append((mod, attr, getattr(mod, attr, _ABSENT)))
+    yield
+    for mod, attr, value in saved:
+        if value is _ABSENT:
+            if hasattr(mod, attr):
+                delattr(mod, attr)
+        else:
+            setattr(mod, attr, value)
+
+
+class _Absent:
+    """Отличает «атрибута не было» от «атрибут был None»."""
+
+
+_ABSENT = _Absent()
+
+
 def _notifier_class_the_bridge_uses() -> str:
     """Как мост называет свой нотифаер — читаем у него, не помним у себя."""
     import re
