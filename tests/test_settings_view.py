@@ -205,7 +205,17 @@ def test_the_event_normaliser_keeps_the_channel_and_the_media():
         now_iso="2026-09-02T11:00:00")
     assert ev["channel"] == "computer"
     assert ev["media"] == {"name": "a.jpg", "type": "image"}
-    assert ev["ts"] == "2026-09-02T10:00:00"      # своё время робота уважаем
+    # Стрелки робота НЕ переводим — 10:00:00 остаётся 10:00:00, — но зону
+    # дописываем. Наивная метка это не «время робота»: это строка, которую JS
+    # читателя толкует как СВОЁ местное время, и в поездке владельца каждое
+    # событие сдвигалось на разницу зон (B-42). Робот теперь шлёт зону сам;
+    # старые прошивки на флоте обновятся не сразу, поэтому мост дописывает
+    # СВОЮ — допущение «робот и мост дома в одной зоне» записано в коде, а
+    # не спрятано, как раньше делал браузер.
+    assert ev["ts"].startswith("2026-09-02T10:00:00")
+    import datetime as _dt
+    assert _dt.datetime.fromisoformat(ev["ts"]).tzinfo is not None, (
+        "мост отдал наивную метку — читатель в другой зоне увидит не то время")
 
 
 def test_an_event_without_a_stamp_gets_ours():
@@ -293,3 +303,24 @@ def test_https_without_a_name_is_not_a_thing():
         "http://127.0.0.1:48620"
     assert mcp_url(dns=None, https_ok=True, port=48620) == \
         "http://127.0.0.1:48620/mcp"
+
+
+def test_a_robot_that_already_sends_a_zone_is_left_alone():
+    """Новый робот шлёт зону сам — переписывать её значило бы врать о том,
+    где он находится."""
+    from vibebridge.web import normalise_robot_event
+
+    ev = normalise_robot_event({"ts": "2026-09-02T10:00:00+00:00",
+                                "kind": "e", "text": "x"},
+                               now_iso="2026-09-02T12:00:00+00:00")
+    assert ev["ts"] == "2026-09-02T10:00:00+00:00"
+
+
+def test_a_timestamp_we_cannot_read_is_passed_through_untouched():
+    """Чужой формат — не наше дело чинить: выдумывать за него время хуже,
+    чем показать как есть."""
+    from vibebridge.web import normalise_robot_event
+
+    ev = normalise_robot_event({"ts": "вчера вечером", "kind": "e", "text": "x"},
+                               now_iso="2026-09-02T12:00:00+00:00")
+    assert ev["ts"] == "вчера вечером"

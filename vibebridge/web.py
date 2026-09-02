@@ -307,6 +307,25 @@ class BearerGuard:
 EVENT_TEXT_MAX = 400
 
 
+def _with_timezone(stamp) -> str | None:
+    """Метка со смещением. Наивную датируем СВОЕЙ зоной — и говорим об этом.
+
+    Возвращает None для пустого значения, чтобы вызывающий подставил своё
+    «сейчас».
+    """
+    text = str(stamp or "").strip()
+    if not text:
+        return None
+    import datetime as _dt
+    try:
+        parsed = _dt.datetime.fromisoformat(text)
+    except ValueError:
+        return text                    # не наше дело чинить чужой формат
+    if parsed.tzinfo is not None:
+        return text                    # робот новый — не трогаем
+    return parsed.astimezone().isoformat(timespec="seconds")
+
+
 def normalise_robot_event(raw: dict, *, now_iso: str) -> dict[str, Any]:
     """Событие робота → строка ленты. Чистая функция (F-2).
 
@@ -316,7 +335,15 @@ def normalise_robot_event(raw: dict, *, now_iso: str) -> dict[str, Any]:
     подняв приложение и дождавшись SSE.
     """
     return {
-        "ts": raw.get("ts") or now_iso,
+        # Метка робота — со зоной, если он новый, и БЕЗ неё, если старый.
+        # Наивную JS читателя разбирает как СВОЁ местное время: дома
+        # совпадает, в поездке владельца каждое событие сдвинуто на разницу
+        # зон (B-42). Робот чинится одной строкой, но старые прошивки на
+        # флоте обновятся не сразу — поэтому зону дописываем здесь, и
+        # дописываем ЧЕСТНО: у нас нет зоны робота, есть только своя, а
+        # робот и мост дома в одной зоне. Это ровно то допущение, которое
+        # молча делал браузер, — но теперь оно записано, а не спрятано.
+        "ts": _with_timezone(raw.get("ts")) or now_iso,
         "kind": raw.get("kind", "event"),
         "text": str(raw.get("text", ""))[:EVENT_TEXT_MAX],
         # Канал робот кладёт ИМЕННО для ленты: показ на этом компьютере и
