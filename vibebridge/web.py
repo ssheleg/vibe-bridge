@@ -87,13 +87,27 @@ code{background:#232a36}.muted{color:#8a93a6}}
 защищена ключом, который подставляется автоматически.</p>
 <p>Нажмите значок моста в меню-баре (вверху справа) и выберите
 <b>«Открыть панель»</b>.</p>
-<p class="muted">Значка нет? Значит мост не запущен — откройте
-<code>vibe-bridge</code> из «Программ». Ключ панели хранится в
-<code>~/Library/Application&nbsp;Support/vibe-bridge/state.json</code>; он
-секретный и здесь не показывается.</p>
+<p><b>Вы с телефона?</b> Значка в меню-баре у вас нет и быть не может.
+Откройте панель на компьютере → «Настройки» → «Телефон» и пройдите по ссылке
+оттуда ещё раз: она принесёт ключ обратно.</p>
+<p class="muted">Значка нет и на компьютере? Значит мост не запущен — откройте
+<code>vibe-bridge</code> из «Программ». Ключ панели хранится в файле состояния
+моста; он секретный и здесь не показывается.</p>
 </body></html>"""
 
 PANEL_COOKIE = "vb_panel"
+#: Сколько живёт кука панели. Сессионная умирала вместе с браузером, и PWA на
+#: телефоне после перезапуска попадала на дверь, которая советует нажать значок
+#: в меню-баре — совет, невыполнимый с iPhone (A-27).
+PANEL_COOKIE_MAX_AGE = 90 * 24 * 3600
+
+
+def _set_panel_cookie(resp, request: Request, token: str) -> None:
+    """Кука с сроком жизни, и `secure` — только когда соединение и правда
+    защищённое: на loopback по http флаг `secure` выбросил бы куку молча."""
+    resp.set_cookie(PANEL_COOKIE, token, httponly=True, samesite="lax",
+                    max_age=PANEL_COOKIE_MAX_AGE,
+                    secure=request.url.scheme == "https")
 _WEBUI = Path(__file__).parent / "webui"
 
 _DECISIONS = {
@@ -509,8 +523,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             if token != state.panel_token:
                 return JSONResponse({"error": "forbidden"}, status_code=403)
             resp = RedirectResponse("/", status_code=303)
-            resp.set_cookie(PANEL_COOKIE, state.panel_token, httponly=True,
-                            samesite="lax")
+            _set_panel_cookie(resp, request, state.panel_token)
             return resp
         if not _authed(request):
             # A person, not a program, is reading this. The token is never in
@@ -1077,8 +1090,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                     if k != "token"]
             target = "/mascot" + (f"?{urlencode(rest)}" if rest else "")
             resp = RedirectResponse(target, status_code=303)
-            resp.set_cookie(PANEL_COOKIE, state.panel_token, httponly=True,
-                            samesite="lax")
+            _set_panel_cookie(resp, request, state.panel_token)
             return resp
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)

@@ -244,3 +244,56 @@ def test_the_web_layer_holds_no_port_constant_of_its_own():
     code = re.sub(r'"""(?:.|\n)*?"""', "", code)
     assert "BRIDGE_PORT" not in code, "веб-слой снова взял порт из константы"
     assert "48620" not in code, "веб-слой снова зашил номер порта"
+
+
+def test_the_panel_cookie_outlives_the_browser(tmp_path):
+    """A-27: кука была сессионной. PWA на телефоне после перезапуска теряла
+    вход и попадала на дверь, которая советует нажать значок в меню-баре —
+    совет, невыполнимый с iPhone."""
+    from starlette.testclient import TestClient
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.config import Settings
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import PANEL_COOKIE, build_app
+
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(consent=ConsentEngine(),
+                    audit=AuditLog(tmp_path / "a.log"), state=state,
+                    settings=Settings())
+    with TestClient(app) as c:
+        r = c.get("/?token=pt", follow_redirects=False)
+    raw = r.headers["set-cookie"]
+    assert PANEL_COOKIE in raw
+    assert "Max-Age=" in raw, "кука по-прежнему живёт только до закрытия окна"
+    age = int(raw.split("Max-Age=")[1].split(";")[0])
+    assert age > 7 * 24 * 3600, "срок короче недели — телефон разлогинится"
+    # ...но `Secure` по http не ставится: на loopback он выбросил бы куку
+    assert "Secure" not in raw
+
+
+def test_the_door_tells_a_phone_owner_what_to_do():
+    """Дверь была macOS-only: «нажмите значок в меню-баре», «откройте из
+    Программ», путь внутри ~/Library. С телефона выполнимо ноль пунктов."""
+    from vibebridge.web import _DOOR_HTML
+
+    assert "Вы с телефона?" in _DOOR_HTML
+    assert "ссылке" in _DOOR_HTML or "ссылку" in _DOOR_HTML
+    assert "Library/Application" not in _DOOR_HTML, \
+        "дверь снова показывает путь, которого на телефоне нет"
+
+
+def test_the_service_worker_tells_401_from_already_decided():
+    """`!r.ok` сваливал в одну строку и «уже решено», и «тебя разлогинило» —
+    владелец шёл искать несуществующий ответ вместо починки входа."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    sw = (Path(vibebridge.__file__).parent / "webui" / "sw.js").read_text()
+    code = re.sub(r"/\*.*?\*/", "", sw, flags=re.S)
+    code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
+    assert "r.status === 401" in code
+    assert "разлогинен" in code

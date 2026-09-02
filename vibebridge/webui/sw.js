@@ -46,9 +46,17 @@ self.addEventListener("notificationclick", (e) => {
         body: JSON.stringify({ id, decision: e.action }),
       }).then((r) => {
         const word = e.action === "allow" ? "разрешено" : "отклонено";
+        // 401 — это НЕ «запрос уже решён»: ключ панели на этом телефоне
+        // истёк, и владельцу надо пройти по ссылке из панели заново.
+        // Свалив всё в одну строку, мы отправляли его искать несуществующий
+        // ответ вместо того, чтобы починить вход (A-27).
+        let body;
+        if (r.ok) body = "Действие " + word;
+        else if (r.status === 401 || r.status === 403)
+          body = "Телефон разлогинен — откройте ссылку из панели заново";
+        else body = "Запрос уже решён или истёк";
         return self.registration.showNotification("vibe-bridge",
-          { body: r.ok ? "Действие " + word : "Запрос уже решён или истёк",
-            tag: "vb-result" });
+          { body: body, tag: "vb-result" });
       }).catch(() =>
         self.registration.showNotification("vibe-bridge",
           { body: "Нет связи с мостом — решение не доставлено", tag: "vb-result" }))
