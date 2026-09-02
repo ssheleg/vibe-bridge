@@ -59,6 +59,15 @@
   :root{--dur:0s; --dur-h:0s}
 }
 
+/* Фокус-ринг — «2px --accent, offset 2px, НА ВСЁМ» (пак, дословно). Живёт
+   здесь, а не по копии на страницу: у панели правило было одно, а у
+   плавающего виджета — ни одного, при том что именно на виджете принимается
+   решение по согласию. Клавиатурой там было не видно НИЧЕГО (V-5).
+
+   `:focus-visible`, а не `:focus`: кольцо после клика мышью — шум, который
+   в итоге и приводит к `outline:none` где-нибудь ниже по файлу. */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
 /* Data is monospaced with tabular figures wherever it appears: a version, an
    uptime and a timestamp that shift width as they tick are unreadable in a
    column. */

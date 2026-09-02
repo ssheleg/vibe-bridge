@@ -701,3 +701,62 @@ def test_the_pet_says_when_a_click_arrived_too_late():
     # словом». Пустой catch вокруг разбора JSON законен — запасная строка
     # там уже стоит, и глотать ему нечего.
     assert "Мост не ответил" in fn, "провал отправки снова беззвучен"
+
+
+def test_the_pet_window_says_a_word_about_its_state():
+    """Поправка пака дословно: «он не заменяет собой текст: рядом с ним
+    всегда слово о состоянии».
+
+    Окно питомца строило разметку само, минуя `renderMascot()`, и теряло даже
+    `title`. По той же доктрине на паузе и офлайне персонаж НЕПОДВИЖЕН — то
+    есть ровно в двух состояниях из пяти окно не сообщало ничего вообще: ни
+    движением, ни словом (V-6).
+    """
+    window = code_of("mascot.html")
+    # Веток `IS_PET` в файле несколько (одна из них — про toggle), и разбор
+    # «по первой» брал не ту: та же ошибка, что резала кадры по первой `}`
+    # в A-33. Нужна ИМЕННО та, что рисует фигурку.
+    drawing = [chunk.split("return;", 1)[0]
+               for chunk in window.split("if (IS_PET){")[1:]
+               if "mascotSvg" in chunk.split("return;", 1)[0]]
+    assert len(drawing) == 1, (
+        f"веток окна питомца, которые рисуют фигурку: {len(drawing)}")
+    body = drawing[0]
+    assert "MASCOT_STATES" in body, (
+        "окно питомца не берёт состояние из общего словаря — значит слово "
+        "будет своё, и разойдётся с панелью")
+    # `s.label` встречается в ветке ДВАЖДЫ — в видимом слове и в `title`, —
+    # и первая версия этого ассерта проверяла просто его наличие. Подсадка
+    # показала: сношу видимое слово, `title` остаётся, гейт зелёный. Ровно
+    # класс A-32, найденный собственной подсадкой на собственном гейте.
+    # Различие несёт помощник экранирования: `vbEsc` — для текста,
+    # `vbEscAttr` — для атрибута.
+    assert "pet-word" in body, "в окне питомца нет ВИДИМОГО слова о состоянии"
+    assert "vbEsc(s.label)" in body, (
+        "слово о состоянии не вставляется как текст — значит его нет или "
+        "оно не экранировано")
+    assert "vbEscAttr(s.label)" in body, "у фигурки нет даже подсказки"
+
+
+def test_the_word_cannot_stretch_the_pet_window():
+    """Окно питомца по сценарию не меняет размер (`desktop.PET_SIZE` 104px,
+    фигурка 72). Длинная подпись обязана обрезаться, а не растянуть окно."""
+    css = code_of("mascot.html")
+    rule = css.split(".pet-word{", 1)
+    assert len(rule) == 2, "подпись состояния не одета"
+    body = rule[1].split("}", 1)[0].replace(" ", "").replace("\n", "")
+    assert "max-width:100%" in body and "text-overflow:ellipsis" in body, body
+    assert "pointer-events:none" in body, (
+        "подпись перехватывает перетаскивание фигурки")
+
+
+def test_every_state_has_a_word_to_say():
+    """Слово берётся из словаря — значит словарь обязан покрывать все пять
+    состояний, а не четыре."""
+    js = code_of("mascot.js")
+    states = js.split("const MASCOT_STATES = {", 1)[1].split("\n};", 1)[0]
+    for state in ("idle", "thinking", "asking", "paused", "offline"):
+        chunk = states.split(f"{state}:", 1)
+        assert len(chunk) == 2, f"нет состояния {state}"
+        assert "label:" in chunk[1].split("},", 1)[0], (
+            f"у состояния «{state}» нет слова")

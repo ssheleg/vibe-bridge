@@ -365,3 +365,41 @@ def test_nothing_in_the_header_is_pinned_wider_than_a_phone():
     cards = block.split(".cards{", 1)[1].split("}", 1)[0]
     assert "grid-template-columns:1fr" in cards, (
         "на телефоне карточки не в одну колонку")
+
+
+# --------------------------------------------------------------------------
+# V-5: кольцо фокуса «на всём» — а на виджете его не было вовсе.
+# --------------------------------------------------------------------------
+
+
+def test_the_focus_ring_lives_with_the_tokens_not_per_surface():
+    """Пак требует кольцо «на всём». У панели правило было ОДНО, у
+    плавающего виджета — ни одного, при том что решение по согласию
+    принимается именно на виджете: клавиатурой там не было видно ничего.
+
+    Копия на страницу — тот же дефект, что копия палитры: она появляется на
+    трёх поверхностях из четырёх и молчит на четвёртой.
+    """
+    tokens = (WEBUI / "tokens.css").read_text(encoding="utf-8")
+    rule = tokens.split(":focus-visible{", 1)
+    assert len(rule) == 2, "кольца фокуса нет в общем файле"
+    body = rule[1].split("}", 1)[0].replace(" ", "")
+    assert "outline:2px" in body and "var(--accent)" in body, body
+    assert "outline-offset:2px" in body, body
+
+
+def test_no_surface_puts_out_the_focus_ring():
+    """`outline:none` без замены — это «кольцо есть, но невидимо»."""
+    for name in (*SURFACES, "tokens.css", "mascot.js"):
+        css = code_of(name).replace(" ", "")
+        for killer in ("outline:none", "outline:0"):
+            assert killer not in css, (
+                f"{name}: {killer} гасит фокус; если нужен другой индикатор, "
+                f"он должен быть виден и объяснён рядом")
+
+
+def test_every_surface_can_show_the_ring_at_all():
+    """Правило в общем файле бесполезно на странице, которая его не грузит."""
+    for name in SURFACES:
+        assert 'href="/tokens.css"' in code_of(name), (
+            f"{name} не грузит токены — кольца фокуса на ней не будет")

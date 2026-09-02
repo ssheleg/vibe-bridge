@@ -34,6 +34,15 @@ html[data-surface="pet"] #dialog{display:none}
    sat at the LEFT. */
 #mascot{display:flex;flex-direction:column;align-items:flex-end}
 .mascot-body{cursor:grab;filter:drop-shadow(0 3px 8px rgba(0,0,0,.28));touch-action:none}
+/* Слово о состоянии под фигуркой. Окно питомца прозрачное и лежит поверх
+   ЧУЖОГО рабочего стола — без подложки текст читается через раз, поэтому
+   пилюля на `--panel`. Ширина окна 104px (`desktop.PET_SIZE`), фигурка 72:
+   строка обязана в остаток влезать, а не растягивать окно, которое по
+   сценарию не меняет размер. */
+.pet-word{font-size:var(--t-note);color:var(--ink);background:var(--panel);
+  border:1px solid var(--border);border-radius:var(--r-pill);
+  padding:1px 6px;margin-top:3px;max-width:100%;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 .mascot-body:active{cursor:grabbing}
 /* Дыхание живёт ОДИН раз — в `mascot.js`, вместе с остальными состояниями
    персонажа, и оттуда же приходит на обе поверхности. Здесь была вторая
@@ -456,8 +465,16 @@ function paint(snap, force){
   painted = key;
 
   if (IS_PET){
+    // Поправка пака дословно: «он не заменяет собой текст: рядом с ним
+    // всегда слово о состоянии». В окне питомца не было ни слова, ни даже
+    // `title`: разметка строилась здесь, минуя `renderMascot()`. А по той же
+    // доктрине на паузе и офлайне персонаж НЕПОДВИЖЕН — то есть ровно в двух
+    // состояниях из пяти окно не сообщало вообще ничего (V-6).
+    const s = MASCOT_STATES[snap.state] || MASCOT_STATES.idle;
     el.innerHTML =
-      `<div class="mascot-body">${mascotSvg(snap.state, 72, snap.skin)}</div>`;
+      `<div class="mascot-body" title="${vbEscAttr(s.label)}">` +
+      `${mascotSvg(snap.state, 72, snap.skin)}</div>` +
+      `<div class="pet-word">${vbEsc(s.label)}</div>`;
     armDrag();
     return;                       // no measuring, no resize, no movement
   }
