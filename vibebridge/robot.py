@@ -99,9 +99,18 @@ class RobotClient:
     async def chat(self, text: str, *, session: str = "panel",
                    history: list[dict[str, str]] | None = None
                    ) -> dict[str, Any]:
-        """One turn to the brain. Retries ONCE on a slow first answer
-        (R1.50 contract), then answers honestly. Returns
-        {ok, reply} | {ok: False, undelivered: True, error}."""
+        """One turn to the brain.
+
+        Повторяется РОВНО в одном случае: когда соединение не установилось,
+        то есть робот хода не видел. Медленный ответ не повторяется никогда
+        (A-6): ход мозга не идемпотентен — к 150-й секунде он мог уже
+        опубликовать пост в канал, снять кадр со вспышкой и открыть вкладку,
+        и второй такой же payload исполнит это второй раз. Ключа
+        идемпотентности в протоколе нет ни у нас, ни в прокси робота, и
+        `ReadTimeout` не отличает «не дошло» от «дошло и работает» — значит
+        единственный безопасный ответ на него это не посылать повторно.
+
+        Returns {ok, reply} | {ok: False, undelivered: bool, error}."""
         if self.chat_url is None:
             return {"ok": False, "undelivered": True,
                     "error": "чат недоступен: робот не подключён"}
@@ -126,9 +135,17 @@ class RobotClient:
                 data = r.json()
                 reply = data["choices"][0]["message"]["content"]
                 return {"ok": True, "reply": reply}
-            except httpx.TimeoutException:
+            except (httpx.ConnectTimeout, httpx.PoolTimeout):
+                # Ход не покинул мост: соединения не случилось, побочных
+                # эффектов быть не может. Единственный безопасный повтор.
                 if attempt == 1:
-                    continue            # the single retry the contract allows
+                    continue
+                return {"ok": False, "undelivered": True,
+                        "error": "не доставлено: робот не отвечает на "
+                                 "подключение"}
+            except httpx.TimeoutException:
+                # Запрос ушёл. Дошёл он или нет — отсюда не видно, а ход
+                # мозга не идемпотентен: молчим и говорим правду.
                 return {"ok": False, "undelivered": False,
                         "error": "Робот думает дольше обычного — ответ может "
                                  "прийти событием, либо повторите позже"}

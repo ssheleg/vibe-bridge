@@ -406,6 +406,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     # session: enough for the brain to follow what was just said, not an
     # archive (vision, «Не мессенджер»).
     chat_history: dict[str, deque] = {}
+    chat_inflight: set[str] = set()      # один ход на сессию (A-6)
     missed_while_paused = {"n": 0}
     # The face. It derives pause and pending from the engine rather than
     # keeping its own copy — two sources of truth for "is the bridge paused"
@@ -521,6 +522,15 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         # context, so a new id is how the owner starts a fresh one. The panel
         # and the pet each pass their own.
         session = str(body.get("session") or "panel")[:64]
+        # Один ход на сессию за раз. Ход мозга не идемпотентен: пока он идёт,
+        # он мог уже опубликовать пост, снять кадр со вспышкой и открыть
+        # вкладку. Второй клик по «Отправить» (или совет «повторите позже»,
+        # понятый буквально) исполнил бы это второй раз — A-6.
+        if session in chat_inflight:
+            return JSONResponse(
+                {"ok": False, "undelivered": True,
+                 "error": "ход уже идёт — дождитесь ответа"}, status_code=409)
+        chat_inflight.add(session)
         thread = chat_history.setdefault(session, deque(maxlen=20))
         mascot.thinking(True)
         try:
@@ -528,6 +538,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                                       history=list(thread))
         finally:
             mascot.thinking(False)
+            chat_inflight.discard(session)
         # The brain's own reply, spoken by the face. Nothing is composed here.
         # The key is `reply` — `RobotClient.chat` has always returned that, and
         # reading `text` here meant the mascot silently never spoke a single

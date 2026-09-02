@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -77,23 +78,43 @@ def test_chat_happy():
     assert res == {"ok": True, "reply": "привет!"}
 
 
-def test_chat_retries_once_on_timeout_then_succeeds():
+def test_chat_never_resends_a_turn_that_may_have_been_delivered():
+    """A-6: ход мозга не идемпотентен. К 150-й секунде ход №1 мог уже
+    опубликовать пост в канал, снять кадр со вспышкой и открыть вкладку —
+    повтор того же payload исполняет это второй раз. `ReadTimeout` значит
+    «запрос ушёл, ответа нет», и повторять его нельзя ни разу."""
     calls = {"n": 0}
     def h(req):
         calls["n"] += 1
-        if calls["n"] == 1:
-            raise httpx.ReadTimeout("slow", request=req)
-        return _chat_ok(req)
-    res = _run(_client(h, chat_key="k1").chat("привет"))
-    assert res["ok"] is True and calls["n"] == 2
-
-
-def test_chat_double_timeout_is_slow_not_undelivered():
-    def h(req):
         raise httpx.ReadTimeout("slow", request=req)
-    res = _run(_client(h).chat("x"))
+    res = _run(_client(h, chat_key="k1").chat("привет"))
+    assert calls["n"] == 1                       # ровно один ход
     assert res["ok"] is False and res["undelivered"] is False
     assert "дольше обычного" in res["error"]
+
+
+def test_chat_retries_only_when_the_turn_never_left_the_bridge():
+    """Соединение не установилось — робот запроса не видел, побочных
+    эффектов быть не может. Это единственный безопасный повтор."""
+    for exc_cls in (httpx.ConnectTimeout, httpx.PoolTimeout):
+        calls = {"n": 0}
+        def h(req, _e=exc_cls, _c=calls):
+            _c["n"] += 1
+            if _c["n"] == 1:
+                raise _e("no route", request=req)
+            return _chat_ok(req)
+        res = _run(_client(h, chat_key="k1").chat("привет"))
+        assert res["ok"] is True and calls["n"] == 2, exc_cls.__name__
+
+
+def test_chat_unreachable_robot_is_undelivered_not_slow():
+    """Дважды не дозвонились — это НЕ «думает дольше обычного»: робот хода
+    не получил, и владельцу надо сказать именно это."""
+    def h(req):
+        raise httpx.ConnectTimeout("no route", request=req)
+    res = _run(_client(h).chat("x"))
+    assert res["ok"] is False and res["undelivered"] is True
+    assert "дольше обычного" not in res["error"]
 
 
 def test_chat_server_error_is_undelivered():
@@ -356,3 +377,67 @@ def test_a_first_turn_carries_only_itself():
                              transport=httpx.MockTransport(handler)))
     asyncio.run(client.chat("привет"))
     assert seen["n"] == 1
+
+
+# ── одновременность хода (A-6, вторая дверь) ────────────────────────────────
+
+class _SlowChat(httpx.AsyncBaseTransport):
+    """Робот, который думает: держит ход открытым три секунды. Асинхронно —
+    блокирующий обработчик подвесил бы цикл, и второй запрос не дошёл бы до
+    моста вовсе: тест доказывал бы устройство TestClient, а не гвард."""
+
+    THINKING_S = 3.0
+
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.turns = 0
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.turns += 1
+        self.started.set()
+        await asyncio.sleep(self.THINKING_S)
+        return httpx.Response(200, json={"choices": [
+            {"message": {"role": "assistant", "content": "готово"}}]})
+
+
+def test_a_second_turn_in_one_session_is_refused_while_the_first_runs(tmp_path):
+    """Повтор транспорта закрыт, но остаётся владелец: совет «повторите
+    позже» стоит рядом с кнопкой — и второй клик по живому ходу исполняет
+    tool-call'ы второй раз. Один ход на сессию за раз."""
+    from starlette.testclient import TestClient
+
+    from vibebridge.audit import AuditLog
+    from vibebridge.consent import ConsentEngine
+    from vibebridge.state import BridgeState
+    from vibebridge.web import build_app
+
+    slow = _SlowChat()
+    robot = RobotClient(chat_url="http://robot", chat_key="k",
+                        http=httpx.AsyncClient(transport=slow))
+    state = BridgeState(path=tmp_path / "state.json", panel_token="pt")
+    app = build_app(state=state, consent=ConsentEngine(),
+                    audit=AuditLog(path=tmp_path / "a.log"), robot=robot)
+
+    with TestClient(app) as c:
+        c.get("/?token=pt")
+        out: dict = {}
+        t = threading.Thread(
+            target=lambda: out.update(first=c.post(
+                "/api/robot/chat", json={"text": "сними кадр"})),
+            daemon=True)
+        t.start()
+        assert slow.started.wait(10), "первый ход не дошёл до робота"
+
+        second = c.post("/api/robot/chat", json={"text": "сними кадр"})
+        assert second.status_code == 409
+        body = second.json()
+        assert body["ok"] is False and body["undelivered"] is True
+        assert "уже" in body["error"]
+        assert slow.turns == 1                 # робот увидел ОДИН ход
+
+        t.join(20)
+        assert out["first"].status_code == 200
+        # ...и сессия снова свободна
+        assert c.post("/api/robot/chat",
+                      json={"text": "ещё"}).status_code == 200
+        assert slow.turns == 2
