@@ -8,6 +8,7 @@ the character.
 """
 from __future__ import annotations
 
+from tests.webui_rules import reduced_motion_kills_animation
 from vibebridge import desktop as mw
 
 
@@ -162,7 +163,6 @@ def test_the_pet_breathes_but_stops_when_asked():
     оставляло тест зелёным, то есть регрессия доступности прошла бы насквозь.
     Смотрим на правила, комментарии вырезаны.
     """
-    import re
     from pathlib import Path
 
     import vibebridge
@@ -172,21 +172,11 @@ def test_the_pet_breathes_but_stops_when_asked():
     assert "@keyframes vb-breathe" in js         # not frozen…
 
     for name in ("mascot.html", "mascot.js"):
-        text = (webui / name).read_text()
-        code = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-        code = re.sub(r"^\s*//.*$", "", code, flags=re.M)
-        # ВСЕ блоки, а не первый: 2026-09-02 у страницы появился второй
-        # (таймер-бар согласия), и версия, читавшая только первый,
-        # покраснела на файле, где гашение анимации никуда не делось —
-        # то есть сообщила бы о регрессии там, где её нет, и промолчала бы
-        # там, где она есть, стоило блокам поменяться местами.
-        blocks = re.findall(
-            r"@media\s*\(prefers-reduced-motion[^)]*\)\s*\{(.*?)\}\s*\}",
-            code, flags=re.S)
-        assert blocks, f"{name}: правила reduced-motion нет (не в комментарии)"
-        joined = "".join(blocks).replace(" ", "")
-        assert "animation:none" in joined, (
-            f"{name}: reduced-motion не гасит анимацию")
+        # Чтение правил — одно на все тесты (tests/webui_rules.py): тот же
+        # слабый ассерт жил во втором тесте и держался только на том, что
+        # строка пока встречается один раз.
+        assert reduced_motion_kills_animation(name), \
+            f"{name}: reduced-motion не гасит анимацию"
 
 
 def test_a_drag_is_not_read_as_a_click():

@@ -13,6 +13,7 @@ import pytest
 from starlette.testclient import TestClient
 
 import vibebridge
+from tests.webui_rules import reduced_motion_kills_animation
 from vibebridge.audit import AuditLog
 from vibebridge.config import Settings
 from vibebridge.consent import ConsentEngine
@@ -108,9 +109,10 @@ def test_states_never_rely_on_colour_alone():
     js = (WEBUI / "mascot.js").read_text()
     for shape in ("calm", "scan", "wide", "closed"):
         assert f"{shape}:" in js
-    # The shared stylesheet carries the reduced-motion branch for both
-    # surfaces, so neither can ship without it.
-    assert "prefers-reduced-motion" in js
+    # Ветка reduced-motion проверяется ПРАВИЛОМ, а не строкой: `"…" in js`
+    # держался лишь на том, что слово пока встречается в файле один раз —
+    # один поясняющий комментарий, и он снова ничего не проверяет (A-32).
+    assert reduced_motion_kills_animation("mascot.js")
 
 
 def test_the_window_is_wide_enough_for_all_three_answers():
