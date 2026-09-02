@@ -166,10 +166,6 @@ class Check:
     found: Available | None = None
     error: str = ""
 
-    @property
-    def up_to_date(self) -> bool:
-        return self.found is None and not self.error
-
 
 def check(*, current: str, fetch=None, repo: str | None = None) -> Check:
     """Ask the release channel what the newest payload version is."""

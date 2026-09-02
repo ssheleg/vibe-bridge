@@ -85,7 +85,7 @@ def test_grant_suppresses_the_second_call_of_the_SAME_tool():
     _answer_async(eng, Decision.ALLOW_GRANT)
     d1 = eng.request("mac_open_app", ToolClass.ACT, "открыть Safari")
     assert d1 is Decision.ALLOW_GRANT
-    assert eng.grant_active("mac_open_app") > 0
+    assert eng.grants().get("mac_open_app", 0) > 0
     # тот же инструмент в окне гранта — без диалога
     d2 = eng.request("mac_open_app", ToolClass.ACT, "открыть Почту")
     assert d2 is Decision.AUTO
@@ -105,8 +105,8 @@ def test_a_grant_does_not_leak_to_the_neighbouring_tools():
     # поэтому истекает, а не проходит молча
     assert eng.request("automation", ToolClass.ACT, "AppleScript") is \
         Decision.TIMEOUT
-    assert eng.grant_active("automation") == 0
-    assert eng.grant_active("open_url") > 0
+    assert "automation" not in eng.grants()
+    assert eng.grants().get("open_url", 0) > 0
 
 
 def test_grants_are_listed_by_name_so_a_surface_can_show_them():
@@ -131,7 +131,7 @@ def test_grant_expires():
     _answer_async(eng, Decision.ALLOW_GRANT)
     eng.request("mac_open_app", ToolClass.ACT, "x")
     clk.advance(901.0)
-    assert eng.grant_active("mac_open_app") == 0
+    assert "mac_open_app" not in eng.grants()
     # next ACT asks again → times out (no answerer)
     d = eng.request("mac_open_app", ToolClass.ACT, "x")
     assert d is Decision.TIMEOUT
@@ -150,9 +150,9 @@ def test_revoke_grants():
     eng = ConsentEngine(ask_timeout_s=2.0, grant_ttl_s=900.0, clock=clk)
     _answer_async(eng, Decision.ALLOW_GRANT)
     eng.request("mac_open_app", ToolClass.ACT, "x")
-    assert eng.grant_active("mac_open_app") > 0
+    assert eng.grants().get("mac_open_app", 0) > 0
     eng.revoke_grants()
-    assert eng.grant_active("mac_open_app") == 0
+    assert "mac_open_app" not in eng.grants()
     assert eng.grants() == {}
 
 

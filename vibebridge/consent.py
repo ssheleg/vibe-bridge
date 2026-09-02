@@ -181,12 +181,6 @@ class ConsentEngine:
             return next((o for o in reversed(self._closed)
                          if o.id == req_id), None)
 
-    def grant_active(self, tool: str) -> float:
-        """Seconds of grant remaining for THIS tool (0 if none)."""
-        with self._lock:
-            left = self._grant_until.get(tool, 0.0) - self._clock()
-        return max(0.0, left)
-
     def grants(self) -> dict[str, float]:
         """Живые гранты: инструмент → сколько секунд ещё проходит без
         вопроса. Поверхности показывают ИМЕНА — счётчик минут сам по себе

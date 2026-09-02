@@ -642,7 +642,11 @@ async function loadVersion(){
       `<div class="kv"><span class="k">Автозапуск</span><span class="v">${esc(v.autostart.human)}</span></div>`;
     if (v.autostart.supported){
       const on = v.autostart.state === "enabled";
-      rows += `<div style="margin-top:8px"><button class="btn ghost" onclick="setAutostart(${on?"false":"true"})">${on?"Не запускать при входе":"Запускать при входе"}</button></div>`;
+      // Переключатель СИСТЕМЫ старше нашего: владелец может выключить
+      // автозапуск в «Объектах входа», и мост об этом не спросят.
+      rows += `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">`+
+        `<button class="btn ghost" onclick="setAutostart(${on?"false":"true"})">${on?"Не запускать при входе":"Запускать при входе"}</button>`+
+        `<button class="btn ghost" onclick="openLoginItems(this)">Объекты входа в системе</button></div>`;
     }
     if (v.pending) rows += `<p class="note" style="margin-top:8px">Готова версия ${esc(v.pending)} — ${esc(v.pending_note)}.</p>`;
     rows += `<div class="kv"><span class="k">Автообновление</span><span class="v">${v.auto_update?"включено — проверяет раз в 6 часов":"выключено"}</span></div>`;
@@ -665,6 +669,16 @@ async function setAutoUpdate(on){
     await fetch("/api/autoupdate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:on})});
   } catch(e){}
   loadVersion();
+}
+async function openLoginItems(btn){
+  try{
+    const r = await fetch("/api/autostart/settings", {method:"POST"});
+    if (!r.ok){
+      const d = await r.json();
+      btn.textContent = d.why || "Не открылось";
+      return;
+    }
+  } catch(e){ btn.textContent = "Мост не ответил"; }
 }
 async function checkUpdate(){
   const btn = document.getElementById("updBtn"), note = document.getElementById("updNote");

@@ -1257,6 +1257,23 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                      detail="")
         return JSONResponse({"auto_update": state.auto_update})
 
+    async def api_autostart_settings(request: Request) -> Response:
+        """Открыть системную панель «Объекты входа».
+
+        Переключатель системы старше нашего: владелец может выключить
+        автозапуск там, и мост об этом не спросят. Функция была написана и
+        протестирована, но её никто не звал — класс «написано, не вызвано»
+        (A-37); теперь у неё есть кнопка.
+        """
+        if not _authed(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        from .autostart import open_settings
+        ok = await asyncio.to_thread(open_settings)
+        return JSONResponse(
+            {"ok": ok,
+             "why": "" if ok else "системная панель недоступна на этой ОС"},
+            status_code=200 if ok else 501)
+
     async def api_autostart(request: Request) -> Response:
         """Turn launch-at-login on or off from the panel. The system switch
         in Login Items stays authoritative — this only asks."""
@@ -1436,6 +1453,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             Route("/api/version", api_version),
             Route("/api/update/check", api_update_check, methods=["POST"]),
             Route("/api/autostart", api_autostart, methods=["POST"]),
+            Route("/api/autostart/settings", api_autostart_settings,
+                  methods=["POST"]),
             Route("/api/autoupdate", api_autoupdate, methods=["POST"]),
             Route("/api/robot/attach", api_robot_attach, methods=["POST"]),
             Route("/api/onboarding", api_onboarding),

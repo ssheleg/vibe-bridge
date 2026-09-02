@@ -198,12 +198,12 @@ def test_check_reports_a_newer_release(root):
 
 def test_check_is_quiet_when_already_current(root):
     res = update.check(current="0.2.0", fetch=lambda url: _feed("v0.2.0"))
-    assert res.found is None and res.up_to_date
+    assert res.found is None and not res.error
 
 
 def test_check_ignores_an_older_release(root):
     res = update.check(current="0.3.0", fetch=lambda url: _feed("v0.2.0"))
-    assert res.found is None and res.up_to_date
+    assert res.found is None and not res.error
 
 
 def test_the_newest_payload_wins_even_when_the_feed_is_unordered(root):
@@ -221,13 +221,13 @@ def test_unreachable_channel_is_not_reported_as_up_to_date(root):
 
     res = update.check(current="0.1.0", fetch=boom)
     assert res.found is None
-    assert not res.up_to_date
+    assert res.found is not None or res.error
     assert "недоступен" in res.error and "сеть недоступна" in res.error
 
 
 def test_garbage_response_is_an_error_not_silence(root):
     res = update.check(current="0.1.0", fetch=lambda url: "<html>418</html>")
-    assert res.found is None and not res.up_to_date and res.error
+    assert res.found is None and res.error
 
 
 def test_a_release_published_without_its_assets_fails_at_download(root, keys):
@@ -314,9 +314,9 @@ def test_only_shell_releases_published_means_nothing_to_take():
     feed = ATOM.replace("Repository/1/v0.2.0", "Repository/1/shell-v0.3.0")
     feed = feed.replace("Repository/1/v0.1.9", "Repository/1/shell-v0.1.9")
     res = update.check(current="0.1.0", fetch=lambda url: feed)
-    assert res.found is None and res.up_to_date
+    assert res.found is None and not res.error
 
 
 def test_an_unparsable_feed_is_an_error_not_silence():
     res = update.check(current="0.1.0", fetch=lambda url: "<html>418</html>")
-    assert res.found is None and not res.up_to_date and res.error
+    assert res.found is None and res.error
