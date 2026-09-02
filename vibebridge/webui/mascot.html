@@ -61,8 +61,9 @@ background:var(--panel-2);padding:.1em .35em;border-radius:4px}
    У питомца те же три кнопки, и молчание у них тоже значит отказ. */
 .deadline{display:flex;align-items:center;gap:6px;margin-top:6px}
 .drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);overflow:hidden}
-.drain>i{display:block;height:100%;background:var(--warn);width:var(--left,100%);
-  transition:width 1s linear}
+.drain>i{display:block;height:100%;width:100%;background:var(--warn);
+  transform-origin:left;transform:scaleX(var(--left,1));
+  transition:transform 1s linear}
 .secs{font-size:var(--t-cap);color:var(--muted);font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion: reduce){ .drain{display:none} }
 .btn{font:600 var(--t-cap) var(--font-ui);border-radius:var(--r-control);padding:6px 10px;
@@ -492,7 +493,7 @@ function deadlineHtml(snap){
   if (!full || left == null) return "";
   const pct = Math.max(0, Math.min(100, 100 * left / full));
   return `<div class="deadline"><div class="drain" aria-hidden="true">`+
-    `<i style="--left:${pct}%"></i></div>`+
+    `<i style="--left:${pct/100}"></i></div>`+
     `<span class="secs">${left > 0 ? Math.ceil(left) + " с" : "истекло"}</span></div>`;
 }
 

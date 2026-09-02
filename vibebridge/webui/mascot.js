@@ -191,7 +191,7 @@ function renderMascot(el, snap, opts){
   const full = snap.ask_timeout_s || 0, left = snap.asks_left_s;
   const deadline = (snap.actionable && full && left != null)
     ? `<div class="mascot-deadline"><div class="mascot-drain" aria-hidden="true">` +
-      `<i style="--left:${Math.max(0, Math.min(100, 100 * left / full))}%"></i></div>` +
+      `<i style="--left:${Math.max(0, Math.min(1, left / full))}"></i></div>` +
       `<span class="mascot-secs">${left > 0 ? Math.ceil(left) + " с" : "истекло"}</span></div>`
     : "";
   const buttons = (snap.actionable && opts.answerable)

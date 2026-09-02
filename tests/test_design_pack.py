@@ -211,3 +211,88 @@ def test_the_offline_page_keeps_its_skin_without_a_network():
         "offline ссылается на /tokens.css, а воркер его не кэширует — "
         "без сети страница останется без палитры")
     assert "offline.html" in sw
+
+
+# --------------------------------------------------------------------------
+# V-2 и V-7: один цвет — одно значение, и раскладку не анимирует НИЧТО.
+# --------------------------------------------------------------------------
+
+#: Селекторы, которым амбер положен по доктрине: «нужен человек» — то есть
+#: ожидающий консент-запрос и всё, что его показывает. Список короткий
+#: намеренно: смысл цвета держится тем, что он редкий.
+AMBER_IS_FOR = ("consent", "drain", "warnc", "dot.warn", "attention",
+                "problems", "asks", "deadline")
+
+
+def _declarations(css: str, prop: str) -> list[tuple[str, str]]:
+    """(селектор, тело) для каждого правила, где встречается свойство."""
+    out = []
+    for chunk in css.split("}"):
+        head, sep, body = chunk.partition("{")
+        if sep and prop in body:
+            out.append((head.strip().replace("\n", " "), body.strip()))
+    return out
+
+
+def test_amber_means_one_thing_across_every_surface():
+    """`--warn` занят значением «нужен человек» — и занят ЦЕЛИКОМ.
+
+    Тумблер паузы красился `--warn`, а в сорока пикселях от него тем же
+    `--warn` красилась точка ожидающего запроса: один цвет, два значения.
+    Пауза по доктрине нейтральна («это не ошибка, а честное состояние»), и
+    точка состояния с питомцем уже красили её нейтралью — спорил один
+    тумблер (V-2).
+    """
+    for name in SURFACES:
+        for selector, _body in _declarations(_css(name), "--warn"):
+            assert any(word in selector for word in AMBER_IS_FOR), (
+                f"{name}: амбер в «{selector}» — а он зарезервирован за "
+                f"«нужен человек»; если значение новое, оно должно попасть "
+                f"в доктрину и в AMBER_IS_FOR, а не появиться молча")
+
+
+def test_pause_is_neutral_wherever_it_is_shown():
+    """Пауза выглядит одинаково на всех поверхностях, а не по-своему."""
+    on = []
+    for chunk in _css("index.html").split("}"):
+        head, sep, body = chunk.partition("{")
+        # `aria-checked` живёт в СЕЛЕКТОРЕ, а не в теле правила — первая
+        # версия искала его в теле и нашла пустоту, то есть зачла бы
+        # отсутствие тумблера за успех.
+        if sep and 'aria-checked="true"' in head and ".switch" in head:
+            on.append(body)
+    assert on, "тумблер паузы пропал из панели"
+    for body in on:
+        assert "--warn" not in body, (
+            "включённая пауза снова амбер — это цвет ожидающего запроса")
+    # Питомец: пауза — приглушённый чернильный цвет, без цвета статуса.
+    js = code_of("mascot.js")
+    paused = js.split("paused:", 1)[1].split("}", 1)[0]
+    assert "--muted" in paused, f"питомец красит паузу не нейтралью: {paused}"
+
+
+def test_no_transition_animates_layout_either():
+    """Моторная доктрина запрещала анимировать раскладку — и проверялась
+    только на `@keyframes`.
+
+    Тумблер паузы ехал `transition: left`, то есть ровно тем, что запрещено,
+    и проходил насквозь: `left` в переходе — такая же раскладка, как `left`
+    в кадре. Три таймер-бара ехали `width` по той же причине (V-7).
+    """
+    banned = ("left", "top", "right", "bottom", "width", "height",
+              "margin", "padding", "font-size", "all")
+    seen = 0
+    for name in (*SURFACES, "mascot.js"):
+        for selector, body in _declarations(code_of(name), "transition"):
+            for decl in body.split(";"):
+                if "transition" not in decl:
+                    continue
+                value = decl.split(":", 1)[1] if ":" in decl else ""
+                for step in value.split(","):
+                    prop = step.strip().split()[0] if step.strip() else ""
+                    seen += 1
+                    assert prop not in banned, (
+                        f"{name}: «{selector}» анимирует раскладку "
+                        f"через transition: {prop}")
+    # Канарейка на разбор: молчаливый ноль выглядит как успех.
+    assert seen >= 8, f"гейт увидел всего {seen} переходов — разбор сломан"

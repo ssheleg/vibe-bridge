@@ -22,10 +22,19 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .tab[aria-selected="true"]{background:var(--accent-weak);color:var(--ink);box-shadow:inset 2px 0 0 var(--accent)}
 .tab[disabled]{opacity:.45;cursor:not-allowed}
 .pausewrap{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:var(--t-cap);color:var(--muted)}
-.switch{width:38px;height:22px;border-radius:var(--r-pill);background:var(--panel-2);border:1px solid var(--border-strong);position:relative;cursor:pointer;transition:background var(--dur) var(--ease)}
-.switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:left var(--dur) var(--ease)}
-.switch[aria-checked="true"]{background:var(--warn-weak);border-color:var(--warn)}
-.switch[aria-checked="true"]::after{left:18px;background:var(--warn)}
+/* Пауза — НЕЙТРАЛЬ, а не амбер. Амбер в этом продукте занят одним значением
+   («нужен человек»: ожидающий консент-запрос), и в сорока пикселях от этого
+   тумблера тем же `--warn` красится точка ожидающего запроса — один цвет,
+   два значения (V-2). Точка состояния и питомец уже красили паузу
+   нейтралью: тумблер был единственным, кто спорил.
+
+   Ручка ездит `transform`, а не `left`: `left` — это раскладка, и класс,
+   который уже чинили в маскоте, оставался на signature-элементе панели
+   (V-7). `will-change` не ставим: элемент один и маленький. */
+.switch{width:38px;height:22px;border-radius:var(--r-pill);background:var(--panel-2);border:1px solid var(--border-strong);position:relative;cursor:pointer;transition:background var(--dur) var(--ease),border-color var(--dur) var(--ease)}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--muted);transition:transform var(--dur) var(--ease),background var(--dur) var(--ease)}
+.switch[aria-checked="true"]{background:var(--border-strong);border-color:var(--muted)}
+.switch[aria-checked="true"]::after{transform:translateX(16px);background:var(--ink)}
 .banner{background:var(--panel-2);color:var(--muted);border:1px solid var(--border);border-radius:var(--r-card);padding:8px 16px;margin-top:12px;font-weight:600;display:none}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;margin-top:16px}
 .cap{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
@@ -37,8 +46,13 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 .consent .deadline{margin-top:12px;display:flex;align-items:center;gap:8px}
 .consent .drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);
   overflow:hidden}
-.consent .drain>i{display:block;height:100%;background:var(--warn);
-  width:var(--left,100%);transition:width 1s linear}
+/* Дренаж едет `transform:scaleX`, а не `width`: ширина — это раскладка, и
+   доктрина её анимировать запрещает. Для сплошной полосы результат тот же
+   пиксель в пиксель, а слой уходит на композитор. `--left` остаётся долей
+   от 0 до 1 (V-7). */
+.consent .drain>i{display:block;height:100%;width:100%;background:var(--warn);
+  transform-origin:left;transform:scaleX(var(--left,1));
+  transition:transform 1s linear}
 .consent .secs{font-size:var(--t-cap);color:var(--muted);
   font-variant-numeric:tabular-nums;min-width:5ch;text-align:right}
 @media (prefers-reduced-motion: reduce){
@@ -87,7 +101,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
 .note{font-size:var(--t-note);color:var(--muted)}
 .mascot-deadline{display:flex;align-items:center;gap:6px;margin-top:6px}
 .mascot-drain{flex:1;height:4px;border-radius:2px;background:var(--panel-2);overflow:hidden}
-.mascot-drain>i{display:block;height:100%;background:var(--warn);width:var(--left,100%);transition:width 1s linear}
+.mascot-drain>i{display:block;height:100%;width:100%;background:var(--warn);transform-origin:left;transform:scaleX(var(--left,1));transition:transform 1s linear}
 .mascot-secs{font-size:var(--t-cap);color:var(--muted);font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion: reduce){ .mascot-drain{display:none} }
 .mascot-bubble{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--r-card);padding:7px 11px;margin-bottom:8px;max-width:100%;word-break:break-word;font-size:var(--t-cap)}
@@ -289,7 +303,7 @@ function render(s){
     // Молчание — отказ по умолчанию. Показываем это, а не только три кнопки.
     const left = Math.max(0, s.pending.left_s), full = s.pending.timeout_s || 60;
     document.getElementById("consentDrain").style.setProperty(
-      "--left", (100 * left / full) + "%");
+      "--left", (left / full));
     document.getElementById("consentSecs").textContent =
       left > 0 ? Math.ceil(left) + " с" : "истекло";
   }

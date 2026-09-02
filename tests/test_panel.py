@@ -219,7 +219,12 @@ def test_the_consent_card_shows_that_silence_is_an_answer():
     assert len(rule) == 2, "таймер-бара согласия нет"
     body = rule[1].split("}", 1)[0].replace(" ", "")
     assert "background:var(--warn)" in body        # цвет из пака, не свой
-    assert "width:var(--left" in body              # дренаж управляется данными
+    # Свойство, а не механизм: важно, что длина полосы управляется ДАННЫМИ,
+    # а не то, каким CSS-свойством. Ассерт стоял на `width:var(--left` и
+    # покраснел, когда бар переехал на `transform:scaleX` — то есть держал
+    # реализацию, а не смысл (класс A-43). Чем именно двигают полосу,
+    # проверяет моторный гейт: он же и запрещает `width`.
+    assert "var(--left" in body                   # дренаж управляется данными
     bar = code.split(".consent .drain{", 1)[1].split("}", 1)[0].replace(" ", "")
     assert "height:4px" in bar                     # пак: ровно 4px
     # ...и разметка, и данные, которыми она живёт
