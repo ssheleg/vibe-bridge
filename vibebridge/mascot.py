@@ -22,11 +22,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-#: Ranked. The first that matches wins, and `asking` outranks everything a
-#: status line could say: a waiting decision must never sit under "робот в
-#: сети".
-STATES = ("paused", "asking", "thinking", "offline", "idle")
-
 
 @dataclass(frozen=True)
 class _Line:

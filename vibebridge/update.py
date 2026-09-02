@@ -32,17 +32,21 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from vbboot import layout
 
-#: Defaults. The channel in force comes from settings — a fork that builds its
-#: own .app signs payloads with ITS key, so pointing at this repository would
-#: make every update fail the signature check instead of updating.
-RELEASE_REPO = "ssheleg/vibe-bridge"
-#: The releases Atom feed, NOT the REST API. The API caps unauthenticated
-#: callers at 60 requests per hour PER IP — a cap every install behind one
-#: address shares, and one that this repository's own testing hit within an
-#: hour (2026-08-30). The feed carries what the check needs — the tags — and
-#: asset URLs are derived from a tag rather than looked up.
-RELEASE_FEED = f"https://github.com/{RELEASE_REPO}/releases.atom"
-DOWNLOAD_BASE = f"https://github.com/{RELEASE_REPO}/releases/download"
+#: Канал берётся из НАСТРОЕК (`settings.release_repo`), а не из констант
+#: этого модуля: форк, который собирает свой .app, подписывает payload СВОИМ
+#: ключом, и указание на этот репозиторий заставило бы каждое обновление
+#: падать на проверке подписи вместо установки. Умолчание живёт в
+#: `config.Settings.release_repo` — одним экземпляром.
+#:
+#: Читается Atom-лента релизов, а НЕ REST API: API режет неаутентифицированных
+#: на 60 запросов в час НА IP — предел, общий для всех установок за одним
+#: адресом, и этот репозиторий упёрся в него за час собственного тестирования
+#: (2026-08-30). Лента несёт то, что нужно проверке — теги, — а адреса
+#: артефактов выводятся из тега, а не ищутся.
+#:
+#: `RELEASE_REPO`, `RELEASE_FEED` и `DOWNLOAD_BASE` жили здесь, не будучи
+#: прочитанными ни разу; удалены 2026-09-02 (F-13). Гейт сирот нашёл третью
+#: сразу после удаления первых двух — она была мертва только вместе с ними.
 
 
 def release_repo() -> str:

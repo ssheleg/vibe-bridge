@@ -49,6 +49,7 @@ from .mascot import Mascot
 from .push import PushSender, ensure_vapid_keys
 from .robot import RobotClient
 from .server import build_server
+from .shell_api import bundle_resources
 from .state import BridgeState
 
 
@@ -568,25 +569,11 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
-def _bundle_resources() -> Path | None:
-    """`Contents/Resources` when running from a signed .app, else None.
-
-    Anchored on `vbboot`, never on this file. `vbboot` is the shell and never
-    leaves the bundle; `vibebridge` is the payload and lives in Application
-    Support the moment the first update lands. Anchoring here would find the
-    bundle exactly once — on a fresh install — and every later update would
-    refuse itself for want of a public key.
-
-    None is what a development checkout gets, and it makes `install` refuse
-    deliberately: the trust anchor is the signed bundle, so code running
-    outside one has no channel it is entitled to trust.
-    """
-    import vbboot
-    here = Path(vbboot.__file__).resolve()
-    for parent in here.parents:
-        if parent.name == "Resources" and parent.parent.name == "Contents":
-            return parent
-    return None
+#: Устройство бандла — факт про ОБОЛОЧКУ, и живёт он в `shell_api`. Здесь
+#: остаётся имя, потому что веб-слой им пользуется, но реализации тут нет:
+#: якорь доверия обновлений не должен доставаться через приватную деталь
+#: модуля HTTP-маршрутов (F-8).
+_bundle_resources = bundle_resources
 
 
 #: Что оболочка сказала про выбор кода. `None` — её не спрашивали (голый

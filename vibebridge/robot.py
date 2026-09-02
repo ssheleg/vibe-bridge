@@ -36,10 +36,6 @@ STATUS_TIMEOUT_S = 5.0
 UPDATE_TIMEOUT_S = 20.0
 
 
-class RobotUnconfigured(Exception):
-    """No robot is paired with this bridge yet."""
-
-
 class RobotClient:
     """Async client over both channels. `http` is injectable for tests
     (httpx.AsyncClient with MockTransport)."""
@@ -53,7 +49,6 @@ class RobotClient:
         self.chat_key = chat_key
         self.name = name
         self._http = http or httpx.AsyncClient()
-        self._last_online: float | None = None
         self._offline_since: float | None = None
 
     @property
@@ -101,7 +96,6 @@ class RobotClient:
                     "offline_since": self._offline_since,
                     "reason": _speakable(exc)}
         self._offline_since = None
-        self._last_online = time.time()
         return {"configured": True, "online": True, "name": self.name, **data}
 
     async def probe(self) -> dict[str, Any]:
@@ -140,7 +134,6 @@ class RobotClient:
             return {"ok": False, "kind": "not-a-robot",
                     "error": "по этому адресу отвечает не робот "
                              "(нет его карточки статуса)"}
-        self._last_online = time.time()
         self._offline_since = None
         return {"ok": True, **data}
 

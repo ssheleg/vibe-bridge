@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 import vibebridge
@@ -97,3 +98,113 @@ def test_the_check_actually_sees_an_orphan(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "REPO", tmp_path)
     defs, refs = mod._definitions_and_references()
     assert "никто_не_зовёт" in defs and "никто_не_зовёт" not in refs
+
+
+# --------------------------------------------------------------------------
+# Тот же класс, но для КОНСТАНТ и КЛАССОВ — их прежняя проверка не видела,
+# и именно поэтому пять сирот дожили до аудита: `RELEASE_FEED`,
+# `DOWNLOAD_BASE`, `RobotUnconfigured`, `DEFAULT_SIZE`, `mascot.STATES`
+# (F-13). Мёртвая константа хуже мёртвой функции: она выглядит настройкой,
+# и следующий читатель поменяет её, ожидая эффекта.
+# --------------------------------------------------------------------------
+
+#: Имя → почему оно живёт без ссылок в нашем коде.
+EXEMPT_NAMES = {
+    "SHELL_MIN":
+        "его читает сборщик payload через импорт из `shell_api` — ссылка "
+        "есть, но в другом репозиторном слое; удалить нельзя, это пол "
+        "совместимости оболочки",
+}
+
+
+def _module_level_names() -> tuple[dict[str, tuple[str, str]], dict[str, int]]:
+    """(имя → (файл, вид)), (имя → сколько раз упомянуто во ВСЕЙ отгрузке)."""
+    defined: dict[str, tuple[str, str]] = {}
+    seen: dict[str, int] = {}
+    trees = {}
+    for root in ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            trees[path] = ast.parse(path.read_text(encoding="utf-8"))
+    for path, tree in trees.items():
+        rel = str(path.relative_to(REPO))
+        for node in tree.body:
+            if isinstance(node, ast.ClassDef):
+                defined.setdefault(node.name, (f"{rel}:{node.lineno}", "class"))
+            elif isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name) and tgt.id.isupper():
+                        defined.setdefault(tgt.id,
+                                           (f"{rel}:{node.lineno}", "const"))
+            elif (isinstance(node, ast.AnnAssign)
+                  and isinstance(node.target, ast.Name)
+                  and node.target.id.isupper()):
+                defined.setdefault(node.target.id,
+                                   (f"{rel}:{node.lineno}", "const"))
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name):
+                seen[node.id] = seen.get(node.id, 0) + 1
+            elif isinstance(node, ast.Attribute):
+                seen[node.attr] = seen.get(node.attr, 0) + 1
+            elif isinstance(node, ast.alias):
+                seen[node.name] = seen.get(node.name, 0) + 1
+    return defined, seen
+
+
+def test_no_constant_or_class_is_defined_and_never_referenced():
+    """Порог зависит от ВИДА, и это не придирка: присваивание константы само
+    даёт узел `Name`, а определение класса не даёт ничего. Спутав их, первая
+    версия этого счёта объявила сиротами восемь живых классов."""
+    defined, seen = _module_level_names()
+    orphans = []
+    for name, (where, kind) in sorted(defined.items()):
+        if name in EXEMPT_NAMES or name in EXEMPT:
+            continue
+        floor = 1 if kind == "const" else 0
+        if seen.get(name, 0) <= floor:
+            orphans.append(f"{name} ({kind}) — {where}")
+    assert not orphans, (
+        "объявлено и ни разу не упомянуто: " + "; ".join(orphans) +
+        ". Мёртвая константа выглядит настройкой, и следующий читатель "
+        "поменяет её, ожидая эффекта")
+
+
+def test_every_name_exemption_names_a_reason():
+    for name, reason in EXEMPT_NAMES.items():
+        assert len(reason) > 30, f"исключение «{name}» без объяснения"
+
+
+def test_this_check_sees_a_planted_orphan(tmp_path, monkeypatch):
+    """Канарейка: гейт, который ничего не видит, выглядит как успех."""
+    fake = tmp_path / "vibebridge"
+    fake.mkdir()
+    (fake / "x.py").write_text("ОРФАН_КОНСТАНТА = 1\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOTS", (fake,))
+    monkeypatch.setattr(sys.modules[__name__], "REPO", tmp_path)
+    defined, seen = _module_level_names()
+    assert "ОРФАН_КОНСТАНТА" in defined
+    assert seen.get("ОРФАН_КОНСТАНТА", 0) <= 1
+
+
+def test_the_bundle_layout_is_known_in_exactly_one_place():
+    """Устройство подписанного бандла — ОДИН факт, и живёт он в `shell_api`.
+
+    Он был приватным символом веб-слоя (`web._bundle_resources`), который
+    импортировала вся ветка автообновления, а трей писал тот же обход
+    `parents` заново: якорь доверия обновлений доставался через деталь модуля
+    HTTP-маршрутов (F-8). Подсадка «трей снова пишет свой обход» проходила
+    зелёной, пока этой проверки не было.
+    """
+    знают = []
+    for root in ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            if path.name in ("shell_api.py", "runner.py"):
+                continue          # `shell_api` — дом факта; `runner` — оболочка
+            text = path.read_text(encoding="utf-8")
+            code = "\n".join(ln for ln in text.splitlines()
+                             if not ln.lstrip().startswith("#"))
+            if '"Resources"' in code and "parents" in code:
+                знают.append(str(path.relative_to(REPO)))
+    assert not знают, (
+        "устройство бандла переписано заново в: " + ", ".join(знают) +
+        " — зовите `shell_api.bundle_resources()`")

@@ -56,8 +56,6 @@ SIDE_MIN = (200, 80)
 GAP = 6
 #: Where the pet sits on first run: bottom-right, clear of the Dock.
 MARGIN = (28, 96)
-#: Kept as the widget's nominal footprint for callers that quote a size.
-DEFAULT_SIZE = PET_SIZE
 
 
 def available() -> tuple[bool, str]:

@@ -40,18 +40,19 @@ def _bundled_icon():
     if _sys.platform != "darwin":
         return None
     try:
-        from pathlib import Path as _P
 
         from desktop_notifier import Icon
 
-        import vbboot
-        for parent in _P(vbboot.__file__).resolve().parents:
-            if parent.name == "Resources" and parent.parent.name == "Contents":
-                png = parent / "vibe-bridge-128.png"
-                if png.is_file():
-                    return Icon(path=png)
-                icns = parent / "vibe-bridge.icns"
-                return Icon(path=icns) if icns.is_file() else None
+        # Обход `parents` был написан здесь ЗАНОВО — третья копия одного
+        # факта про устройство бандла (F-8). Факт живёт в `shell_api`.
+        from .shell_api import bundle_resources
+        res = bundle_resources()
+        if res is not None:
+            png = res / "vibe-bridge-128.png"
+            if png.is_file():
+                return Icon(path=png)
+            icns = res / "vibe-bridge.icns"
+            return Icon(path=icns) if icns.is_file() else None
     except Exception:                          # noqa: BLE001 - decoration
         return None
     return None

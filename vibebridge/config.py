@@ -44,7 +44,7 @@ _TEMPLATE = '''# vibe-bridge — настройки. Меняются здесь
 version = {version}
 
 # Порт панели и MCP-эндпоинта.            env: VIBE_BRIDGE_PORT
-port = 48620
+port = {port}
 
 # Как робот дотягивается до этого компьютера.   env: VIBE_BRIDGE_MODE
 #   standalone — мост слушает адрес в tailnet и требует у робота bearer-токен.
@@ -390,7 +390,10 @@ def _report_unknown(raw: dict, problems: list[str]) -> None:
 
 def _seed(path: Path, problems: list[str]) -> None:
     try:
-        _write(path, _TEMPLATE.format(version=VERSION))
+        # Порт берётся из умолчания `Settings`, а не пишется в шаблоне второй
+        # раз: две копии одного числа расходятся молча (F-13).
+        _write(path, _TEMPLATE.format(version=VERSION,
+                                      port=Settings.port))
     except OSError as exc:                       # pragma: no cover
         problems.append(f"не удалось создать config.toml ({exc})")
 
