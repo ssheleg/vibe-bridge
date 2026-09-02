@@ -15,6 +15,39 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 
+def local_hhmmss(ts: str) -> str:
+    """ISO-строка журнала → часы владельца.
+
+    Журнал пишет UTC (`datetime.now(UTC)`), и срез `ts[11:19]` печатал его
+    как настенное время: панель показывала 20:45, когда на часах 22:45.
+    Там это уже чинили (`localTs` в JS), а меню-бар резал строку по-прежнему
+    (A-26) — одна ошибка, две реализации, и вторая пережила фикс первой.
+
+    Мусор и пустое не выдумываются: возвращаем что дали, укоротив.
+    """
+    from datetime import datetime
+    try:
+        moment = datetime.fromisoformat(ts)
+    except (TypeError, ValueError):
+        return str(ts)[11:19] or "--:--:--"
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone().strftime("%H:%M:%S")
+
+
+def recent_lines(entries: list[dict], *, limit: int = 5) -> list[str]:
+    """Строки «последних действий» для меню-бара, новое сверху.
+
+    Чистая функция — GUI в наборе не поднимается, а формат читает владелец.
+    """
+    out = []
+    for e in reversed(entries[-limit:]):
+        mark = "" if e.get("ok", True) else " ✗"
+        out.append(f"{local_hhmmss(str(e.get('ts', '')))} "
+                   f"{e.get('tool', '?')} · {e.get('decision', '?')}{mark}")
+    return out or ["— пока пусто —"]
+
+
 class AuditLog:
     def __init__(self, path: Path | None = None, *, tail: int = 50,
                  max_bytes: int = 5_000_000) -> None:

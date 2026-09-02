@@ -151,3 +151,57 @@ def test_dispatch_writes_summary_line(tmp_path):
     dispatch(_act(), {"app": "Safari"}, consent=eng, audit=aud,
              runner=FakeRunner())
     assert aud.recent()[-1]["line"] == "открыть «Safari»"
+
+
+# ── A-26: меню-бар показывал UTC как настенное время ───────────────────────
+
+def test_the_menu_bar_shows_the_owners_clock_not_utc():
+    """A-26: `ts[11:19]` печатал UTC как местное. Ровно та ошибка, которую в
+    панели уже чинили (`localTs`), — одна беда в двух реализациях, и вторая
+    пережила фикс первой."""
+    from datetime import UTC, datetime
+
+    from vibebridge.audit import local_hhmmss
+
+    moment = datetime(2026, 9, 2, 18, 45, 32, tzinfo=UTC)
+    expected = moment.astimezone().strftime("%H:%M:%S")
+    assert local_hhmmss(moment.isoformat(timespec="seconds")) == expected
+    # ...со смещением в строке — тоже
+    assert local_hhmmss("2026-09-02T20:45:32+02:00") == expected
+    # ...а наивное время читается как UTC: журнал пишет именно его
+    assert local_hhmmss("2026-09-02T18:45:32") == expected
+
+
+def test_a_broken_timestamp_does_not_invent_a_time():
+    from vibebridge.audit import local_hhmmss
+
+    assert local_hhmmss("мусор") == "--:--:--"
+    assert local_hhmmss("") == "--:--:--"
+
+
+def test_the_menu_bar_shows_several_lines_newest_first():
+    """README обещает «последние несколько», а показывалась ОДНА строка."""
+    from vibebridge.audit import recent_lines
+
+    entries = [{"ts": f"2026-09-02T10:0{i}:00+00:00", "tool": f"t{i}",
+                "decision": "allow", "ok": True} for i in range(6)]
+    lines = recent_lines(entries, limit=5)
+    assert len(lines) == 5
+    assert "t5" in lines[0] and "t1" in lines[-1]      # новое сверху
+    assert recent_lines([]) == ["— пока пусто —"]
+    assert recent_lines([{"ts": "2026-09-02T10:00:00+00:00", "tool": "x",
+                          "decision": "deny", "ok": False}])[0].endswith("✗")
+
+
+def test_the_tray_no_longer_slices_the_timestamp_itself():
+    """Класс, а не случай: две реализации одной беды — это то, из-за чего
+    фикс панели не долетел до меню-бара. Формат живёт в одном месте."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    src = (Path(vibebridge.__file__).parent / "app.py").read_text()
+    code = re.sub(r"^\s*#.*$", "", src, flags=re.M)
+    assert "[11:19]" not in code, "меню-бар снова режет ISO-строку сам"
+    assert "recent_lines" in code, "меню-бар не пользуется общим форматом"

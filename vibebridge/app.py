@@ -11,7 +11,7 @@ import sys
 import threading
 import webbrowser
 
-from .audit import AuditLog
+from .audit import AuditLog, recent_lines
 from .consent import ConsentEngine, Decision
 from .server import BRIDGE_HOST
 from .state import BridgeState
@@ -299,18 +299,27 @@ def run() -> None:  # pragma: no cover - requires a GUI session
             self._refresh_recent()
 
         def _refresh_recent(self) -> None:
-            recent = audit.recent(8)
-            lines = [
-                f"{e['ts'][11:19]} {e['tool']} · {e['decision']}"
-                f"{'' if e['ok'] else ' ✗'}"
-                for e in reversed(recent)
-            ] or ["— пока пусто —"]
+            # Время — ЧАСЫ ВЛАДЕЛЬЦА. Журнал пишет UTC, и срез строки печатал
+            # его как настенное: 20:45 при 22:45 на часах. В панели это уже
+            # чинили, а здесь резалось по-прежнему — одна беда в двух
+            # реализациях (A-26). Формат теперь общий, из `audit`.
+            lines = recent_lines(audit.recent(8), limit=5)
             item = self.menu.get("Последние действия")
-            if item is not None:
-                item._menuitem.setTitle_("Последние действия:")
-                # rebuild submenu-ish text into the tooltip line
-                self.menu["Последние действия"].title = "Последние: " + \
-                    (lines[0] if lines else "—")
+            if item is None:
+                return
+            # «Последних несколько», как обещает README, а не первая строка:
+            # подменю держит их все, заголовок остаётся заголовком.
+            item.title = "Последние действия"
+            try:
+                item._menu.removeAllItems()
+                for line in lines:
+                    item.add(rumps.MenuItem(line, callback=None))
+            except Exception as exc:      # noqa: BLE001 - меню не важнее моста
+                # Провал не проглатывается: без этой строки владелец видел бы
+                # вчерашний список и не знал почему.
+                audit.record(tool="tray", tool_class="SYS", decision="error",
+                             ok=False, line=f"меню «последние действия»: {exc}",
+                             detail=str(exc))
 
         def open_window(self, _sender) -> None:
             ok, why = window.show()
