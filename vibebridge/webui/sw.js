@@ -33,6 +33,8 @@ self.addEventListener("fetch", (e) => {
 
 self.addEventListener("push", (e) => {
   let data = {};
+  // молчим: пуш без разбираемого тела — всё ещё пуш. Показать заголовок
+  // по умолчанию лучше, чем не показать ничего.
   try { data = e.data ? e.data.json() : {}; } catch (_) {}
   const title = data.title || "vibe-bridge";
   const opts = {

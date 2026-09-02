@@ -97,8 +97,16 @@ def test_a_payload_missing_its_package_is_not_chosen(bundle, root):
 # --------------------------------------------------------------- one instance
 
 def test_guard_allows_a_free_port():
+    """Проба берёт порт ТЕМ ЖЕ способом, что и гвард — wildcard.
+
+    Раньше она привязывалась к `127.0.0.1`, а гвард биндит `0.0.0.0` (это его
+    осознанное решение, см. `guard_single_instance`). Порт, свободный на
+    loopback, может быть занят на другом интерфейсе — и набор падал раз в
+    сотню прогонов на ровном месте. Флейк учит перезапускать вместо того,
+    чтобы читать; асимметрия убрана, а не обойдена ретраем.
+    """
     with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
+        probe.bind(("0.0.0.0", 0))          # noqa: S104 — как в гварде
         free = probe.getsockname()[1]
     assert runner.guard_single_instance(free) is None
 

@@ -138,3 +138,71 @@ def test_the_attribute_escaper_actually_escapes_the_quote():
 def test_every_safe_attribute_value_names_a_reason():
     for expr, why in SAFE_ATTR_VALUES.items():
         assert len(why) > 25, f"{expr}: причина слишком короткая, чтобы быть ей"
+
+
+# --------------------------------------------------------------------------
+# То же правило для JS — и оно появилось не из симметрии.
+#
+# Пустой `catch(e){}` в панели съел мою собственную ошибку: в 0.46.0 имя
+# робота бралось из `s.robot`, хотя в той функции снимок называется `snap`.
+# `ReferenceError` проглотился молча, и питомец на дашборде НЕ РИСОВАЛСЯ два
+# релиза подряд — проверено живьём, `#mascot` был пуст. Питоновский гейт этот
+# класс ловил; JS-гейта не было (B-48).
+# --------------------------------------------------------------------------
+
+
+def test_no_javascript_handler_is_silent_without_saying_why():
+    """Правило то же, что для Python: молчать можно, но объяснив.
+
+    Ищем именно ПУСТОЙ `catch`: обработчик, который что-то делает, сам за
+    себя отвечает.
+    """
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    webui = Path(vibebridge.__file__).parent / "webui"
+    без = []
+    for path in sorted(webui.glob("*.html")) + sorted(webui.glob("*.js")):
+        строки = path.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(строки):
+            if not re.search(r"catch\s*\(\s*\w*\s*\)\s*\{\s*\}", line):
+                continue
+            окно = строки[max(0, i - 3):i + 1]
+            if any(re.search(r"(//|/\*).*(молч|намеренно|законен)", s)
+                   for s in окно):
+                continue
+            без.append(f"{path.name}:{i + 1}  {line.strip()[:60]}")
+    assert not без, (
+        "пустой catch без объяснения — допишите рядом «// молчим: …»: "
+        + "; ".join(без))
+
+
+def test_a_click_the_owner_made_is_never_swallowed_in_silence():
+    """Отдельно и строже: обработчик КНОПКИ не имеет права молчать вовсе.
+
+    «Ничего не произошло» после нажатия — это не деградация, это поломка,
+    о которой владельцу не сказали (U-5, и снова здесь).
+    """
+    import re
+    from pathlib import Path
+
+    import vibebridge
+
+    page = (Path(vibebridge.__file__).parent / "webui" / "index.html").read_text(
+        encoding="utf-8")
+    for имя in ("setAutostart", "setAutoUpdate", "setSetting", "forgetPush"):
+        тело = page.split(f"function {имя}(", 1)
+        assert len(тело) == 2, f"обработчик {имя} пропал"
+        тело = тело[1].split("\n}", 1)[0]
+        catches = re.findall(r"catch\s*\(\s*\w*\s*\)\s*\{([^}]*)\}", тело)
+        assert catches, f"{имя}: сбой сети не обрабатывается вовсе"
+        # Свойство: ХОТЯ БЫ ОДИН обработчик говорит владельцу. Требовать этого
+        # от КАЖДОГО — перебор: вложенный `catch` вокруг разбора тела законно
+        # молчит (запасная строка уже стоит), и первый гейт этого файла
+        # требует от него объяснения. Первая версия запрещала и его, то есть
+        # проверяла форму вместо свойства.
+        assert any("Note" in блок for блок in catches), (
+            f"{имя}: ни один обработчик не говорит владельцу — нажатие "
+            f"выглядит как «ничего не произошло»")

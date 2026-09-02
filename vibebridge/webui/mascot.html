@@ -183,6 +183,8 @@ let busy = false;
 async function ensureSession(){
   if (session) return session;
   try{ session = (await (await fetch("/api/mascot/session")).json()).session; }
+  // молчим: без сессии виджет работает — мозг просто начнёт разговор заново;
+  // это деградация, а не отказ, и говорить о ней нечего.
   catch(e){}
   return session;
 }
@@ -302,12 +304,16 @@ async function pullStream(){
       stream.push({who: robotName(), text: it.text, kind: it.kind || "event",
                    media: mediaOf(it)});
     }
+  // молчим: элемент ленты не разобрался — пропускаем ЕГО, а не всю ленту.
+  // Уронить показ остальных из-за одного кривого — хуже, чем не показать один.
   } catch(e){}
 }
 
 async function renderDialog(){
   let quick = [];
   try{ quick = (await (await fetch("/api/mascot/actions")).json()).actions || []; }
+  // молчим: быстрые фразы это удобство. Их отсутствие видно само, а
+  // сообщение о нём заняло бы место самого разговора.
   catch(e){}
   await pullStream();
 
@@ -347,6 +353,8 @@ async function renderDialog(){
     try{
       session = (await (await fetch("/api/mascot/session",
         {method:"POST"})).json()).session;
+    // молчим: не завели новую сессию — старая осталась рабочей, и владелец
+    // увидит это по тому, что граница «новый разговор» не появилась.
     } catch(e){}
     stream = []; seen = new Set();
     renderDialog();
@@ -425,6 +433,8 @@ async function decide(id, decision){
 }
 
 async function dismiss(){
+  // молчим: реплику уже убрали с экрана, а сервер узнает на следующем
+  // снимке. Ронять жест владельца из-за сети нельзя.
   try{ await fetch("/api/mascot/dismiss", {method:"POST"}); } catch(e){}
   tick();
 }
@@ -533,12 +543,16 @@ function deadlineHtml(snap){
 
 async function tick(){
   try{
-    paint(await (await fetch("/api/mascot")).json());
+    const снимок = await (await fetch("/api/mascot")).json();
+    paint(снимок);
+    return снимок;
   } catch(e){
     // The bridge went away. Say so rather than freezing on the last mood — a
     // cheerful mascot over a dead bridge is the exact lie this project spends
     // its whole design refusing.
-    paint({state:"offline", says:"мост не отвечает"});
+    const мёртв = {state:"offline", says:"мост не отвечает"};
+    paint(мёртв);
+    return мёртв;          // «мост молчит» — тоже состояние, и оно тикает
   }
 }
 
@@ -550,13 +564,32 @@ async function pullStatus(){
     status = {name: s.name, online: s.online, reason: s.reason,
               version: s.version, orchestrator: s.orchestrator,
               uptime_h: s.uptime_s != null ? Math.round(s.uptime_s / 3600) : null};
+  // молчим: статус не пришёл — остаётся прежний, и его несвежесть видна
+  // по строке «мост не отвечает» рядом.
   } catch(e){}
 }
 
 if (native) native.postMessage({type:"hello",
   surface: document.documentElement.dataset.surface});
-tick();
-setInterval(tick, 1000);
+// Опрос ПОДСТРАИВАЕТСЯ под то, есть ли чему тикать. Оба окна виджета
+// дёргали `/api/mascot` раз в секунду ВСЕГДА — 120 запросов в минуту на
+// простаивающей машине, и это измеримая доля 3–4% CPU, которые мост жёг в
+// покое (B-48). Секунда нужна ровно тогда, когда идёт обратный отсчёт
+// согласия или висит реплика; в остальное время лицо меняется от событий,
+// которые и так приходят своим темпом.
+//
+// Порог возврата к секунде — САМ СНИМОК, а не таймер: как только появился
+// запрос или реплика, следующий шаг уже быстрый.
+const TICK_БЫСТРО = 1000, TICK_ПОКОЙ = 5000;
+let tickTimer = null;
+function tickSoon(снимок){
+  const тикает = !!(снимок && (снимок.actionable || снимок.says
+                               || снимок.asks_left_s != null));
+  clearTimeout(tickTimer);
+  tickTimer = setTimeout(tickLoop, тикает ? TICK_БЫСТРО : TICK_ПОКОЙ);
+}
+async function tickLoop(){ tickSoon(await tick()); }
+tickLoop();
 // Only the companion needs the robot's status line and the feed; the pet page
 // draws a face and nothing else.
 if (!IS_PET){
