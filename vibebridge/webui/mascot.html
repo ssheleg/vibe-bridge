@@ -304,7 +304,7 @@ async function renderDialog(){
           `<span class="what">${mine ? esc(t.text) : fmt(t.text)}`+
           mediaHtml(t.media) + `</span></div>`;
       }).join("")
-    : `<div class="empty">Здесь всё, что говорит робот: ответы, события, уведомления. Спросите его о чём-нибудь — контекст разговора живёт у его мозга.</div>`;
+    : `<div class="empty">Здесь всё, что говорит робот: ответы, события, уведомления. Спросите его о чём-нибудь — думает его мозг, а нить разговора мост держит до перезапуска.</div>`;
 
   const online = status.online;
   const bits = [];
