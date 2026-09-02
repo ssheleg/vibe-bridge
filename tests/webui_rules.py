@@ -97,3 +97,28 @@ def attribute_interpolations(name: str) -> list[tuple[int, str]]:
         for m in re.finditer(r'[\w-]+="\$\{([^}]*)\}', line):
             out.append((i, m.group(1).strip()))
     return out
+
+
+def declarations(body: str) -> list[tuple[str, str]]:
+    """(свойство, значение) для тела правила — с ТОЧНЫМ именем свойства.
+
+    Существует потому, что подстрочный поиск по телу правила ошибался трижды
+    за одну сессию, и всегда одинаково: `color:var(--danger)` содержится в
+    `border-color:var(--danger)`, `left` — в `padding-left`, `width` — в
+    `max-width`. Проверка «свойство X красит Y» обязана сравнивать ИМЯ
+    свойства целиком, а не искать строку.
+    """
+    out = []
+    for chunk in body.split(";"):
+        name, sep, value = chunk.partition(":")
+        if sep:
+            out.append((name.strip().lower(), value.strip()))
+    return out
+
+
+def declared(body: str, prop: str) -> str | None:
+    """Значение свойства `prop`, если оно объявлено. Иначе None."""
+    for name, value in declarations(body):
+        if name == prop:
+            return value
+    return None

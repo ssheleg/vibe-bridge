@@ -120,9 +120,10 @@ font-size:var(--t-note);padding-top:2px}
 .turn.sys .what{color:var(--muted);font-size:var(--t-cap)}
 .turns .empty{color:var(--muted);font-size:var(--t-cap)}
 .ask{display:flex;gap:6px;padding:8px 10px;border-top:1px solid var(--border)}
-.ask input{flex:1;font:var(--t-body) var(--font-ui);padding:7px 9px;color:var(--ink);
-background:var(--panel);border:1px solid var(--border-strong);
-border-radius:var(--r-control);-webkit-user-select:text;user-select:text}
+/* Только СВОЁ: раскладка в строке и разрешение выделять текст в окне, где
+   выделение по умолчанию снято ради перетаскивания. Внешний вид контрола —
+   общий, из `tokens.css` (V-8). */
+.ask input{flex:1;padding:7px 9px;-webkit-user-select:text;user-select:text}
 .chips{display:flex;gap:5px;flex-wrap:wrap;padding:0 10px 8px}
 .chips button{font:var(--t-cap) var(--font-ui);color:var(--ink);background:var(--panel-2);
 border:1px solid var(--border);border-radius:999px;padding:4px 9px;cursor:pointer}

@@ -68,6 +68,29 @@
    в итоге и приводит к `outline:none` где-нибудь ниже по файлу. */
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
+/* Контролы ввода. Правил для `.field`, `label` и `input` не было НИ ОДНОГО —
+   при том что единственный экран, где владелец вводит адрес робота, его ключ
+   и пароль от Wi-Fi, это форма (V-8). Одетые контролы при этом существовали:
+   двумя ИНЛАЙНОВЫМИ копиями, а инлайн не видит ни один CSS-гейт, потому что
+   все они читают содержимое `<style>`.
+
+   `box-sizing` здесь свой: файл грузят четыре страницы, и полагаться на то,
+   что каждая объявила `*{box-sizing:border-box}` у себя, — значит снова
+   зависеть от памяти. */
+.field{margin-bottom:10px}
+.field label{display:block;margin-bottom:4px;
+  font-size:var(--t-note);color:var(--muted)}
+input, select, textarea{
+  box-sizing:border-box;width:100%;
+  font:var(--t-body) var(--font-ui);color:var(--ink);
+  background:var(--panel);border:1px solid var(--border-strong);
+  border-radius:var(--r-control);padding:8px 10px;
+  transition:border-color var(--dur-h) var(--ease)}
+input:hover, select:hover, textarea:hover{border-color:var(--muted)}
+input::placeholder, textarea::placeholder{color:var(--muted)}
+/* Флажки и переключатели ширину не занимают — правило выше о полях ввода. */
+input[type="checkbox"], input[type="radio"]{width:auto}
+
 /* Data is monospaced with tabular figures wherever it appears: a version, an
    uptime and a timestamp that shift width as they tick are unreadable in a
    column. */

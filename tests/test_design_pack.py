@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from webui_rules import code_of
+from webui_rules import code_of, declared
 
 import vibebridge
 
@@ -403,3 +403,78 @@ def test_every_surface_can_show_the_ring_at_all():
     for name in SURFACES:
         assert 'href="/tokens.css"' in code_of(name), (
             f"{name} не грузит токены — кольца фокуса на ней не будет")
+
+
+# --------------------------------------------------------------------------
+# V-8 и V-9: контролы одеты один раз, и текст читается в обеих темах.
+# --------------------------------------------------------------------------
+
+
+def test_the_input_controls_are_dressed_once_for_every_surface():
+    """Правил для `.field`, `label` и `input` не было НИ ОДНОГО — при том что
+    единственный экран, где владелец вводит адрес робота, его ключ и пароль
+    от Wi-Fi, это форма (V-8)."""
+    tokens = (WEBUI / "tokens.css").read_text(encoding="utf-8")
+    for selector in (".field{", ".field label{"):
+        assert selector in tokens.replace("\n", ""), (
+            f"нет общего правила «{selector.rstrip('{')}»")
+    rule = tokens.split("input, select, textarea{", 1)
+    assert len(rule) == 2, "поля ввода не одеты в общем файле"
+    body = rule[1].split("}", 1)[0].replace(" ", "").replace("\n", "")
+    for need in ("var(--font-ui)", "var(--ink)", "var(--panel)",
+                 "var(--border-strong)", "var(--r-control)"):
+        assert need in body, f"контрол не берёт {need} из палитры: {body}"
+
+
+def test_a_control_is_not_dressed_by_hand_in_the_markup():
+    """Инлайновый `style` не видит НИ ОДИН гейт этого файла: все они читают
+    содержимое `<style>`. Одетые контролы жили именно там — две копии."""
+    for name in SURFACES:
+        page = code_of(name)
+        for inline in re.findall(r'<(?:input|select|textarea)[^>]*style="([^"]*)"',
+                                 page):
+            for banned in ("font", "background", "border-radius", "color:"):
+                assert banned not in inline, (
+                    f"{name}: контрол одет инлайном («{inline}») — мимо всех "
+                    f"проверок; место такому правилу в tokens.css")
+
+
+def test_every_text_colour_meets_aa_in_both_themes():
+    """Считается, а не запоминается: число в тесте — снимок палитры на день,
+    когда его писали (V-9).
+
+    Красная строка баннера давала 4.36:1 по `--panel-2` в тёмной теме —
+    единственная строка, которая сообщает, что граница безопасности стоит
+    неверно. Правило пака на этот случай было написано и не применено.
+    """
+    from contrast import palette, ratio
+
+    плохо = []
+    for theme, colours in zip(("светлая", "тёмная"), palette(), strict=True):
+        for ink in ("--ink", "--muted"):
+            for surface in ("--bg", "--panel", "--panel-2"):
+                value = ratio(colours[ink], colours[surface])
+                if value < 4.5:
+                    плохо.append(f"{theme}: {ink} на {surface} = {value:.2f}:1")
+    assert not плохо, "текст ниже AA: " + "; ".join(плохо)
+
+
+def test_a_status_colour_never_carries_the_words_of_a_banner():
+    """Правило пака дословно: «статус никогда цветом в одиночку» — слово
+    цветом `--ink`, цвет несёт точка или заливка."""
+    for name in SURFACES:
+        for chunk in _css(name).split("}"):
+            head, sep, body = chunk.partition("{")
+            if not sep or "banner" not in head and "note" not in head:
+                continue
+            # ИМЯ свойства целиком: `border-color:var(--danger)` содержит
+            # подстроку `color:var(--danger)`, и наивный поиск ловил рамку
+            # вместо текста. Тот же класс резал разбор трижды за сессию,
+            # поэтому разбор теперь общий — `webui_rules.declared`.
+            painted = declared(body, "color")
+            if painted is None:
+                continue
+            for status in ("--danger", "--warn", "--ok"):
+                assert f"var({status})" not in painted.replace(" ", ""), (
+                    f"{name}: «{head.strip()}» красит слово статусом "
+                    f"{status} — на тёмной теме это уходит ниже AA")

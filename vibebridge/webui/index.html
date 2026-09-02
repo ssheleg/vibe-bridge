@@ -35,6 +35,16 @@ max-width:1180px;margin:0 auto;padding:16px 24px 48px}
 .switch[aria-checked="true"]{background:var(--border-strong);border-color:var(--muted)}
 .switch[aria-checked="true"]::after{transform:translateX(16px);background:var(--ink)}
 .banner{background:var(--panel-2);color:var(--muted);border:1px solid var(--border);border-radius:var(--r-card);padding:8px 16px;margin-top:12px;font-weight:600;display:none}
+/* Тревожный баннер: цвет несёт РАМКА, слово остаётся читаемым. Красным по
+   `--panel-2` в тёмной теме выходило 4.36:1 — ниже AA, и это единственная
+   строка, которая сообщает, что граница безопасности стоит неверно (V-9).
+   Правило пака на этот случай уже написано («статус никогда цветом в
+   одиночку; слово — `--ink`, цвет несёт заливка»), его просто не применили
+   к опасности. `--ink` по `--panel-2` даёт 13.63:1. */
+.banner.danger{border-color:var(--danger);color:var(--ink)}
+.banner.danger::before{content:"";display:inline-block;width:8px;height:8px;
+  border-radius:50%;background:var(--danger);margin-right:8px;
+  vertical-align:baseline}
 .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;margin-top:16px}
 .cap{font-size:var(--t-cap);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
 .consent{border-color:var(--warn)}
@@ -140,7 +150,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
   </span>
 </header>
 
-<div class="banner" id="journalError" style="display:none;border-color:var(--danger);color:var(--danger)"></div>
+<div class="banner danger" id="journalError" style="display:none"></div>
 
 <div class="banner" id="pausedBanner">Мост на паузе — для робота этот компьютер выглядит выключенным. События копятся в журнале.</div>
 
@@ -196,7 +206,7 @@ td.mono{font-family:var(--font-data);font-size:var(--t-cap)}
     <div class="cap">Чат с роботом</div>
     <div id="chatFeed"><div class="empty">Скажите роботу привет — контекст разговора живёт у мозга робота, не на панели.</div></div>
     <div style="display:flex;gap:8px;margin-top:12px">
-      <input id="chatInput" style="flex:1;font:var(--t-body) var(--font-ui);color:var(--ink);background:var(--panel);border:1px solid var(--border-strong);border-radius:var(--r-control);padding:8px 10px" placeholder="Сообщение роботу…">
+      <input id="chatInput" style="flex:1" placeholder="Сообщение роботу…">
       <button class="btn primary" id="chatSend" onclick="sendChat()">Отправить</button>
     </div>
     <p class="note" id="chatNote" style="margin-top:6px"></p>
@@ -544,7 +554,7 @@ async function loadAccess(){
       `<div class="kv"><span class="k">MCP-адрес</span><span class="v">${esc(s.mcp_url)}</span></div>`+
       `<div class="kv"><span class="k">Защита MCP</span><span class="v" style="font-family:var(--font-ui)">${esc(s.mcp_auth)}</span></div>`+
       `<div class="kv"><span class="k">Файл настроек</span><span class="v" style="user-select:all">${esc(s.path)}</span></div>`;
-    if (s.warning) rows = `<div class="banner" style="display:block;border-color:var(--danger);color:var(--danger)">${esc(s.warning)}</div>`+rows;
+    if (s.warning) rows = `<div class="banner danger" style="display:block">${esc(s.warning)}</div>`+rows;
     if (s.restart_required) rows += `<p class="note" style="margin-top:8px">В файле настроек есть изменения (${s.pending.map(esc).join(", ")}) — они применятся после перезапуска моста.</p>`;
     if (s.problems && s.problems.length) rows += `<p class="note" style="margin-top:8px;color:var(--warn)">Настройки прочитаны не полностью:<br>${s.problems.map(esc).join("<br>")}</p>`;
     rows += `<div class="kv"><span class="k">Питомец на экране</span><span class="v" style="font-family:var(--font-ui)">${s.mascot_window?"показан отдельным окном":"только в панели"}</span></div>`;
@@ -607,7 +617,7 @@ async function loadWizard(){
       <li>Мост запишет Wi-Fi, имя и одноразовый ключ связки — карта поедет в робота.</li></ol>`;
     if (d.boot_volumes && d.boot_volumes.length){
       html += `<div class="field"><label>Boot-раздел карты</label>
-        <select id="wzMount" style="width:100%;font:var(--t-body) var(--font-ui);padding:8px;border:1px solid var(--border-strong);border-radius:var(--r-control);background:var(--panel);color:var(--ink)">`+
+        <select id="wzMount">`+
         d.boot_volumes.map(v=>`<option>${esc(v)}</option>`).join("")+`</select></div>`+
         `<div class="field"><label>Wi-Fi сеть робота</label><input id="wzSsid"></div>`+
         `<div class="field"><label>Пароль Wi-Fi</label><input id="wzPsk" type="password"></div>`+
