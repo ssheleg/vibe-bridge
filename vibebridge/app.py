@@ -14,6 +14,7 @@ import webbrowser
 from .audit import AuditLog, recent_lines
 from .consent import ConsentEngine, Decision
 from .server import BRIDGE_HOST
+from .shell_api import ShellTooOld, complain, require_shell
 from .state import BridgeState
 from .tray import make_notifier, run_pystray, tray_title
 from .web import build_app, set_chosen
@@ -166,6 +167,16 @@ def run(chosen=None) -> None:  # pragma: no cover - requires a GUI session
 
     Журнал есть у МОСТА. Значит и записать может только он.
     """
+    # ПЕРВЫМ делом — шов с оболочкой. Мост может быть новее того .app, в
+    # котором запущен: payload прилетает сам, оболочка — только руками
+    # (ADR-0006). Без этой проверки нехватка вылезала бы `AttributeError`
+    # из фонового потока автообновления, то есть в логе, который никто не
+    # открывает, вместо фразы «нужен новый .app» (F-9).
+    try:
+        require_shell()
+    except ShellTooOld as exc:
+        complain(str(exc))
+        raise SystemExit(1) from exc
     audit = AuditLog()
     state = BridgeState.load()
     if chosen is not None:

@@ -25,10 +25,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 EPOCH = 1735689600          # 2025-01-01, fixed: mtimes must not leak build time
 
-# The oldest shell that can run this payload. Raise it in the SAME change that
-# adds or bumps a third-party dependency — that is the moment the payload
-# stops being runnable by shells already installed (ADR-0006).
-SHELL_MIN = "0.1.0"
+# The oldest shell that can run this payload — COMPUTED from the seam the
+# payload declares (`vibebridge/shell_api.REQUIRED`), never remembered here.
+# It sat at "0.1.0" through every release because raising it was something a
+# person had to remember; now adding a requirement raises it by itself.
+sys.path.insert(0, str(ROOT))
+from vibebridge.shell_api import SHELL_MIN  # noqa: E402
 
 
 def _version() -> str:
