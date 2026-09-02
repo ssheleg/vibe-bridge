@@ -68,6 +68,9 @@ first_delay_minutes = 5   # пауза после старта: сначала �
 [consent]
 ask_timeout_s = 60        # молчание владельца дольше этого = отказ
 grant_ttl_s = 900         # «разрешить ТАКИЕ на 15 минут» (грант поимённый)
+# Сколько живёт одноразовый токен пейринга. Его копия лежит на FAT-разделе
+# карты, и карта в ящике стола не должна оставаться ключом «стань роботом».
+pairing_ttl_hours = 24
 # Спрашивать и перед READ-инструментами (скриншот, список окон)? По умолчанию
 # нет: они мгновенны и видны в журнале сразу после (vision §9.1). Включите,
 # если хотите, чтобы про экран спрашивали отдельно.
@@ -103,6 +106,7 @@ class Settings:
     update_first_delay_s: int = 5 * 60
     ask_timeout_s: float = 60.0
     grant_ttl_s: float = 900.0
+    pairing_ttl_hours: float = 24.0
     #: Ask before READ tools too (screenshot, list of windows). Off because
     #: vision §9.1 answers READ with "видно в журнале сразу после"; on because
     #: some owners want to be asked before their screen is read.
@@ -141,6 +145,7 @@ _FIELDS = (
     ("update", "first_delay_minutes", "update_first_delay_s", "minutes"),
     ("consent", "ask_timeout_s", "ask_timeout_s", "seconds"),
     ("consent", "grant_ttl_s", "grant_ttl_s", "seconds"),
+    ("consent", "pairing_ttl_hours", "pairing_ttl_hours", "hours"),
     ("consent", "ask_for_read", "ask_for_read", "bool"),
     ("robot", "repo", "robot_repo", "url"),
     ("mascot", "window", "mascot_window", "bool"),
@@ -162,6 +167,7 @@ _NOTES = {
     "update.first_delay_minutes": "Пауза после старта: сначала робот, потом GitHub.",
     "consent.ask_timeout_s": "Молчание владельца дольше этого = отказ.",
     "consent.grant_ttl_s": "«Разрешить такие на 15 минут» — грант на ОДНО действие, не на класс.",
+    "consent.pairing_ttl_hours": "Сколько живёт одноразовый токен пейринга.",
     "consent.ask_for_read": (
         "Спрашивать и перед READ (скриншот, список окон)? По умолчанию нет:\n"
         "# они мгновенны и видны в журнале сразу после (vision §9.1)."),

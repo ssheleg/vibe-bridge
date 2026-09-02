@@ -57,6 +57,9 @@ class BridgeState:
     # One-shot pairing token (spec §3): set when the wizard arms pairing,
     # burned on first successful /pair.
     pending_pair_token: str | None = None
+    # Когда он выдан. Без этого токен жил вечно и переживал рестарты,
+    # а его копия остаётся на FAT-разделе карты (A-22).
+    pending_pair_token_at: float | None = None
     # Launch at login (SCN-022). Set once, the first time the app registers
     # itself as a Login Item. It exists so the bridge asks the system ONCE:
     # without it, an owner who switches autostart off in System Settings
@@ -94,6 +97,7 @@ class BridgeState:
                        vapid_public=data.get("vapid_public"),
                        push_subscriptions=data.get("push_subscriptions", []),
                        pending_pair_token=data.get("pending_pair_token"),
+                       pending_pair_token_at=data.get("pending_pair_token_at"),
                        autostart_registered=data.get(
                            "autostart_registered", False),
                        auto_update=data.get("auto_update", True),

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -734,8 +735,28 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                          ok=False, line="попытка пейринга с неверным токеном")
             return JSONResponse({"error": "неверный или погашенный токен"},
                                 status_code=403)
+        # Токен стареет. Его копия остаётся на FAT-разделе карты, и карта в
+        # ящике стола не должна годами оставаться ключом «стань роботом»
+        # (A-22). Отказ называется отдельно: истёкший токен и подделанный —
+        # разные новости, и владельцу надо выдать новый, а не искать врага.
+        issued = state.pending_pair_token_at
+        ttl_s = float(settings.pairing_ttl_hours) * 3600
+        if ttl_s > 0 and issued is not None and time.time() - issued > ttl_s:
+            state.pending_pair_token = None
+            state.pending_pair_token_at = None
+            state.save()
+            audit.record(tool="pair", tool_class="act", decision="deny",
+                         ok=False,
+                         line="токен пейринга истёк — выдайте новый в панели")
+            return JSONResponse(
+                {"error": "токен пейринга истёк — возьмите новый в панели"},
+                status_code=403)
         state.pending_pair_token = None            # one-shot: burned now
-        state.robot_token = state.robot_token or _secrets.token_urlsafe(32)
+        state.pending_pair_token_at = None
+        # СВЕЖИЙ ключ на каждый пейринг. Раньше стояло `or`, и робот-замена
+        # наследовал кредитив предшественника — а пути ротации не было вовсе.
+        # Перепейринг И ЕСТЬ ротация: робот получает новый ключ в этом ответе.
+        state.robot_token = _secrets.token_urlsafe(32)
         name = str(body.get("name", "")).strip() or "робот"
         state.robot_name = name
         if body.get("base_url"):
@@ -785,6 +806,7 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         from .net import serve_active, tailnet_dns_name
         token = wiz.pairing_token()
         state.pending_pair_token = token
+        state.pending_pair_token_at = time.time()
         state.save()
         dns = await asyncio.to_thread(tailnet_dns_name)
         https_ok = (await asyncio.to_thread(serve_active, settings.port)

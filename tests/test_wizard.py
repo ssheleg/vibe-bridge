@@ -169,13 +169,14 @@ def test_prepare_boot_partition_writes_files(tmp_path):
 
 # ── pairing protocol over HTTP ──────────────────────────────────────────────
 
-def _app(tmp_path):
+def _app(tmp_path, *, settings=None):
     state = BridgeState(path=tmp_path / "s.json", panel_token="panel-secret")
     robot = RobotClient(http=httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda r: httpx.Response(200, json={"version": "v9"}))))
     app = build_app(consent=ConsentEngine(), audit=AuditLog(tmp_path / "a.log"),
                     state=state, capabilities={}, robot=robot,
+                    settings=settings,
                     mcp_allowed_hosts=["testserver", "127.0.0.1:*"])
     return app, state, robot
 
@@ -313,3 +314,58 @@ def test_pair_without_an_address_does_not_claim_a_connection(tmp_path):
         lines = [e.get("line", "") for e in j["entries"]]
         assert any("не назвал свой адрес" in ln for ln in lines)
         assert not any("связан с мостом" == ln.strip() for ln in lines)
+
+
+# ── A-22: одноразовый токен стареет, а постоянный не наследуется ───────────
+
+def test_a_forgotten_pairing_token_expires(tmp_path):
+    """A-22: `pending_pair_token` персистился и оставался валидным через
+    рестарты ВЕЧНО. Копия лежит на FAT-разделе карты — карта в ящике стола
+    оставалась ключом «стань роботом» бессрочно."""
+    from vibebridge.config import Settings
+
+    app, state, _ = _app(tmp_path, settings=Settings(pairing_ttl_hours=1))
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        start = c.post("/api/wizard/pairing/start").json()
+        assert state.pending_pair_token_at, "время выдачи не записано"
+
+        # ...два часа спустя
+        state.pending_pair_token_at -= 2 * 3600
+        r = c.post("/pair", json={"token": start["token"], "name": "Вася",
+                                  "base_url": "http://10.0.0.2:8630"})
+        assert r.status_code == 403
+        assert "истёк" in r.json()["error"]
+        j = c.get("/api/journal?limit=2").json()
+        assert any("истёк" in e.get("line", "") for e in j["entries"])
+
+
+def test_a_fresh_token_still_works(tmp_path):
+    from vibebridge.config import Settings
+
+    app, state, _ = _app(tmp_path, settings=Settings(pairing_ttl_hours=24))
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        start = c.post("/api/wizard/pairing/start").json()
+        r = c.post("/pair", json={"token": start["token"], "name": "Вася",
+                                  "base_url": "http://10.0.0.2:8630"})
+        assert r.status_code == 200
+
+
+def test_a_replacement_robot_does_not_inherit_the_old_credential(tmp_path):
+    """`state.robot_token = state.robot_token or …` переиспользовал старый
+    ключ: робот-замена наследовал кредитив предшественника, и путь ротации
+    отсутствовал вовсе."""
+    app, state, _ = _app(tmp_path)
+    with TestClient(app) as c:
+        c.get("/?token=panel-secret")
+        first = c.post("/api/wizard/pairing/start").json()
+        tok1 = c.post("/pair", json={"token": first["token"], "name": "Вася",
+                                     "base_url": "http://10.0.0.2:8630"}
+                      ).json()["robot_token"]
+        second = c.post("/api/wizard/pairing/start").json()
+        tok2 = c.post("/pair", json={"token": second["token"], "name": "Петя",
+                                     "base_url": "http://10.0.0.3:8630"}
+                      ).json()["robot_token"]
+    assert tok1 != tok2, "новый робот получил ключ предыдущего"
+    assert state.robot_token == tok2
