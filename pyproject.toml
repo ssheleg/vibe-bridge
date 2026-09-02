@@ -62,7 +62,7 @@ dev = [
 [tool.briefcase]
 project_name = "vibe-bridge"
 bundle = "me.sshlg"
-version = "0.23.0"
+version = "0.24.0"
 url = "https://github.com/ssheleg/vibe-bridge"
 author = "Sergei Sheleg"
 author_email = "sergey@appvillis.com"
