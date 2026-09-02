@@ -19,6 +19,21 @@ def _isolated_config(tmp_path_factory, monkeypatch):
     for var in ("VIBE_BRIDGE_PORT", "VIBE_BRIDGE_MODE"):
         monkeypatch.delenv(var, raising=False)
 
+def _notifier_class_the_bridge_uses() -> str:
+    """Как мост называет свой нотифаер — читаем у него, не помним у себя."""
+    import re
+    from pathlib import Path
+
+    import vibebridge
+    src = (Path(vibebridge.__file__).parent / "tray.py").read_text()
+    found = re.search(r"from desktop_notifier import (\w+)\s*\n\s*"
+                      r"notifier = \1\(", src)
+    return found.group(1) if found else "DesktopNotifierSync"
+
+
+_NOTIFIER_CLASS = _notifier_class_the_bridge_uses()
+
+
 @pytest.fixture(autouse=True)
 def _no_real_notifications(monkeypatch):
     """No test may put a toast on the owner's screen — BOTH channels.
@@ -57,18 +72,32 @@ def _no_real_notifications(monkeypatch):
     # настоящий тост, а этот предохранитель молчал бы. Ровно тот провал, ради
     # которого он и написан (найдено аудитом 2026-09-01: «закрывает один канал
     # из двух»).
+    unguarded: list[str] = []
     try:
         import desktop_notifier
+    except ImportError:
+        # Библиотеки нет — мост уйдёт в osascript, а он сторожится выше.
+        pass
+    else:
+        # Имя берётся из КОДА ПОД ТЕСТОМ, а не угадывается здесь: разойдись
+        # они — и предохранитель сторожил бы метод, которого мост не зовёт,
+        # молча и с зелёным набором. Это ровно тот класс, ради которого он и
+        # написан.
+        cls = getattr(desktop_notifier, _NOTIFIER_CLASS, None)
+        if cls is None or not hasattr(cls, "send"):
+            unguarded.append(
+                f"desktop_notifier.{_NOTIFIER_CLASS}.send — не нашёлся, "
+                f"а мост его зовёт")
+        else:
+            def guarded_send(self, *a, **kw):
+                caught.append(f"desktop_notifier.send {kw.get('title', '')}")
 
-        def guarded_send(self, *a, **kw):
-            caught.append(f"desktop_notifier.send {kw.get('title', '')}")
+            monkeypatch.setattr(cls, "send", guarded_send)
 
-        monkeypatch.setattr(desktop_notifier.DesktopNotifierSync, "send",
-                            guarded_send, raising=False)
-    except Exception:                          # noqa: BLE001
-        pass                                   # канала нет — нечего сторожить
-
-    yield
+    yield caught
+    if unguarded:
+        pytest.fail("канал уведомлений остался НЕ закрытым: " + unguarded[0],
+                    pytrace=False)
     if caught:
         pytest.fail("тест дошёл до настоящего уведомления владельцу: "
                     + caught[0], pytrace=False)

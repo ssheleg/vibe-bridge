@@ -205,3 +205,41 @@ def test_the_tray_no_longer_slices_the_timestamp_itself():
     code = re.sub(r"^\s*#.*$", "", src, flags=re.M)
     assert "[11:19]" not in code, "меню-бар снова режет ISO-строку сам"
     assert "recent_lines" in code, "меню-бар не пользуется общим форматом"
+
+
+# ── A-35: предохранитель уведомлений сам должен быть проверен ──────────────
+
+def test_the_notification_guard_covers_the_main_channel(_no_real_notifications):
+    """A-35: предохранитель ловил `subprocess.run` — то есть ЗАПАСНУЮ ветку
+    (`osascript`). Основной бэкенд `desktop-notifier` на macOS идёт через
+    UNUserNotificationCenter без единого subprocess, и тест, дошедший до
+    него, ставил бы владельцу настоящий тост, а предохранитель молчал.
+
+    Проверяем не «монки-патч на месте», а СКВОЗНОЙ путь: берём нотифаер тем
+    же вызовом, что и приложение, и смотрим, что владелец ничего не увидел.
+    """
+    from vibebridge.tray import make_notifier
+
+    caught = _no_real_notifications
+    notifier = make_notifier()
+    ok, why = notifier("Робот", "это не должно появиться на экране")
+    assert ok is True and why == ""
+    assert caught, "уведомление ушло МИМО предохранителя — владелец его увидел"
+    which = caught[0]
+    assert "desktop_notifier" in which or "display notification" in which
+    # Список чистим: это наша собственная ловля, а не провал теста.
+    caught.clear()
+
+
+def test_the_guard_watches_the_class_the_bridge_names(_no_real_notifications):
+    """Имя класса читается из `tray.py`, а не помнится в conftest: разойдись
+    они — предохранитель сторожил бы метод, которого мост не зовёт, молча и
+    с зелёным набором."""
+    from pathlib import Path
+
+    import vibebridge
+    from tests.conftest import _NOTIFIER_CLASS
+
+    src = (Path(vibebridge.__file__).parent / "tray.py").read_text()
+    assert f"import {_NOTIFIER_CLASS}" in src
+    assert f"notifier = {_NOTIFIER_CLASS}(" in src
