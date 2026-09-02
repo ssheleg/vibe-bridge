@@ -179,6 +179,51 @@ def pending_version(installed: str | None, running: str) -> str | None:
         return None
 
 
+#: Пути, открытые БЕЗ ключа панели, и почему. Всё остальное закрыто
+#: `PanelGuard` — по одному месту, а не по копии на обработчик (F-3).
+PUBLIC_PATHS = frozenset({
+    "/",                      # дверь: обменивает ?token= на куку
+    "/mascot",                # вторая дверь, тот же обмен
+    "/pair",                  # дверь РОБОТА, своя аутентификация
+    "/sw.js", "/manifest.webmanifest", "/offline.html",
+    "/mascot.js", "/tokens.css",
+})
+#: Префиксы того же смысла — путь с параметром.
+PUBLIC_PREFIXES = ("/icon-", "/mcp")
+
+
+class PanelGuard:
+    """Ключ панели проверяется ОДИН раз, на входе, а не 34 копиями.
+
+    Проверка стояла в каждом обработчике отдельно, и теста, который перебрал
+    бы все маршруты, не было (F-3). Копия — это то, что забывают: новый
+    маршрут добавляется без неё и работает, а значит никто не узнаёт.
+
+    Копии в обработчиках сняты не «ради чистоты»: пока их 34, вопрос «закрыт
+    ли этот путь» отвечается чтением тридцати четырёх мест, и ответ «да»
+    ничего не гарантирует про тридцать пятое.
+    """
+
+    def __init__(self, app, *, is_authed, public=PUBLIC_PATHS,
+                 prefixes=PUBLIC_PREFIXES) -> None:
+        self.app = app
+        self._is_authed = is_authed
+        self._public = public
+        self._prefixes = prefixes
+
+    def _open(self, path: str) -> bool:
+        return path in self._public or path.startswith(self._prefixes)
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] == "http" and not self._open(scope.get("path", "")):
+            from starlette.requests import Request as _Request
+            if not self._is_authed(_Request(scope, receive)):
+                await JSONResponse({"error": "unauthorized"},
+                                   status_code=401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
 class PeerGuard:
     """403 всему, что пришло НЕ из loopback и не из тейлнета.
 
@@ -738,13 +783,9 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return _code_file(_WEBUI / "index.html")
 
     async def api_state(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse(_full_snapshot())
 
     async def consent_decide(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.json()
         decision = _DECISIONS.get(str(body.get("decision", "")))
         if decision is None:
@@ -769,15 +810,11 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return JSONResponse({"ok": True})
 
     async def api_pause(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.json()
         consent.paused = bool(body.get("paused"))
         return JSONResponse({"ok": True, "paused": consent.paused})
 
     async def api_revoke_grants(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         consent.revoke_grants()
         return JSONResponse({"ok": True})
 
@@ -786,15 +823,11 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                 for name, info in availability.items() if name in caps}
 
     async def api_capabilities(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse(_cap_map())
 
     async def api_capability_grant(request: Request) -> Response:
         """Кнопка «Выдать права» — то, что SCN-020 обещал и чего не было:
         путь от «требует прав» к правам, не выходя из панели."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         name = request.path_params["name"]
         if name not in caps:
             return JSONResponse({"error": "нет такой способности"},
@@ -816,8 +849,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         Визия §4: владелец «не настраивает туннели и не читает конфиги», а
         панель выдавала ему `tailscale serve --bg` копипастой (A-28).
         """
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from .net import serve_enable
         ok, why = await asyncio.to_thread(serve_enable, settings.port)
         audit.record(tool="phone", tool_class="SYS",
@@ -827,16 +858,12 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                             else 502)
 
     async def api_robot_status(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         st = await robot.status()
         robot_state.clear()
         robot_state.update(st)
         return JSONResponse(st)
 
     async def api_robot_chat(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.json()
         text = str(body.get("text", "")).strip()
         if not text:
@@ -878,8 +905,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """Отдать странице файл робота. Имя берётся из события; проверяется
         и здесь, и у робота — обход каталога не должен зависеть от того,
         насколько две стороны доверяют друг другу."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         name = request.path_params["name"]
         got = await robot.media(name)
         if not got.get("ok"):
@@ -899,24 +924,16 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """Состояние системы робота — то, ради чего панель перестаёт быть
         хуже телеграм-бота: температура, нагрузка, память, диск, воздух и
         живость сервисов, из его же канонического снимка."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse(await robot.system())
 
     async def api_robot_update(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse(await robot.trigger_update())
 
     async def api_push_vapid(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         await asyncio.to_thread(ensure_vapid_keys, state)
         return JSONResponse({"key": state.vapid_public})
 
     async def api_push_subscribe(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.json()
         sub = body.get("subscription")
         if not isinstance(sub, dict):
@@ -929,8 +946,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                              "count": len(state.push_subscriptions)})
 
     async def api_push_unsubscribe(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.json()
         removed = push_sender.remove_subscription(str(body.get("endpoint", "")))
         return JSONResponse({"ok": removed})
@@ -940,8 +955,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         MagicDNS name, whether `tailscale serve` already fronts the panel,
         and the exact command when it does not. The bridge never runs the
         command itself — changing serve config is the owner's move."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from .net import serve_active, tailnet_dns_name
         dns = await asyncio.to_thread(tailnet_dns_name)
         active = (await asyncio.to_thread(serve_active, settings.port)
@@ -1033,8 +1046,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     async def api_wizard_pairing_start(request: Request) -> Response:
         """Arm pairing: mint the one-shot token and hand the wizard the
         payload it writes to the SD (or shows as a code path later)."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from . import wizard as wiz
         from .net import serve_active, tailnet_dns_name
         token = wiz.pairing_token()
@@ -1049,8 +1060,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         return JSONResponse({"token": token, "bridge_url": bridge_url})
 
     async def api_wizard_disks(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from . import wizard as wiz
         return JSONResponse({
             "disks": await asyncio.to_thread(wiz.list_removable_disks),
@@ -1060,8 +1069,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """Prepare an ALREADY-FLASHED boot partition (stock Raspberry Pi OS)
         mounted at `mount_path`: firstrun + Wi-Fi + provision unit + token.
         Full image download+write is WIZARD-b (needs elevation UX)."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from . import wizard as wiz
         body = await request.json()
         mount = Path(str(body.get("mount_path", "")))
@@ -1102,8 +1109,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         the newest number on disk would report an update the robot is not
         actually talking to.
         """
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from vbboot import layout as _layout
 
         from . import __version__
@@ -1132,8 +1137,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """Ask the channel, and take what it offers. Every outcome — nothing
         newer, unreachable, refused signature, installed — leaves the bridge
         running and, when it matters, a line in the journal."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from vbboot import layout as _layout
 
         from . import __version__, update
@@ -1178,8 +1181,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         already running had no path at all — the panel's only door was
         "прошейте карту". This is the other door SCN-017 promised.
         """
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.json() if await request.body() else {}
         wanted, why = attach_request(body)
         if wanted is None:
@@ -1227,8 +1228,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
 
     async def api_mascot(request: Request) -> Response:
         """What the character shows right now, for both surfaces."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         # The skin travels with the state so a surface never has to ask twice.
         return JSONResponse({**mascot.snapshot(),
                              "skin": settings.mascot_skin})
@@ -1240,8 +1239,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         every reload, so the owner kept their visible history while the robot
         started over. One of them had to move, and the id is the cheap one.
         """
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         import secrets as _s
         if request.method == "POST" or not state.pet_session:
             state.pet_session = "pet-" + _s.token_hex(5)
@@ -1265,15 +1262,11 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         communicating with its owner, and splitting them across surfaces is
         what made the widget feel like three half-features.
         """
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         return JSONResponse({"items": robot_events.tail(40)})
 
     async def api_mascot_dismiss(request: Request) -> Response:
         """The owner clicked the bubble away. Better than waiting out a timer
         they did not set."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         mascot.dismiss()
         return JSONResponse(mascot.snapshot())
 
@@ -1293,22 +1286,22 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
             resp = RedirectResponse(target, status_code=303)
             _set_panel_cookie(resp, request, state.panel_token)
             return resp
+        # ДВЕРЬ, а не обычный маршрут: `PanelGuard` её пропускает, потому что
+        # она сама обменивает `?token=` на куку. Значит проверять права —
+        # здесь, и снять эту проверку вместе с остальными 36 было бы отдать
+        # страницу питомца кому угодно (поймано тестом при F-3).
         if not _authed(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return _code_file(_WEBUI / "mascot.html")
 
     async def api_mascot_actions(request: Request) -> Response:
         """The quick phrases for the pet's menu."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from .config import load
         live = await asyncio.to_thread(load)
         return JSONResponse({"actions": list(live.mascot_actions)})
 
     async def api_onboarding(request: Request) -> Response:
         """What is still missing, as an ordered list the panel can render."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         attached = bool(state.robot_base_url)
         steps = [
             {"id": "robot", "title": "Подключить робота",
@@ -1330,8 +1323,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         передача решения в `settings_view`. Само решение — чистая функция
         на модульном уровне, и потому проверяется без HTTP-стека (F-2).
         """
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from .config import load
         from .net import gateway_reachable
 
@@ -1351,8 +1342,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         """Change a setting from the panel. Values the reader would reject are
         refused here, so the panel never reports a success the bridge will not
         honour."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from .config import update as save_settings
         body = await request.json() if await request.body() else {}
         try:
@@ -1367,8 +1356,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
 
     async def api_autoupdate(request: Request) -> Response:
         """The owner's switch for background updating (SCN-021)."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         body = await request.json() if await request.body() else {}
         state.auto_update = bool(body.get("enabled", True))
         await asyncio.to_thread(state.save)
@@ -1386,8 +1373,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         протестирована, но её никто не звал — класс «написано, не вызвано»
         (A-37); теперь у неё есть кнопка.
         """
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from .autostart import open_settings
         ok = await asyncio.to_thread(open_settings)
         return JSONResponse(
@@ -1398,8 +1383,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
     async def api_autostart(request: Request) -> Response:
         """Turn launch-at-login on or off from the panel. The system switch
         in Login Items stays authoritative — this only asks."""
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         from .autostart import disable, enable
         from .autostart import status as autostart_status
 
@@ -1419,8 +1402,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                              "supported": auto.supported})
 
     async def api_journal(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
         q = request.query_params
         try:
             offset = max(0, int(q.get("offset", 0)))
@@ -1434,8 +1415,6 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
                                                limit=limit))
 
     async def events(request: Request) -> Response:
-        if not _authed(request):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
 
         async def stream():
             q = bus.subscribe()
@@ -1609,5 +1588,8 @@ def build_app(*, consent: ConsentEngine, audit: AuditLog, state: BridgeState,
         ],
         lifespan=lifespan,
     )
+    # Ключ панели — на входе, одним местом. Дальше внутрь идёт уже
+    # аутентифицированный запрос или ничего.
+    guarded = PanelGuard(app, is_authed=_authed)
     # Взводится вызывающим — он один знает, какой интерфейс занят.
-    return PeerGuard(app, peer_guard, _refusals) if peer_guard else app
+    return PeerGuard(guarded, peer_guard, _refusals) if peer_guard else guarded
